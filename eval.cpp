@@ -69,13 +69,13 @@ struct Onearg { Tag    tag; Oneargp funcp;               };
 struct Twoarg { Tag    tag; Twoargp funcp;               };
 struct Form   { Tag    tag; Formp   formp;               };
 
-extern sexp eval(sexp p, sexp env);
-extern sexp evlis(sexp p, sexp env);
-extern std::ostream& print(std::ostream& output, sexp p);
-extern sexp set(sexp p, sexp r);
-extern sexp assoc(sexp formals, sexp actuals, sexp env);
-extern sexp read(std::istream& input);
-extern sexp scan(std::istream& input);
+sexp eval(sexp p, sexp env);
+sexp evlis(sexp p, sexp env);
+std::ostream& print(std::ostream& output, sexp p);
+sexp set(sexp p, sexp r);
+sexp assoc(sexp formals, sexp actuals, sexp env);
+sexp read(std::istream& input);
+sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
@@ -83,8 +83,8 @@ sexp caaaara, caaadra, caaara, caadara, caaddra, caadra, caara, cadaara;
 sexp cadadra, cadara, caddara, cadddra, caddra, cadra, cara, cdaaara;
 sexp cdaadra, cdaara, cdadara, cdaddra, cdadra, cdara, cddaara, cddadra;
 sexp cddara, cdddara, cddddra, cdddra, cddra, cdra, consa, divide, dot;
-sexp atomsa, exp, globals, ifa, lambda, lparen, minus, nil, plus, qchar;
-sexp quote, rparen, seta, t, times, val;
+sexp atomsa, exp, gea, gta, eqa, globals, ifa, lambda, lparen, lea, lta;
+sexp minus, nil, nota, plus, qchar, quote, rparen, seta, t, times, val;
 
 int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
@@ -284,6 +284,46 @@ sexp cddaar(sexp x) { return x->car->car->cdr->cdr; }
 sexp cddadr(sexp x) { return x->cdr->car->cdr->cdr; }
 sexp cdddar(sexp x) { return x->car->cdr->cdr->cdr; }
 sexp cddddr(sexp x) { return x->cdr->cdr->cdr->cdr; }
+
+sexp ge(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return ((Fixnum*)x)->fixnum >= ((Fixnum*)y)->fixnum ? t : 0;
+    return 0;
+}
+
+sexp gt(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return ((Fixnum*)x)->fixnum > ((Fixnum*)y)->fixnum ? t : 0;
+    return 0;
+}
+
+sexp eq(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return ((Fixnum*)x)->fixnum == ((Fixnum*)y)->fixnum ? t : 0;
+    return 0;
+}
+
+sexp le(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return ((Fixnum*)x)->fixnum <= ((Fixnum*)y)->fixnum ? t : 0;
+    return 0;
+}
+
+sexp lt(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return ((Fixnum*)x)->fixnum < ((Fixnum*)y)->fixnum ? t : 0;
+    return 0;
+}
+
+sexp isnot(sexp x)
+{
+    return x ? t : 0;
+}
 
 /*
  * create a linked list of chunks of sizeof(void*) characters
@@ -774,13 +814,19 @@ int main(int argc, char **argv, char **envp)
     consa   = intern_atom_chunk("cons");
     divide  = intern_atom_chunk("/");
     dot     = intern_atom_chunk(".");
+    eqa     = intern_atom_chunk("eq");
     exp     = intern_atom_chunk("exp");
+    gea     = intern_atom_chunk("ge");
     globals = intern_atom_chunk("globals");
+    gta     = intern_atom_chunk("gt");
     ifa     = intern_atom_chunk("if");
     lambda  = intern_atom_chunk("lambda");
+    lea     = intern_atom_chunk("le");
     lparen  = intern_atom_chunk("(");
+    lta     = intern_atom_chunk("lt");
     minus   = intern_atom_chunk("-");
     nil     = intern_atom_chunk("#f");
+    nota    = intern_atom_chunk("not");
     plus    = intern_atom_chunk("+");
     qchar   = intern_atom_chunk("'");
     quote   = intern_atom_chunk("quote");
@@ -828,9 +874,15 @@ int main(int argc, char **argv, char **envp)
 	set(cddadra,	onearg(cddadr));
 	set(cdddara,	onearg(cdddar));
 	set(cddddra,	onearg(cddddr));
+    set(nota,       onearg(isnot));
 
     // set the definitions (two argument functions)
     set(consa,  twoarg(cons));
+    set(eqa,    twoarg(eq));
+    set(gea,    twoarg(ge));
+    set(gta,    twoarg(gt));
+    set(lea,    twoarg(le));
+    set(lta,    twoarg(lt));
 
     // set the definitions (varadic functions)
     set(atomsa, vararg(atomsfunc));
