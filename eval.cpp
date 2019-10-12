@@ -2,7 +2,10 @@
  * this is kind of a lisp interpreter for my own amusement
  * not at all standards compliant or industrial strength
  * dynamically scoped, without tail call optimization
+ *
  * there are gc issues at present
+ * circular lists cannot be printed
+ * syntactic atoms need meta-syntax when printed
  * 
  * Robert Kelley October 2019
  */
@@ -76,8 +79,11 @@ extern sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
-sexp caara, cadara, caddara, cadddra, caddra, cadra, cara, cdddra, cddra, cdra;
-sexp consa, divide, dot, exp, ifa, lambda, lparen, minus, nil, plus, qchar;
+sexp caaaara, caaadra, caaara, caadara, caaddra, caadra, caara, cadaara;
+sexp cadadra, cadara, caddara, cadddra, caddra, cadra, cara, cdaaara;
+sexp cdaadra, cdaara, cdadara, cdaddra, cdadra, cdara, cddaara, cddadra;
+sexp cddara, cdddara, cddddra, cdddra, cddra, cdra, consa, divide, dot;
+sexp atomsa, exp, globals, ifa, lambda, lparen, minus, nil, plus, qchar;
 sexp quote, rparen, seta, t, times, val;
 
 int  marked = 0;            // how many nodes were marked during gc
@@ -240,17 +246,44 @@ sexp node(void)
     return p;
 }
 
-sexp cons(sexp car, sexp cdr) { sexp p = node(); p->car = car; p->cdr = cdr; return p; }
-sexp car(sexp p)              { return p->car; }
-sexp cdr(sexp p)              { return p->cdr; }
-sexp cadr(sexp p)             { return p->cdr->car; }
-sexp cddr(sexp p)             { return p->cdr->cdr; }
-sexp caar(sexp p)             { return p->car->car; }
-sexp cadar(sexp p)            { return p->car->cdr->car; }
-sexp caddr(sexp p)            { return p->cdr->cdr->car; }
-sexp caddar(sexp p)           { return p->car->cdr->cdr->car; }
-sexp cdddr(sexp p)            { return p->cdr->cdr->cdr; }
-sexp cadddr(sexp p)           { return p->cdr->cdr->cdr->car; }
+sexp cons(sexp car, sexp cdr)
+{
+    sexp p = node();
+    p->car = car;
+    p->cdr = cdr;
+    return p;
+}
+
+sexp car(sexp p)    { return p->car; }
+sexp cdr(sexp p)    { return p->cdr; }
+sexp caar(sexp x)   { return x->car->car; }
+sexp cadr(sexp x)   { return x->cdr->car; }
+sexp cdar(sexp x)   { return x->car->cdr; }
+sexp cddr(sexp x)   { return x->cdr->cdr; }
+sexp caaar(sexp x)  { return x->car->car->car; }
+sexp caadr(sexp x)  { return x->cdr->car->car; }
+sexp cadar(sexp x)  { return x->car->cdr->car; }
+sexp caddr(sexp x)  { return x->cdr->cdr->car; }
+sexp cdaar(sexp x)  { return x->car->car->cdr; }
+sexp cdadr(sexp x)  { return x->cdr->car->cdr; }
+sexp cddar(sexp x)  { return x->car->cdr->cdr; }
+sexp cdddr(sexp x)  { return x->cdr->cdr->cdr; }
+sexp caaaar(sexp x) { return x->car->car->car->car; }
+sexp caaadr(sexp x) { return x->cdr->car->car->car; }
+sexp caadar(sexp x) { return x->car->cdr->car->car; }
+sexp caaddr(sexp x) { return x->cdr->cdr->car->car; }
+sexp cadaar(sexp x) { return x->car->car->cdr->car; }
+sexp cadadr(sexp x) { return x->cdr->car->cdr->car; }
+sexp caddar(sexp x) { return x->car->cdr->cdr->car; }
+sexp cadddr(sexp x) { return x->cdr->cdr->cdr->car; }
+sexp cdaaar(sexp x) { return x->car->car->car->cdr; }
+sexp cdaadr(sexp x) { return x->cdr->car->car->cdr; }
+sexp cdadar(sexp x) { return x->car->cdr->car->cdr; }
+sexp cdaddr(sexp x) { return x->cdr->cdr->car->cdr; }
+sexp cddaar(sexp x) { return x->car->car->cdr->cdr; }
+sexp cddadr(sexp x) { return x->cdr->car->cdr->cdr; }
+sexp cdddar(sexp x) { return x->car->cdr->cdr->cdr; }
+sexp cddddr(sexp x) { return x->cdr->cdr->cdr->cdr; }
 
 /*
  * create a linked list of chunks of sizeof(void*) characters
@@ -521,6 +554,22 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 }
 
 /*
+ * special form returns the global environment
+ */
+sexp globalform(sexp expr, sexp env)
+{
+    return env;
+}
+
+/*
+ * return the atoms list.  any args are unused
+ */
+sexp atomsfunc(sexp args)
+{
+    return atoms;
+}
+
+/*
  * 'x => (quote x) => x
  */
 sexp quoteform(sexp expr, sexp env)
@@ -690,20 +739,43 @@ sexp intern_atom_chunk(const char *s)
 int main(int argc, char **argv, char **envp)
 {
     // set up all predefined atoms
-	caara   = intern_atom_chunk("caar");
-	cadara  = intern_atom_chunk("cadar");
-	caddara = intern_atom_chunk("caddar");
-	cadddra = intern_atom_chunk("cadddr");
-	caddra  = intern_atom_chunk("caddr");
-	cadra   = intern_atom_chunk("cadr");
-    cara    = intern_atom_chunk("car");
-	cdddra  = intern_atom_chunk("cdddr");
-	cddra   = intern_atom_chunk("cddr");
-    cdra    = intern_atom_chunk("cdr");
+
+    atomsa  = intern_atom_chunk("atoms");
+	caaaara	= intern_atom_chunk("caaaar");
+	caaadra	= intern_atom_chunk("caaadr");
+	caaara	= intern_atom_chunk("caaar");
+	caadara	= intern_atom_chunk("caadar");
+	caaddra	= intern_atom_chunk("caaddr");
+	caadra	= intern_atom_chunk("caadr");
+	caara	= intern_atom_chunk("caar");
+	cadaara	= intern_atom_chunk("cadaar");
+	cadadra	= intern_atom_chunk("cadadr");
+	cadara	= intern_atom_chunk("cadar");
+	caddara	= intern_atom_chunk("caddar");
+	cadddra	= intern_atom_chunk("cadddr");
+	caddra	= intern_atom_chunk("caddr");
+	cadra	= intern_atom_chunk("cadr");
+	cara	= intern_atom_chunk("car");
+	cdaaara	= intern_atom_chunk("cdaaar");
+	cdaadra	= intern_atom_chunk("cdaadr");
+	cdaara	= intern_atom_chunk("cdaar");
+	cdadara	= intern_atom_chunk("cdadar");
+	cdaddra	= intern_atom_chunk("cdaddr");
+	cdadra	= intern_atom_chunk("cdadr");
+	cdara	= intern_atom_chunk("cdar");
+	cddaara	= intern_atom_chunk("cddaar");
+	cddadra	= intern_atom_chunk("cddadr");
+	cddara	= intern_atom_chunk("cddar");
+	cdddara	= intern_atom_chunk("cdddar");
+	cddddra	= intern_atom_chunk("cddddr");
+	cdddra	= intern_atom_chunk("cdddr");
+	cddra	= intern_atom_chunk("cddr");
+	cdra	= intern_atom_chunk("cdr");
     consa   = intern_atom_chunk("cons");
     divide  = intern_atom_chunk("/");
     dot     = intern_atom_chunk(".");
     exp     = intern_atom_chunk("exp");
+    globals = intern_atom_chunk("globals");
     ifa     = intern_atom_chunk("if");
     lambda  = intern_atom_chunk("lambda");
     lparen  = intern_atom_chunk("(");
@@ -719,27 +791,49 @@ int main(int argc, char **argv, char **envp)
     val     = intern_atom_chunk("val");
 
     // set the definitions (special forms)
-    set(quote,  form(quoteform));
-    set(ifa,    form(ifform));
-    set(seta,   form(setform));
-    set(lambda, form(lambdaform));
+    set(quote,  	form(quoteform));
+    set(ifa,    	form(ifform));
+    set(seta,   	form(setform));
+    set(lambda, 	form(lambdaform));
+    set(globals,	form(globalform));
 
     // set the definitions (one argument functions)
-	set(caara,   onearg(caar));
-	set(cadara,  onearg(cadar));
-	set(caddara, onearg(caddar));
-	set(cadddra, onearg(cadddr));
-	set(caddra,  onearg(caddr));
-	set(cadra,   onearg(cadr));
-	set(cara,    onearg(car));
-	set(cdddra,  onearg(cdddr));
-	set(cddra,   onearg(cddr));
-	set(cdra,    onearg(cdr));
+	set(cara,		onearg(car));
+	set(cdra,		onearg(cdr));
+	set(caara,		onearg(caar));
+	set(cadra,		onearg(cadr));
+	set(cdara,		onearg(cdar));
+	set(cddra,		onearg(cddr));
+	set(caaara,		onearg(caaar));
+	set(caadra,		onearg(caadr));
+	set(cadara,		onearg(cadar));
+	set(caddra,		onearg(caddr));
+	set(cdaara,		onearg(cdaar));
+	set(cdadra,		onearg(cdadr));
+	set(cddara,		onearg(cddar));
+	set(cdddra,		onearg(cdddr));
+	set(caaaara,	onearg(caaaar));
+	set(caaadra,	onearg(caaadr));
+	set(caadara,	onearg(caadar));
+	set(caaddra,	onearg(caaddr));
+	set(cadaara,	onearg(cadaar));
+	set(cadadra,	onearg(cadadr));
+	set(caddara,	onearg(caddar));
+	set(cadddra,	onearg(cadddr));
+	set(cdaaara,	onearg(cdaaar));
+	set(cdaadra,	onearg(cdaadr));
+	set(cdadara,	onearg(cdadar));
+	set(cdaddra,	onearg(cdaddr));
+	set(cddaara,	onearg(cddaar));
+	set(cddadra,	onearg(cddadr));
+	set(cdddara,	onearg(cdddar));
+	set(cddddra,	onearg(cddddr));
 
     // set the definitions (two argument functions)
     set(consa,  twoarg(cons));
 
     // set the definitions (varadic functions)
+    set(atomsa, vararg(atomsfunc));
     set(plus,   vararg(addfunc));
     set(minus,  vararg(subfunc));
     set(times,  vararg(mulfunc));
