@@ -11,6 +11,7 @@
  */
 #include <string>
 #include <iostream>
+#include <fstream>
 #include <cstdlib>
 
 #define GC
@@ -79,12 +80,15 @@ sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
+/*
 sexp caaaara, caaadra, caaara, caadara, caaddra, caadra, caara, cadaara;
 sexp cadadra, cadara, caddara, cadddra, caddra, cadra, cara, cdaaara;
 sexp cdaadra, cdaara, cdadara, cdaddra, cdadra, cdara, cddaara, cddadra;
-sexp cddara, cdddara, cddddra, cdddra, cddra, cdra, consa, divide, dot;
-sexp atomsa, exp, gea, gta, eqa, globals, ifa, lambda, lparen, lea, lta;
-sexp minus, nil, nota, plus, qchar, quote, rparen, seta, t, times, val;
+sexp cddara, cdddara, cddddra, cdddra, cddra;
+*/
+sexp cara, cdra, consa, define, divide, dot, atomsa, exp, gea, gta, eqa;
+sexp globals, ifa, lambda, lparen, lea, loada, lta, minus, nil, nota;
+sexp plus, qchar, quote, rparen, seta, t, times, val;
 
 int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
@@ -254,36 +258,15 @@ sexp cons(sexp car, sexp cdr)
     return p;
 }
 
-sexp car(sexp p)    { return p->car; }
-sexp cdr(sexp p)    { return p->cdr; }
-sexp caar(sexp x)   { return x->car->car; }
-sexp cadr(sexp x)   { return x->cdr->car; }
-sexp cdar(sexp x)   { return x->car->cdr; }
-sexp cddr(sexp x)   { return x->cdr->cdr; }
-sexp caaar(sexp x)  { return x->car->car->car; }
-sexp caadr(sexp x)  { return x->cdr->car->car; }
-sexp cadar(sexp x)  { return x->car->cdr->car; }
-sexp caddr(sexp x)  { return x->cdr->cdr->car; }
-sexp cdaar(sexp x)  { return x->car->car->cdr; }
-sexp cdadr(sexp x)  { return x->cdr->car->cdr; }
-sexp cddar(sexp x)  { return x->car->cdr->cdr; }
-sexp cdddr(sexp x)  { return x->cdr->cdr->cdr; }
-sexp caaaar(sexp x) { return x->car->car->car->car; }
-sexp caaadr(sexp x) { return x->cdr->car->car->car; }
-sexp caadar(sexp x) { return x->car->cdr->car->car; }
-sexp caaddr(sexp x) { return x->cdr->cdr->car->car; }
-sexp cadaar(sexp x) { return x->car->car->cdr->car; }
-sexp cadadr(sexp x) { return x->cdr->car->cdr->car; }
-sexp caddar(sexp x) { return x->car->cdr->cdr->car; }
-sexp cadddr(sexp x) { return x->cdr->cdr->cdr->car; }
-sexp cdaaar(sexp x) { return x->car->car->car->cdr; }
-sexp cdaadr(sexp x) { return x->cdr->car->car->cdr; }
-sexp cdadar(sexp x) { return x->car->cdr->car->cdr; }
-sexp cdaddr(sexp x) { return x->cdr->cdr->car->cdr; }
-sexp cddaar(sexp x) { return x->car->car->cdr->cdr; }
-sexp cddadr(sexp x) { return x->cdr->car->cdr->cdr; }
-sexp cdddar(sexp x) { return x->car->cdr->cdr->cdr; }
-sexp cddddr(sexp x) { return x->cdr->cdr->cdr->cdr; }
+sexp car(sexp p)
+{
+    return p->car;
+}
+
+sexp cdr(sexp p)
+{
+    return p->cdr;
+}
 
 sexp ge(sexp x, sexp y)
 {
@@ -301,8 +284,14 @@ sexp gt(sexp x, sexp y)
 
 sexp eq(sexp x, sexp y)
 {
+    if (x == y)
+        return t;
+    if (isAtom(x) && isAtom(y))
+        return x == y ? t : 0;
     if (isFixnum(x) && isFixnum(y))
         return ((Fixnum*)x)->fixnum == ((Fixnum*)y)->fixnum ? t : 0;
+    if (isCons(x) && isCons(y))
+        return eq(x->car, y->car) && eq(x->cdr, y->cdr) ? t : 0;
     return 0;
 }
 
@@ -323,6 +312,26 @@ sexp lt(sexp x, sexp y)
 sexp isnot(sexp x)
 {
     return x ? t : 0;
+}
+
+sexp load(sexp x)
+{
+    if (isAtom(x))
+    {
+        // filename must fit in the first chunk
+        // since we have not yet implemented strings
+        std::ifstream fin(((Atom*)x)->chunks->text);
+        while (fin.good())
+        {
+            sexp input = read(fin);
+            if (0 == input)
+                break;
+            eval(input, global);
+        }
+        fin.close();
+    }
+
+    return 0;
 }
 
 /*
@@ -602,6 +611,21 @@ sexp globalform(sexp expr, sexp env)
 }
 
 /*
+ * define does not evaluate its arguments
+ */
+sexp defineform(sexp p, sexp env)
+{
+    for (sexp q = global; q; q = q->cdr)
+        if (p->cdr->car == q->car->car)
+        {
+            q->car->cdr = p->cdr->cdr->car;
+            return p->car;
+        }
+    global = cons(cons(p->cdr->car, p->cdr->cdr->car), global);
+    return p->car;
+}
+
+/*
  * return the atoms list.  any args are unused
  */
 sexp atomsfunc(sexp args)
@@ -700,6 +724,8 @@ sexp scan(std::istream& input)
     char c = input.get();
     while (' ' == c || '\n' == c)
         c = input.get();
+    if (c < 0)
+        return 0;
 
     if ('(' == c)
         return lparen;
@@ -781,37 +807,10 @@ int main(int argc, char **argv, char **envp)
     // set up all predefined atoms
 
     atomsa  = intern_atom_chunk("atoms");
-	caaaara	= intern_atom_chunk("caaaar");
-	caaadra	= intern_atom_chunk("caaadr");
-	caaara	= intern_atom_chunk("caaar");
-	caadara	= intern_atom_chunk("caadar");
-	caaddra	= intern_atom_chunk("caaddr");
-	caadra	= intern_atom_chunk("caadr");
-	caara	= intern_atom_chunk("caar");
-	cadaara	= intern_atom_chunk("cadaar");
-	cadadra	= intern_atom_chunk("cadadr");
-	cadara	= intern_atom_chunk("cadar");
-	caddara	= intern_atom_chunk("caddar");
-	cadddra	= intern_atom_chunk("cadddr");
-	caddra	= intern_atom_chunk("caddr");
-	cadra	= intern_atom_chunk("cadr");
 	cara	= intern_atom_chunk("car");
-	cdaaara	= intern_atom_chunk("cdaaar");
-	cdaadra	= intern_atom_chunk("cdaadr");
-	cdaara	= intern_atom_chunk("cdaar");
-	cdadara	= intern_atom_chunk("cdadar");
-	cdaddra	= intern_atom_chunk("cdaddr");
-	cdadra	= intern_atom_chunk("cdadr");
-	cdara	= intern_atom_chunk("cdar");
-	cddaara	= intern_atom_chunk("cddaar");
-	cddadra	= intern_atom_chunk("cddadr");
-	cddara	= intern_atom_chunk("cddar");
-	cdddara	= intern_atom_chunk("cdddar");
-	cddddra	= intern_atom_chunk("cddddr");
-	cdddra	= intern_atom_chunk("cdddr");
-	cddra	= intern_atom_chunk("cddr");
 	cdra	= intern_atom_chunk("cdr");
     consa   = intern_atom_chunk("cons");
+    define  = intern_atom_chunk("define");
     divide  = intern_atom_chunk("/");
     dot     = intern_atom_chunk(".");
     eqa     = intern_atom_chunk("eq");
@@ -822,6 +821,7 @@ int main(int argc, char **argv, char **envp)
     ifa     = intern_atom_chunk("if");
     lambda  = intern_atom_chunk("lambda");
     lea     = intern_atom_chunk("le");
+    loada   = intern_atom_chunk("load");
     lparen  = intern_atom_chunk("(");
     lta     = intern_atom_chunk("lt");
     minus   = intern_atom_chunk("-");
@@ -837,6 +837,7 @@ int main(int argc, char **argv, char **envp)
     val     = intern_atom_chunk("val");
 
     // set the definitions (special forms)
+    set(define,     form(defineform));
     set(quote,  	form(quoteform));
     set(ifa,    	form(ifform));
     set(seta,   	form(setform));
@@ -846,34 +847,7 @@ int main(int argc, char **argv, char **envp)
     // set the definitions (one argument functions)
 	set(cara,		onearg(car));
 	set(cdra,		onearg(cdr));
-	set(caara,		onearg(caar));
-	set(cadra,		onearg(cadr));
-	set(cdara,		onearg(cdar));
-	set(cddra,		onearg(cddr));
-	set(caaara,		onearg(caaar));
-	set(caadra,		onearg(caadr));
-	set(cadara,		onearg(cadar));
-	set(caddra,		onearg(caddr));
-	set(cdaara,		onearg(cdaar));
-	set(cdadra,		onearg(cdadr));
-	set(cddara,		onearg(cddar));
-	set(cdddra,		onearg(cdddr));
-	set(caaaara,	onearg(caaaar));
-	set(caaadra,	onearg(caaadr));
-	set(caadara,	onearg(caadar));
-	set(caaddra,	onearg(caaddr));
-	set(cadaara,	onearg(cadaar));
-	set(cadadra,	onearg(cadadr));
-	set(caddara,	onearg(caddar));
-	set(cadddra,	onearg(cadddr));
-	set(cdaaara,	onearg(cdaaar));
-	set(cdaadra,	onearg(cdaadr));
-	set(cdadara,	onearg(cdadar));
-	set(cdaddra,	onearg(cdaddr));
-	set(cddaara,	onearg(cddaar));
-	set(cddadra,	onearg(cddadr));
-	set(cdddara,	onearg(cdddar));
-	set(cddddra,	onearg(cddddr));
+    set(loada,      onearg(load));
     set(nota,       onearg(isnot));
 
     // set the definitions (two argument functions)
@@ -891,13 +865,14 @@ int main(int argc, char **argv, char **envp)
     set(times,  vararg(mulfunc));
     set(divide, vararg(divfunc));
 
-    // run out of memory for testing
-    //for (Cons *p = 0; ; p = cons(0, p)) {}
+    load(intern_atom_chunk("init.l"));
 
-    // read evaluate print ,,,
-    while (!std::cin.eof())
+    // read evaluate print ...
+    while (std::cin.good())
     {
         sexp e = read(std::cin);
+        if (0 == e)
+            break;
         set(exp, e); // gc
         sexp v = eval(e, global);
         set(val, v); // gc
