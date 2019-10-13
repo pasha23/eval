@@ -16,6 +16,7 @@
 
 #define GC
 #undef  DEBUG
+#define VOLUNTARY_GC
 #define MAX 4096
 
 /*
@@ -80,9 +81,9 @@ sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
-sexp cara, cdra, consa, define, divide, dot, atomsa, exp, gea, gta, eqa;
+sexp cara, cdra, consa, define, divide, dot, atomsa, gea, gta, eqa;
 sexp globals, ifa, lambda, lparen, lea, loada, lta, minus, nil, nota;
-sexp plus, qchar, quote, rparen, seta, t, times, val;
+sexp plus, qchar, quote, rparen, seta, t, times;
 
 int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
@@ -192,13 +193,19 @@ void gc(void)
         std::cout << "no gc\n";
         exit(0);
 #endif
-        std::cout << "gc entered, allocated: " << allocated << std::endl;
+        std::cout << "gc begins, allocated: " << allocated;
+        int werefree = 0;
+        for (sexp p = freelist; p; p = p->cdr)
+            ++werefree;
+        freelist = 0;
+        std::cout << " free: " << werefree;
+        std::cout << std::endl;
         // mark every reachable node
         marked = 0;
         mark(atoms);
         mark(global);
         mark(protect);
-        std::cout << "marked: " << std::dec << marked << " expected garbage: " << allocated-marked << std::endl;
+        std::cout << "marked: " << std::dec << marked << " expected garbage: " << werefree+allocated-marked << std::endl;
 
         // return all unmarked nodes to the freelist
         int reclaimed = 0;
@@ -217,8 +224,8 @@ void gc(void)
             else
                 unmarkNode(p);
         }
-        std::cout << "gc complete " << std::dec << "remaining marks: " << marked << " reclaimed: " << reclaimed << std::endl;
-        allocated -= reclaimed;
+        std::cout << "gc finished " << std::dec << "remaining marks: " << marked << " reclaimed: " << reclaimed << std::endl;
+        allocated -= reclaimed-werefree;
     }
 }
 
@@ -839,7 +846,6 @@ int main(int argc, char **argv, char **envp)
     divide  = intern_atom_chunk("/");
     dot     = intern_atom_chunk(".");
     eqa     = intern_atom_chunk("eq");
-    exp     = intern_atom_chunk("exp");
     gea     = intern_atom_chunk("ge");
     globals = intern_atom_chunk("globals");
     gta     = intern_atom_chunk("gt");
@@ -859,7 +865,6 @@ int main(int argc, char **argv, char **envp)
     seta    = intern_atom_chunk("set");
     times   = intern_atom_chunk("*");
     t       = intern_atom_chunk("#t");
-    val     = intern_atom_chunk("val");
 
     // set the definitions (special forms)
     set_form(define,  defineform);
@@ -899,10 +904,10 @@ int main(int argc, char **argv, char **envp)
         sexp e = read(std::cin);
         if (0 == e)
             break;
-        set(exp, e); // gc
-        sexp v = eval(e, global);
-        set(val, v); // gc
-        print(std::cout, v) << std::endl;
+        print(std::cout, eval(e, global)) << std::endl;
+#ifdef VOLUNTARY_GC
+        gc();
+#endif
     }
 
     return 0;
