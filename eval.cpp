@@ -578,19 +578,37 @@ sexp globalform(sexp expr, sexp env)
 }
 
 /*
- * define does not evaluate its arguments
+ * rewrite
+ *      (define (mycar x) (car x))
+ * as
+ *      (define mycar (lambda (x) (car x)))
+ * 
  */
 sexp defineform(sexp p, sexp env)
 {
-    for (sexp q = global; q; q = q->cdr)
-        if (p->cdr->car == q->car->car)
-        {
-            q->car->cdr = p->cdr->cdr->car;
-            return p->car;
-        }
+    if (isCons(p->cdr->car))
+    {
+        sexp v = cons(lambda, cons(p->cdr->car->cdr, p->cdr->cdr));
+        for (sexp q = global; q; q = q->cdr)
+            if (p->cdr->car->car == q->car->car)
+            {
+                q->car->cdr = v;
+                return p->cdr->car->car;
+            }
 
-    global = cons(cons(p->cdr->car, p->cdr->cdr->car), global);
-    return p->car;
+        global = cons(cons(p->cdr->car->car, v), global);
+        return p->cdr->car->car;
+    } else {
+        for (sexp q = global; q; q = q->cdr)
+            if (p->cdr->car == q->car->car)
+            {
+                q->car->cdr = p->cdr->cdr->car;
+                return p->cdr->car;
+            }
+
+        global = cons(cons(p->cdr->car, p->cdr->cdr->car), global);
+        return p->cdr->car;
+    }
 }
 
 /*
