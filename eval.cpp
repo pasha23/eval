@@ -61,7 +61,7 @@ typedef sexp (*Twoargp)(sexp, sexp);
 /*
  * setting up union declarations isn't all that fun
  */
-struct Cons   { Cons*  cdr; Cons*   car;                 };
+struct Cons   { sexp   cdr; sexp    car;                 };
 struct Chunk  { Chunk* cdr; char    text[sizeof(void*)]; };
 struct Atom   { Tag    tag; Chunk*  chunks;              };
 struct Fixnum { Tag    tag; long    fixnum;              };
@@ -80,12 +80,6 @@ sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
-/*
-sexp caaaara, caaadra, caaara, caadara, caaddra, caadra, caara, cadaara;
-sexp cadadra, cadara, caddara, cadddra, caddra, cadra, cara, cdaaara;
-sexp cdaadra, cdaara, cdadara, cdaddra, cdadra, cdara, cddaara, cddadra;
-sexp cddara, cdddara, cddddra, cdddra, cddra;
-*/
 sexp cara, cdra, consa, define, divide, dot, atomsa, exp, gea, gta, eqa;
 sexp globals, ifa, lambda, lparen, lea, loada, lta, minus, nil, nota;
 sexp plus, qchar, quote, rparen, seta, t, times, val;
@@ -183,8 +177,6 @@ void mark(sexp p)
 
 void gc(void)
 {
-    std::cout << "gc entered, allocated: " << allocated << std::endl;
-
     if (0 == hi) {
         // allocate all the nodes we will ever have
         sexp block = (sexp)calloc(MAX, sizeof(Cons));
@@ -200,6 +192,7 @@ void gc(void)
         std::cout << "no gc\n";
         exit(0);
 #endif
+        std::cout << "gc entered, allocated: " << allocated << std::endl;
         // mark every reachable node
         marked = 0;
         mark(atoms);
@@ -268,17 +261,22 @@ sexp cdr(sexp p)
     return p->cdr;
 }
 
-sexp ge(sexp x, sexp y)
+long asFixnum(sexp p)
+{
+    return ((Fixnum*)p)->fixnum;
+}
+
+sexp lt(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
-        return ((Fixnum*)x)->fixnum >= ((Fixnum*)y)->fixnum ? t : 0;
+        return asFixnum(x) < asFixnum(y) ? t : 0;
     return 0;
 }
 
-sexp gt(sexp x, sexp y)
+sexp le(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
-        return ((Fixnum*)x)->fixnum > ((Fixnum*)y)->fixnum ? t : 0;
+        return asFixnum(x) <= asFixnum(y) ? t : 0;
     return 0;
 }
 
@@ -289,23 +287,23 @@ sexp eq(sexp x, sexp y)
     if (isAtom(x) && isAtom(y))
         return x == y ? t : 0;
     if (isFixnum(x) && isFixnum(y))
-        return ((Fixnum*)x)->fixnum == ((Fixnum*)y)->fixnum ? t : 0;
+        return asFixnum(x) == asFixnum(y) ? t : 0;
     if (isCons(x) && isCons(y))
         return eq(x->car, y->car) && eq(x->cdr, y->cdr) ? t : 0;
     return 0;
 }
 
-sexp le(sexp x, sexp y)
+sexp ge(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
-        return ((Fixnum*)x)->fixnum <= ((Fixnum*)y)->fixnum ? t : 0;
+        return asFixnum(x) >= asFixnum(y) ? t : 0;
     return 0;
 }
 
-sexp lt(sexp x, sexp y)
+sexp gt(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
-        return ((Fixnum*)x)->fixnum < ((Fixnum*)y)->fixnum ? t : 0;
+        return asFixnum(x) > asFixnum(y) ? t : 0;
     return 0;
 }
 
@@ -364,38 +362,6 @@ sexp atom(Chunk* chunks)
     Atom* p = (Atom*)node();
     p->tag = ATOM;
     p->chunks = chunks;
-    return (sexp)p;
-}
-
-sexp vararg(Funcp funcp)
-{
-    Func* p = (Func*)node();
-    p->tag = VARARG;
-    p->funcp = funcp;
-    return (sexp)p;
-}
-
-sexp onearg(Oneargp funcp)
-{
-    Onearg* p = (Onearg*)node();
-    p->tag = ONEARG;
-    p->funcp = funcp;
-    return (sexp)p;
-}
-
-sexp twoarg(Twoargp funcp)
-{
-    Twoarg* p = (Twoarg*)node();
-    p->tag = TWOARG;
-    p->funcp = funcp;
-    return (sexp)p;
-}
-
-sexp form(Formp formp)
-{
-    Form* p = (Form*)node();
-    p->tag = FORM;
-    p->formp = formp;
     return (sexp)p;
 }
 
@@ -599,7 +565,8 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 {
     if (0 == actuals)
         return env;
-    return cons(cons(formals->car, actuals->car), assoc(formals->cdr, actuals->cdr, env));
+    return cons(cons(formals->car, actuals->car),
+                assoc(formals->cdr, actuals->cdr, env));
 }
 
 /*
@@ -621,6 +588,7 @@ sexp defineform(sexp p, sexp env)
             q->car->cdr = p->cdr->cdr->car;
             return p->car;
         }
+
     global = cons(cons(p->cdr->car, p->cdr->cdr->car), global);
     return p->car;
 }
@@ -644,11 +612,14 @@ sexp quoteform(sexp expr, sexp env)
 /*
  * (if predicate consequent alternative)
  *
- * if the predicate is non-null then evaluate the consequent else evaluate the alternative
+ * if the predicate is non-null
+ *    then evaluate the consequent
+ *    else evaluate the alternative
  */
 sexp ifform(sexp expr, sexp env)
 {
-    return eval(expr->cdr->car, env) ? eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env);
+    return eval(expr->cdr->car, env) ?
+      eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env);
 }
 
 /*
@@ -666,7 +637,9 @@ sexp lambdaform(sexp expr, sexp env)
 {
     if (!isCons(expr->car))
         expr = cons(eval(expr->car, env), expr->cdr);
-    return eval(expr->car->cdr->cdr->car, assoc(expr->car->cdr->car, evlis(expr->cdr, env), env));
+    return eval(expr->car->cdr->cdr->car,
+                assoc(expr->car->cdr->car,
+                      evlis(expr->cdr, env), env));
 }
 
 /*
@@ -692,7 +665,8 @@ sexp eval(sexp p, sexp env)
     if (isOnearg(q))
         return (*((Onearg*)q)->funcp)(eval(p->cdr->car, env));
     if (isTwoarg(q))
-        return (*((Twoarg*)q)->funcp)(eval(p->cdr->car, env), eval(p->cdr->cdr->car, env));
+        return (*((Twoarg*)q)->funcp)(eval(p->cdr->car, env),
+                                      eval(p->cdr->cdr->car, env));
     if (isForm(q))
         return (*((Form*)q)->formp)(p, env);
     return p;
@@ -722,7 +696,7 @@ long readNumber(std::istream& input)
 sexp scan(std::istream& input)
 {
     char c = input.get();
-    while (' ' == c || '\n' == c)
+    while (' ' == c || '\t' == c || '\r' == c || '\n' == c)
         c = input.get();
     if (c < 0)
         return 0;
@@ -757,7 +731,8 @@ sexp scan(std::istream& input)
         q->text[i++] = c;
         c = input.get();
 
-        if ('(' == c || ')' == c || ' ' == c || '\n' == c) {
+        if ('(' == c || ')' == c ||
+            ' ' == c || '\t' == c || '\r' == c || '\n' == c) {
             input.unget();
             return intern(atom(p));
         }
@@ -802,6 +777,38 @@ sexp intern_atom_chunk(const char *s)
     return intern(atom(chunk(s)));
 }
 
+void set_form(sexp name, Formp f)
+{
+    Form* p = (Form*)node();
+    p->tag = FORM;
+    p->formp = f;
+    set(name, (sexp)p);
+}
+
+void set_onearg(sexp name, Oneargp f)
+{
+    Onearg* p = (Onearg*)node();
+    p->tag = ONEARG;
+    p->funcp = f;
+    set(name, (sexp)p);
+}
+
+void set_twoarg(sexp name, Twoargp f)
+{
+    Twoarg* p = (Twoarg*)node();
+    p->tag = TWOARG;
+    p->funcp = f;
+    set(name, (sexp)p);
+}
+
+void set_vararg(sexp name, Funcp f)
+{
+    Func* p = (Func*)node();
+    p->tag = VARARG;
+    p->funcp = f;
+    set(name, (sexp)p);
+}
+
 int main(int argc, char **argv, char **envp)
 {
     // set up all predefined atoms
@@ -837,33 +844,34 @@ int main(int argc, char **argv, char **envp)
     val     = intern_atom_chunk("val");
 
     // set the definitions (special forms)
-    set(define,     form(defineform));
-    set(quote,  	form(quoteform));
-    set(ifa,    	form(ifform));
-    set(seta,   	form(setform));
-    set(lambda, 	form(lambdaform));
-    set(globals,	form(globalform));
+    set_form(define,  defineform);
+    set_form(define,  defineform);
+    set_form(quote,   quoteform);
+    set_form(ifa,     ifform);
+    set_form(seta,    setform);
+    set_form(lambda,  lambdaform);
+    set_form(globals, globalform);
 
     // set the definitions (one argument functions)
-	set(cara,		onearg(car));
-	set(cdra,		onearg(cdr));
-    set(loada,      onearg(load));
-    set(nota,       onearg(isnot));
+	set_onearg(cara,  car);
+	set_onearg(cdra,  cdr);
+    set_onearg(loada, load);
+    set_onearg(nota,  isnot);
 
     // set the definitions (two argument functions)
-    set(consa,  twoarg(cons));
-    set(eqa,    twoarg(eq));
-    set(gea,    twoarg(ge));
-    set(gta,    twoarg(gt));
-    set(lea,    twoarg(le));
-    set(lta,    twoarg(lt));
+    set_twoarg(consa, cons);
+    set_twoarg(eqa,   eq);
+    set_twoarg(gea,   ge);
+    set_twoarg(gta,   gt);
+    set_twoarg(lea,   le);
+    set_twoarg(lta,   lt);
 
     // set the definitions (varadic functions)
-    set(atomsa, vararg(atomsfunc));
-    set(plus,   vararg(addfunc));
-    set(minus,  vararg(subfunc));
-    set(times,  vararg(mulfunc));
-    set(divide, vararg(divfunc));
+    set_vararg(atomsa, atomsfunc);
+    set_vararg(plus,   addfunc);
+    set_vararg(minus,  subfunc);
+    set_vararg(times,  mulfunc);
+    set_vararg(divide, divfunc);
 
     load(intern_atom_chunk("init.l"));
 

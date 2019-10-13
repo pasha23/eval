@@ -48,3 +48,11 @@
                         (ack (- n 1) 1)
                         (ack (- n 1) (ack n (- m 1)))))))
 
+(define tak
+        (lambda (x y z)
+                (if (lt y x)
+                    (tak (tak (- x 1) y z)
+                         (tak (- y 1) z x)
+                         (tak (- z 1) x y))
+                    z)))
+
