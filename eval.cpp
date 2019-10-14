@@ -10,15 +10,23 @@
  * 
  * Robert Kelley October 2019
  */
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+#include <cxxabi.h>
+#include <setjmp.h>
 #include <iostream>
 #include <fstream>
 #include <cstring>
 #include <cstdlib>
+#include <csignal>
 
 #define GC
 #define MAX 4096
 #undef  DEBUG
 #define VOLUNTARY_GC
+#undef  SIGNALS
 
 /*
  * storage is managed as a freelist of nodes, each potentially containing two pointers
@@ -83,9 +91,9 @@ sexp scan(std::istream& input);
 // these are the built-in atoms
 
 sexp atomsa, begin, cara, cdra, cond, consa, define, divide, dot;
-sexp elsea, gea, gta, eqa, globals, ifa, lambda, lparen, lea, loada, lta;
-sexp minus, nil, nota, plus, printa, println, qchar, quote, reada, rparen;
-sexp seta, t, times, voida;
+sexp elsea, gea, gta, eqva, globals, ifa, lambda, lparen, lea, let;
+sexp loada, lta, minus, modulo, nil, nota, plus, printa, println;
+sexp qchar, quote, reada, rparen, seta, t, times, voida;
 
 int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
@@ -105,6 +113,8 @@ static inline bool isOnearg(const sexp p) { return p && ONEARG == (7 & (long)p->
 static inline bool isTwoarg(const sexp p) { return p && TWOARG == (7 & (long)p->cdr); }
 static inline bool isForm(const sexp p)   { return p && FORM   == (7 & (long)p->cdr); }
 static inline bool isFixnum(const sexp p) { return p && NUMBER == (7 & (long)p->cdr); }
+
+jmp_buf the_jmpbuf;
 
 /*
  * mark the node
@@ -185,20 +195,18 @@ void mark(sexp p)
  */
 void gc(void)
 {
-#ifndef GC
-    std::cout << "no gc\n";
-    exit(0);
-#endif
+#ifdef GC
     int werefree = 0;
     for (sexp p = freelist; p; p = p->cdr)
         ++werefree;
-    std::cout << "gc begins, allocated: " << allocated << " free: " << werefree << std::endl;
+
+    std::cout << "gc: allocated: " << allocated << " free: " << werefree;
 
     marked = 0;
     mark(atoms);
     mark(global);
     mark(protect);
-    std::cout << "marked: " << std::dec << marked << " expected garbage: " << werefree+allocated-marked << std::endl;
+    std::cout << " marked: " << std::dec << marked << " expected garbage: " << werefree+allocated-marked;
 
     freelist = 0;
     int reclaimed = 0;
@@ -215,8 +223,18 @@ void gc(void)
         else
             unmarkNode(p);
     }
-    std::cout << "gc finished " << std::dec << "remaining marks: " << marked << " reclaimed: " << reclaimed << std::endl;
+    std::cout << " reclaimed: " << reclaimed << std::endl;
     allocated -= reclaimed-werefree;
+
+    if (!freelist)
+    {
+        std::cout << "storage exhausted\n";
+        exit(0);
+    }
+#else
+    std::cout << "no gc\n";
+    exit(0);
+#endif
 }
 
 /*
@@ -224,20 +242,13 @@ void gc(void)
  */
 sexp node(void)
 {
+    if (!freelist)
+        gc();
+
     ++allocated;
     Cons* p = protect = freelist;
     freelist = freelist->cdr;
     p->cdr = 0;
-
-    if (!freelist)
-        gc();
-
-    if (!freelist)
-    {
-        std::cout << "storage exhausted\n";
-        exit(0);
-    }
-
     return p;
 }
 
@@ -251,12 +262,33 @@ sexp cons(sexp car, sexp cdr)
 
 sexp car(sexp p)
 {
+    if (!p || !isCons(p))
+    {
+        std::cout << "longjmp! car of " << nodeTypes[nodeType(p)] << ' '; print(std::cout, p); std::cout << std::endl;
+        longjmp(the_jmpbuf, 1);
+    }
     return p->car;
 }
 
 sexp cdr(sexp p)
 {
+    if (!p || !isCons(p))
+    {
+        std::cout << "longjmp! cdr of " << nodeTypes[nodeType(p)] << ' '; print(std::cout, p); std::cout << std::endl;
+        longjmp(the_jmpbuf, 1);
+    }
     return p->cdr;
+}
+
+/*
+ * construct an integer
+ */
+sexp fixnum(long number)
+{
+    Fixnum* p = (Fixnum*)node();
+    p->tag = NUMBER;
+    p->fixnum = number;
+    return (sexp)p;
 }
 
 long asFixnum(sexp p)
@@ -298,7 +330,7 @@ sexp gt(sexp x, sexp y)
 /*
  * comparison for equality
  */
-sexp eq(sexp x, sexp y)
+sexp eqv(sexp x, sexp y)
 {
     if (x == y)
         return t;
@@ -307,8 +339,77 @@ sexp eq(sexp x, sexp y)
     if (isFixnum(x) && isFixnum(y))
         return asFixnum(x) == asFixnum(y) ? t : 0;
     if (isCons(x) && isCons(y))
-        return eq(x->car, y->car) && eq(x->cdr, y->cdr) ? t : 0;
+        return eqv(x->car, y->car) && eqv(x->cdr, y->cdr) ? t : 0;
     return 0;
+}
+
+/*
+ * these arithmetic functions take a list of arguments
+ */
+sexp addfunc(sexp args)
+{
+    long result = 0;
+    while (args)
+        if (isFixnum(args->car)) {
+            result += asFixnum(args->car);
+            args = args->cdr;
+        } else
+            return 0;
+    return fixnum(result);
+}
+
+sexp subfunc(sexp args)
+{
+    long result = 0;
+    for (sexp p = args; p; p = p->cdr)
+        if (isFixnum(p->car)) {
+            if (args == p && p->cdr)
+                result += asFixnum(p->car);
+            else
+                result -= asFixnum(p->car);
+        } else
+            return 0;
+    return fixnum(result);
+}
+
+sexp mulfunc(sexp args)
+{
+    long result = 1;
+    while (args)
+        if (isFixnum(args->car)) {
+            result *= asFixnum(args->car);
+            args = args->cdr;
+        } else
+            return 0;
+    return fixnum(result);
+}
+
+sexp divfunc(sexp args)
+{
+    long result = 1;
+    for (sexp p = args; p; p = p->cdr)
+        if (isFixnum(p->car))
+            if (args == p)
+                result *= asFixnum(args->car);
+            else
+                result /= asFixnum(args->car);
+        else
+            return 0;
+    return fixnum(result);
+}
+
+sexp modfunc(sexp args)
+{
+    long result = 1;
+    for (sexp p = args; p; p = p->cdr)
+        if (isFixnum(p->car))
+            if (args == p)
+                result *= asFixnum(args->car);
+            else
+                result %= asFixnum(args->car);
+        else
+            return 0;
+    return fixnum(result);
 }
 
 /*
@@ -406,74 +507,6 @@ sexp atom(Chunk* chunks)
     p->tag = ATOM;
     p->chunks = chunks;
     return (sexp)p;
-}
-
-/*
- * construct an integer
- */
-sexp fixnum(long number)
-{
-    Fixnum* p = (Fixnum*)node();
-    p->tag = NUMBER;
-    p->fixnum = number;
-    return (sexp)p;
-}
-
-/*
- * these arithmetic functions take a list of arguments
- */
-sexp addfunc(sexp args)
-{
-    long result = 0;
-    while (args)
-        if (isFixnum(args->car)) {
-            result += ((Fixnum*)(args->car))->fixnum;
-            args = args->cdr;
-        } else
-            return 0;
-    return fixnum(result);
-}
-
-sexp subfunc(sexp args)
-{
-    if (isFixnum(args->car)) {
-        long result = ((Fixnum*)(args->car))->fixnum;
-        while (args = args->cdr)
-            if (isFixnum(args->car))
-                result -= ((Fixnum*)(args->car))->fixnum;
-            else
-                return 0;
-        return fixnum(result);
-    }
-    return 0;
-}
-
-sexp mulfunc(sexp args)
-{
-    if (isFixnum(args->car)) {
-        long result = ((Fixnum*)(args->car))->fixnum;
-        while (args = args->cdr)
-            if (isFixnum(args->car))
-                result *= ((Fixnum*)(args->car))->fixnum;
-            else
-                return 0;
-        return fixnum(result);
-    }
-    return 0;
-}
-
-sexp divfunc(sexp args)
-{
-    if (isFixnum(args->car)) {
-        long result = ((Fixnum*)(args->car))->fixnum;
-        while (args = args->cdr)
-            if (isFixnum(args->car) && ((Fixnum*)(args->car))->fixnum)
-                result /= ((Fixnum*)(args->car))->fixnum;
-            else
-                return 0;
-        return fixnum(result);
-    }
-    return 0;
 }
 
 /*
@@ -744,6 +777,25 @@ sexp lambdaform(sexp expr, sexp env)
 }
 
 /*
+ * associate variables with values, used by letform
+ */
+sexp augment(sexp a, sexp env)
+{
+    if (a)
+        return cons(cons(a->car->car, a->car->cdr->car), augment(a->cdr, env));
+    else
+        return env;
+}
+
+/*
+ * (let ((var value) ..) expr)
+ */
+sexp letform(sexp expr, sexp env)
+{
+    return eval(expr->cdr->cdr->car, augment(expr->cdr->car, env));
+}
+
+/*
  * malformed constructs will fail without grace
  */
 sexp eval(sexp p, sexp env)
@@ -908,8 +960,51 @@ void set_vararg(sexp name, Varargp f)
     set(name, (sexp)p);
 }
 
+#ifdef SIGNALS
+void signal_handler(int sig)
+{
+    unw_cursor_t cursor;
+    unw_context_t context;
+
+    unw_getcontext(&context);
+    unw_init_local(&cursor, &context);
+
+    int n=0;
+    while ( unw_step(&cursor) )
+    {
+        unw_word_t ip, sp, off;
+
+        unw_get_reg(&cursor, UNW_REG_IP, &ip);
+        unw_get_reg(&cursor, UNW_REG_SP, &sp);
+
+        char symbol[256] = {"<unknown>"};
+        char *name = symbol;
+
+        if ( !unw_get_proc_name(&cursor, symbol, sizeof(symbol), &off) ) {
+          int status;
+          if ( (name = abi::__cxa_demangle(symbol, NULL, NULL, &status)) == 0 )
+            name = symbol;
+        }
+
+        std::cout << std::dec << "#" << ++n
+                  << " 0x" << std::hex << static_cast<uintptr_t>(ip)
+                  << " sp=0x" << static_cast<uintptr_t>(sp) << " " << name
+                  << " + 0x" << static_cast<uintptr_t>(off) << std::endl;
+
+        if ( name != symbol )
+          free(name);
+    }
+    exit(0);
+}
+#endif
+
 int main(int argc, char **argv, char **envp)
 {
+#ifdef SIGNALS
+    signal(SIGSEGV, signal_handler);
+    signal(SIGINT , signal_handler);
+#endif
+
     // allocate all the nodes we will ever have
     block = (sexp)calloc(MAX, sizeof(Cons));
     for (int i = MAX; --i >= 0; )
@@ -930,17 +1025,19 @@ int main(int argc, char **argv, char **envp)
     divide  = intern_atom_chunk("/");
     dot     = intern_atom_chunk(".");
     elsea   = intern_atom_chunk("else");
-    eqa     = intern_atom_chunk("eq");
-    gea     = intern_atom_chunk("ge");
+    eqva    = intern_atom_chunk("eqv?");
+    gea     = intern_atom_chunk(">=");
     globals = intern_atom_chunk("globals");
-    gta     = intern_atom_chunk("gt");
+    gta     = intern_atom_chunk(">");
     ifa     = intern_atom_chunk("if");
     lambda  = intern_atom_chunk("lambda");
-    lea     = intern_atom_chunk("le");
+    lea     = intern_atom_chunk("<=");
+    let     = intern_atom_chunk("let");
     loada   = intern_atom_chunk("load");
     lparen  = intern_atom_chunk("(");
-    lta     = intern_atom_chunk("lt");
+    lta     = intern_atom_chunk("<");
     minus   = intern_atom_chunk("-");
+    modulo  = intern_atom_chunk("%");
     nil     = intern_atom_chunk("#f");
     nota    = intern_atom_chunk("not");
     plus    = intern_atom_chunk("+");
@@ -962,6 +1059,7 @@ int main(int argc, char **argv, char **envp)
     set_form(globals, globalform);
     set_form(ifa,     ifform);
     set_form(lambda,  lambdaform);
+    set_form(let,     letform);
     set_form(quote,   quoteform);
     set_form(reada,   readform);
     set_form(seta,    setform);
@@ -974,7 +1072,7 @@ int main(int argc, char **argv, char **envp)
 
     // set the definitions (two argument functions)
     set_twoarg(consa, cons);
-    set_twoarg(eqa,   eq);
+    set_twoarg(eqva,  eqv);
     set_twoarg(gea,   ge);
     set_twoarg(gta,   gt);
     set_twoarg(lea,   le);
@@ -986,23 +1084,26 @@ int main(int argc, char **argv, char **envp)
     set_vararg(minus,   subfunc);
     set_vararg(times,   mulfunc);
     set_vararg(divide,  divfunc);
+    set_vararg(modulo,  modfunc);
     set_vararg(printa,  printfunc);
     set_vararg(println, printlnfunc);
 
     load(intern_atom_chunk("init.l"));
 
+    setjmp(the_jmpbuf);
+
     // read evaluate print ...
     while (std::cin.good())
     {
+#ifdef VOLUNTARY_GC
+        gc();
+#endif
         sexp e = read(std::cin);
         if (!e)
             break;
         sexp v = eval(e, global);
         if (voida != v)
             print(std::cout, eval(e, global)) << std::endl;
-#ifdef VOLUNTARY_GC
-        gc();
-#endif
     }
     return 0;
 }

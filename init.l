@@ -28,27 +28,32 @@
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
 (define (fib x)
-        (if (le x 0)
+        (if (<= x 0)
             1
             (+ (fib (- x 2))
                (fib (- x 1)))))
 
 (define (fac x)
-        (if (le x 0)
+        (if (<= x 0)
             1
             (* x (fac (- x 1)))))
 
 (define (ack n m)
-        (if (eq n 0)
+        (if (eqv? n 0)
             (+ m 1)
             (if (eq m 0)
                 (ack (- n 1) 1)
                 (ack (- n 1) (ack n (- m 1))))))
 
 (define (tak x y z)
-        (if (lt y x)
+        (if (< y x)
             (tak (tak (- x 1) y z)
                  (tak (- y 1) z x)
                  (tak (- z 1) x y))
             z))
+
+(define (mapcar f s)
+        (if s (cons (f (car s)) (mapcar f (cdr s))) s))
+
+(println (mapcar car (globals)))
 
