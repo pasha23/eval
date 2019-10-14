@@ -6,18 +6,19 @@
  * there are gc issues at present
  * circular lists cannot be printed
  * syntactic atoms need meta-syntax when printed
+ * quasiquote
  * 
  * Robert Kelley October 2019
  */
-#include <string>
 #include <iostream>
 #include <fstream>
+#include <cstring>
 #include <cstdlib>
 
 #define GC
+#define MAX 4096
 #undef  DEBUG
 #define VOLUNTARY_GC
-#define MAX 4096
 
 /*
  * storage is managed as a freelist of nodes, each potentially containing two pointers
@@ -54,8 +55,8 @@ const char* nodeTypes[] =
 };
 
 typedef struct Cons *sexp;
-typedef sexp (*Funcp)(sexp);
 typedef sexp (*Formp)(sexp, sexp);
+typedef sexp (*Varargp)(sexp);
 typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 
@@ -66,7 +67,7 @@ struct Cons   { sexp   cdr; sexp    car;                 };
 struct Chunk  { Chunk* cdr; char    text[sizeof(void*)]; };
 struct Atom   { Tag    tag; Chunk*  chunks;              };
 struct Fixnum { Tag    tag; long    fixnum;              };
-struct Func   { Tag    tag; Funcp   funcp;               };
+struct Vararg { Tag    tag; Varargp funcp;               };
 struct Onearg { Tag    tag; Oneargp funcp;               };
 struct Twoarg { Tag    tag; Twoargp funcp;               };
 struct Form   { Tag    tag; Formp   formp;               };
@@ -81,27 +82,28 @@ sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
-sexp cara, cdra, consa, define, divide, dot, atomsa, gea, gta, eqa;
-sexp globals, ifa, lambda, lparen, lea, loada, lta, minus, nil, nota;
-sexp plus, qchar, quote, rparen, seta, t, times;
+sexp atomsa, begin, cara, cdra, cond, consa, define, divide, dot;
+sexp elsea, gea, gta, eqa, globals, ifa, lambda, lparen, lea, loada, lta;
+sexp minus, nil, nota, plus, printa, println, qchar, quote, reada, rparen;
+sexp seta, t, times, voida;
 
 int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
+sexp block = 0;             // all the storage starts here
 sexp global = 0;            // this is the global symbol table (a list)
 sexp protect = 0;           // protects otherwise unreachable objects from gc
 sexp freelist = 0;          // available nodes are linked in a list
 int allocated = 0;          // how many nodes have been allocated
-unsigned long lo, hi;       // extent of the node space for sweep phase of gc
 
-static inline int  nodeType(sexp p)       { return 15 & (long)p->cdr; }
-static inline bool isMarked(const sexp p) { return p && MARK & (long)p->cdr; }
-static inline bool isCons(const sexp p)   { return p && CONS == (7 & (long)p->cdr); }
-static inline bool isChunk(const sexp p)  { return p && CHUNK == (7 & (long)p->cdr); }
-static inline bool isAtom(const sexp p)   { return p && ATOM == (7 & (long)p->cdr); }
-static inline bool isFunc(const sexp p)   { return p && VARARG == (7 & (long)p->cdr); }
+static inline int  nodeType(const sexp p) { return 15                & (long)p->cdr;  }
+static inline bool isMarked(const sexp p) { return p && MARK         & (long)p->cdr;  }
+static inline bool isCons(const sexp p)   { return p && CONS   == (7 & (long)p->cdr); }
+static inline bool isChunk(const sexp p)  { return p && CHUNK  == (7 & (long)p->cdr); }
+static inline bool isAtom(const sexp p)   { return p && ATOM   == (7 & (long)p->cdr); }
+static inline bool isVararg(const sexp p) { return p && VARARG == (7 & (long)p->cdr); }
 static inline bool isOnearg(const sexp p) { return p && ONEARG == (7 & (long)p->cdr); }
 static inline bool isTwoarg(const sexp p) { return p && TWOARG == (7 & (long)p->cdr); }
-static inline bool isForm(const sexp p)   { return p && FORM == (7 & (long)p->cdr); }
+static inline bool isForm(const sexp p)   { return p && FORM   == (7 & (long)p->cdr); }
 static inline bool isFixnum(const sexp p) { return p && NUMBER == (7 & (long)p->cdr); }
 
 /*
@@ -159,7 +161,7 @@ static void unmarkChunk(sexp p)
  */
 void mark(sexp p)
 {
-    if (0 == p || isMarked(p))
+    if (!p || isMarked(p))
         return;
     if (isCons(p))
     {
@@ -176,57 +178,45 @@ void mark(sexp p)
     markNode(p);
 }
 
+/*
+ * mark all reachable objects
+ *
+ * sweep all storage, putting unmarked objects on the freelist
+ */
 void gc(void)
 {
-    if (0 == hi) {
-        // allocate all the nodes we will ever have
-        sexp block = (sexp)calloc(MAX, sizeof(Cons));
-        for (int i = MAX; --i >= 0; )
-        {
-            block[i].cdr = freelist;
-            freelist = block+i;
-        }
-        lo = (unsigned long)block;
-        hi = (unsigned long)(block+MAX);
-    } else {
 #ifndef GC
-        std::cout << "no gc\n";
-        exit(0);
+    std::cout << "no gc\n";
+    exit(0);
 #endif
-        std::cout << "gc begins, allocated: " << allocated;
-        int werefree = 0;
-        for (sexp p = freelist; p; p = p->cdr)
-            ++werefree;
-        freelist = 0;
-        std::cout << " free: " << werefree;
-        std::cout << std::endl;
-        // mark every reachable node
-        marked = 0;
-        mark(atoms);
-        mark(global);
-        mark(protect);
-        std::cout << "marked: " << std::dec << marked << " expected garbage: " << werefree+allocated-marked << std::endl;
+    int werefree = 0;
+    for (sexp p = freelist; p; p = p->cdr)
+        ++werefree;
+    std::cout << "gc begins, allocated: " << allocated << " free: " << werefree << std::endl;
 
-        // return all unmarked nodes to the freelist
-        int reclaimed = 0;
-        //std::cout << "lo=" << std::hex << lo << " hi=" << std::hex << hi << std::dec << std::endl;
-        for (unsigned long pp = lo; pp < hi; pp += sizeof(Cons))
+    marked = 0;
+    mark(atoms);
+    mark(global);
+    mark(protect);
+    std::cout << "marked: " << std::dec << marked << " expected garbage: " << werefree+allocated-marked << std::endl;
+
+    freelist = 0;
+    int reclaimed = 0;
+    for (sexp p = block; p < block+MAX; ++p)
+    {
+        if (!isMarked(p))
         {
-            sexp p = (sexp)pp;
-            if (!isMarked(p))
-            {
-                p->car = 0;
-                p->cdr = freelist;
-                freelist = p;
-                ++reclaimed;
-            } else if (isChunk(p))
-                unmarkChunk(p);
-            else
-                unmarkNode(p);
-        }
-        std::cout << "gc finished " << std::dec << "remaining marks: " << marked << " reclaimed: " << reclaimed << std::endl;
-        allocated -= reclaimed-werefree;
+            p->car = 0;
+            p->cdr = freelist;
+            freelist = p;
+            ++reclaimed;
+        } else if (isChunk(p))
+            unmarkChunk(p);
+        else
+            unmarkNode(p);
     }
+    std::cout << "gc finished " << std::dec << "remaining marks: " << marked << " reclaimed: " << reclaimed << std::endl;
+    allocated -= reclaimed-werefree;
 }
 
 /*
@@ -234,19 +224,20 @@ void gc(void)
  */
 sexp node(void)
 {
-    if (0 == freelist)
+    ++allocated;
+    Cons* p = protect = freelist;
+    freelist = freelist->cdr;
+    p->cdr = 0;
+
+    if (!freelist)
         gc();
 
-    if (0 == freelist)
+    if (!freelist)
     {
         std::cout << "storage exhausted\n";
         exit(0);
     }
 
-    ++allocated;
-    Cons* p = protect = freelist;
-    freelist = freelist->cdr;
-    p->cdr = 0;
     return p;
 }
 
@@ -273,6 +264,9 @@ long asFixnum(sexp p)
     return ((Fixnum*)p)->fixnum;
 }
 
+/*
+ * arithmetic comparisons
+ */
 sexp lt(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
@@ -284,19 +278,6 @@ sexp le(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
         return asFixnum(x) <= asFixnum(y) ? t : 0;
-    return 0;
-}
-
-sexp eq(sexp x, sexp y)
-{
-    if (x == y)
-        return t;
-    if (isAtom(x) && isAtom(y))
-        return x == y ? t : 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) == asFixnum(y) ? t : 0;
-    if (isCons(x) && isCons(y))
-        return eq(x->car, y->car) && eq(x->cdr, y->cdr) ? t : 0;
     return 0;
 }
 
@@ -314,11 +295,33 @@ sexp gt(sexp x, sexp y)
     return 0;
 }
 
-sexp isnot(sexp x)
+/*
+ * comparison for equality
+ */
+sexp eq(sexp x, sexp y)
 {
-    return x ? t : 0;
+    if (x == y)
+        return t;
+    if (isAtom(x) && isAtom(y))
+        return x == y ? t : 0;
+    if (isFixnum(x) && isFixnum(y))
+        return asFixnum(x) == asFixnum(y) ? t : 0;
+    if (isCons(x) && isCons(y))
+        return eq(x->car, y->car) && eq(x->cdr, y->cdr) ? t : 0;
+    return 0;
 }
 
+/*
+ * logical negation
+ */
+sexp isnot(sexp x)
+{
+    return x ? 0 : t;
+}
+
+/*
+ * read and evaluate s-expressions from a file
+ */
 sexp load(sexp x)
 {
     if (isAtom(x))
@@ -329,7 +332,7 @@ sexp load(sexp x)
         while (fin.good())
         {
             sexp input = read(fin);
-            if (0 == input)
+            if (!input)
                 break;
             eval(input, global);
         }
@@ -340,7 +343,37 @@ sexp load(sexp x)
 }
 
 /*
- * create a linked list of chunks of sizeof(void*) characters
+ * print a sequence of s-expressions, separated by spaces
+ */
+sexp printfunc(sexp args)
+{
+    for (sexp p = args; p; p = p->cdr)
+    {
+        print(std::cout, p->car);
+        if (p->cdr)
+            std::cout << ' ';
+    }
+    return voida;
+}
+
+
+/*
+ * print a sequence of s-expressions, separated by spaces, then a newline
+ */
+sexp printlnfunc(sexp args)
+{
+    for (sexp p = args; p; p = p->cdr)
+    {
+        print(std::cout, p->car);
+        if (p->cdr)
+            std::cout << ' ';
+    }
+    std::cout << std::endl;
+    return voida;
+}
+
+/*
+ * construct a linked list of chunks of sizeof(void*) characters
  */
 Chunk* chunk(const char *t)
 {
@@ -351,7 +384,7 @@ Chunk* chunk(const char *t)
     {
         char c = *t++;
         q->text[i++] = c;
-        if (0 == c)
+        if (!c)
             return p;
         if (i >= sizeof(void*))
         {
@@ -364,6 +397,9 @@ Chunk* chunk(const char *t)
     }
 }
 
+/*
+ * construct an atom
+ */
 sexp atom(Chunk* chunks)
 {
     Atom* p = (Atom*)node();
@@ -372,6 +408,9 @@ sexp atom(Chunk* chunks)
     return (sexp)p;
 }
 
+/*
+ * construct an integer
+ */
 sexp fixnum(long number)
 {
     Fixnum* p = (Fixnum*)node();
@@ -437,20 +476,9 @@ sexp divfunc(sexp args)
     return 0;
 }
 
-std::ostream& print(std::ostream& output, Chunk *chunk)
-{
-    do
-        for (int i = 0; i < sizeof(void*); ++i)
-        {
-            char c = chunk->text[i];
-            if (0 == c)
-                break;
-            output.put(c);
-        }
-    while (chunk = chunk->cdr);
-    return output;
-}
-
+/*
+ * print a list
+ */
 std::ostream& printList(std::ostream& output, sexp expr)
 {
     output.put('(');
@@ -471,18 +499,28 @@ std::ostream& printList(std::ostream& output, sexp expr)
     output.put(')');
 }
 
+/*
+ * print an s-expression
+ */
 std::ostream& print(std::ostream& output, sexp expr)
 {
-    if (0 == expr)
+    if (!expr)
         output.write("#f", 2);
     else if (isCons(expr))
         printList(output, expr);
     else if (isAtom(expr))
-        print(output, (Chunk*)expr->car);
+        for (Chunk* chunk = ((Atom*)expr)->chunks; chunk; chunk = chunk->cdr)
+            for (int i = 0; i < sizeof(void*); ++i)
+            {
+                char c = chunk->text[i];
+                if (!c)
+                    break;
+                output.put(c);
+            }
     else if (isFixnum(expr))
         std::cout << ((Fixnum*)expr)->fixnum;
-    else if (isFunc(expr))
-        std::cout << "#varargs@" << std::hex << (long)((Func*)expr)->funcp << std::dec;
+    else if (isVararg(expr))
+        std::cout << "#varargs@" << std::hex << (long)((Vararg*)expr)->funcp << std::dec;
     else if (isOnearg(expr))
         std::cout << "#onearg@" << std::hex << (long)((Onearg*)expr)->funcp << std::dec;
     else if (isTwoarg(expr))
@@ -501,7 +539,7 @@ bool match(Chunk *p, Chunk *q)
     {
         if (p == q)
             return true;
-        if (0 == p || 0 == q)
+        if (!p || !q)
             return false;
         for (int i = 0; i < sizeof(void*); ++i)
             if (p->text[i] != q->text[i])
@@ -541,6 +579,9 @@ sexp get(sexp p, sexp r)
     return 0;
 }
 
+/*
+ * find an existing value or create a new binding
+ */
 sexp set(sexp p, sexp r)
 {
     sexp s = 0;
@@ -560,17 +601,17 @@ sexp set(sexp p, sexp r)
  */
 sexp evlis(sexp p, sexp env)
 {
-    if (0 == p)
+    if (!p)
         return 0;
     return cons(eval(p->car, env), evlis(p->cdr, env));
 }
 
 /*
- * this is used to bind formal arguments to actual arguments
+ * bind formal arguments to actual arguments
  */
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
-    if (0 == actuals)
+    if (!actuals)
         return env;
     return cons(cons(formals->car, actuals->car),
                 assoc(formals->cdr, actuals->cdr, env));
@@ -582,6 +623,33 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 sexp globalform(sexp expr, sexp env)
 {
     return env;
+}
+
+/*
+ * (begin exp ...) returns evaluation of the last exp
+ */
+sexp beginform(sexp expr, sexp env)
+{
+    sexp v = 0;
+    for (sexp p = expr; p; p = p->cdr)
+        v = eval(p->car, env);
+    return v;
+}
+
+/*
+ * (cond (test1 val1)
+ *       (test2 val2)
+ *       ...
+ *       (else valn))
+ *
+ * the first true test returns its corresponding val
+ */
+sexp condform(sexp expr, sexp env)
+{
+    for (sexp p = expr->cdr; p; p = p->cdr)
+        if (elsea == p->car->car || eval(p->car->car, env))
+            return eval(p->car->cdr->car, env);
+    return 0;
 }
 
 /*
@@ -635,9 +703,17 @@ sexp quoteform(sexp expr, sexp env)
 }
 
 /*
+ * (read) reads a sexpr and returns it, args are ignored
+ */
+sexp readform(sexp expr, sexp env)
+{
+    return read(std::cin);
+}
+
+/*
  * (if predicate consequent alternative)
  *
- * if the predicate is non-null
+ * if the predicate evaluates non-null
  *    then evaluate the consequent
  *    else evaluate the alternative
  */
@@ -656,7 +732,7 @@ sexp setform(sexp expr, sexp env)
 }
 
 /*
- * lambda can be used to define new functions
+ * lambda implements user-defined functions
  */
 sexp lambdaform(sexp expr, sexp env)
 {
@@ -668,13 +744,11 @@ sexp lambdaform(sexp expr, sexp env)
 }
 
 /*
- * this evaluator could be improved
- *
- * malformed constructs will fail unpredictably
+ * malformed constructs will fail without grace
  */
 sexp eval(sexp p, sexp env)
 {
-    if (0 == p)
+    if (!p)
         return 0;
     if (isAtom(p))
         return get(p, env);
@@ -685,8 +759,8 @@ sexp eval(sexp p, sexp env)
     sexp q = eval(p->car, env);
     if (isCons(q) && lambda == q->car)
         return lambdaform(p, env);
-    if (isFunc(q))
-        return (*((Func*)q)->funcp)(evlis(p->cdr, env));
+    if (isVararg(q))
+        return (*((Vararg*)q)->funcp)(evlis(p->cdr, env));
     if (isOnearg(q))
         return (*((Onearg*)q)->funcp)(eval(p->cdr->car, env));
     if (isTwoarg(q))
@@ -721,7 +795,7 @@ long readNumber(std::istream& input)
 sexp scan(std::istream& input)
 {
     char c = input.get();
-    while (' ' == c || '\t' == c || '\r' == c || '\n' == c)
+    while (strchr(" \t\r\n", c))
         c = input.get();
     if (c < 0)
         return 0;
@@ -756,8 +830,8 @@ sexp scan(std::istream& input)
         q->text[i++] = c;
         c = input.get();
 
-        if ('(' == c || ')' == c ||
-            ' ' == c || '\t' == c || '\r' == c || '\n' == c) {
+        if (strchr("( )\t\r\n", c))
+        {
             input.unget();
             return intern(atom(p));
         }
@@ -826,9 +900,9 @@ void set_twoarg(sexp name, Twoargp f)
     set(name, (sexp)p);
 }
 
-void set_vararg(sexp name, Funcp f)
+void set_vararg(sexp name, Varargp f)
 {
-    Func* p = (Func*)node();
+    Vararg* p = (Vararg*)node();
     p->tag = VARARG;
     p->funcp = f;
     set(name, (sexp)p);
@@ -836,15 +910,26 @@ void set_vararg(sexp name, Funcp f)
 
 int main(int argc, char **argv, char **envp)
 {
+    // allocate all the nodes we will ever have
+    block = (sexp)calloc(MAX, sizeof(Cons));
+    for (int i = MAX; --i >= 0; )
+    {
+        block[i].cdr = freelist;
+        freelist = block+i;
+    }
+
     // set up all predefined atoms
 
     atomsa  = intern_atom_chunk("atoms");
-	cara	= intern_atom_chunk("car");
-	cdra	= intern_atom_chunk("cdr");
+    begin   = intern_atom_chunk("begin");
+    cara	= intern_atom_chunk("car");
+    cdra	= intern_atom_chunk("cdr");
+    cond    = intern_atom_chunk("cond");
     consa   = intern_atom_chunk("cons");
     define  = intern_atom_chunk("define");
     divide  = intern_atom_chunk("/");
     dot     = intern_atom_chunk(".");
+    elsea   = intern_atom_chunk("else");
     eqa     = intern_atom_chunk("eq");
     gea     = intern_atom_chunk("ge");
     globals = intern_atom_chunk("globals");
@@ -859,27 +944,33 @@ int main(int argc, char **argv, char **envp)
     nil     = intern_atom_chunk("#f");
     nota    = intern_atom_chunk("not");
     plus    = intern_atom_chunk("+");
+    printa  = intern_atom_chunk("print");
+    println = intern_atom_chunk("println");
     qchar   = intern_atom_chunk("'");
     quote   = intern_atom_chunk("quote");
+    reada   = intern_atom_chunk("read");
     rparen  = intern_atom_chunk(")");
     seta    = intern_atom_chunk("set");
     times   = intern_atom_chunk("*");
     t       = intern_atom_chunk("#t");
+    voida   = intern_atom_chunk("");
 
     // set the definitions (special forms)
+    set_form(begin,   beginform);
+    set_form(cond,    condform);
     set_form(define,  defineform);
-    set_form(define,  defineform);
-    set_form(quote,   quoteform);
-    set_form(ifa,     ifform);
-    set_form(seta,    setform);
-    set_form(lambda,  lambdaform);
     set_form(globals, globalform);
+    set_form(ifa,     ifform);
+    set_form(lambda,  lambdaform);
+    set_form(quote,   quoteform);
+    set_form(reada,   readform);
+    set_form(seta,    setform);
 
     // set the definitions (one argument functions)
-	set_onearg(cara,  car);
-	set_onearg(cdra,  cdr);
-    set_onearg(loada, load);
-    set_onearg(nota,  isnot);
+    set_onearg(cara,   car);
+    set_onearg(cdra,   cdr);
+    set_onearg(loada,  load);
+    set_onearg(nota,   isnot);
 
     // set the definitions (two argument functions)
     set_twoarg(consa, cons);
@@ -890,11 +981,13 @@ int main(int argc, char **argv, char **envp)
     set_twoarg(lta,   lt);
 
     // set the definitions (varadic functions)
-    set_vararg(atomsa, atomsfunc);
-    set_vararg(plus,   addfunc);
-    set_vararg(minus,  subfunc);
-    set_vararg(times,  mulfunc);
-    set_vararg(divide, divfunc);
+    set_vararg(atomsa,  atomsfunc);
+    set_vararg(plus,    addfunc);
+    set_vararg(minus,   subfunc);
+    set_vararg(times,   mulfunc);
+    set_vararg(divide,  divfunc);
+    set_vararg(printa,  printfunc);
+    set_vararg(println, printlnfunc);
 
     load(intern_atom_chunk("init.l"));
 
@@ -902,14 +995,15 @@ int main(int argc, char **argv, char **envp)
     while (std::cin.good())
     {
         sexp e = read(std::cin);
-        if (0 == e)
+        if (!e)
             break;
-        print(std::cout, eval(e, global)) << std::endl;
+        sexp v = eval(e, global);
+        if (voida != v)
+            print(std::cout, eval(e, global)) << std::endl;
 #ifdef VOLUNTARY_GC
         gc();
 #endif
     }
-
     return 0;
 }
 
