@@ -58,15 +58,12 @@
 (define (odd x)
         (not (even x)))
 
-(define (square x)
-        (* x x))
-
 (define (expt x n)
         (if (eqv? 0 n)
             1
             (if (odd n)
                 (* x (expt x (- n 1)))
-                (square (expt x (/ n 2))))))
+                (let ((y (expt x (/ n 2)))) (* y y)))))
 
 (define (mapcar f s)
         (if s (cons (f (car s)) (mapcar f (cdr s))) s))

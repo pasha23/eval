@@ -681,10 +681,11 @@ sexp evlis(sexp p, sexp env)
  */
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
-    if (!actuals)
+    if (actuals)
+        return cons(cons(formals->car, actuals->car),
+                    assoc(formals->cdr, actuals->cdr, env));
+    else
         return env;
-    return cons(cons(formals->car, actuals->car),
-                assoc(formals->cdr, actuals->cdr, env));
 }
 
 /*
@@ -832,7 +833,7 @@ sexp lambdaform(sexp expr, sexp env)
 sexp augment(sexp a, sexp env)
 {
     if (a)
-        return cons(cons(a->car->car, a->car->cdr->car), augment(a->cdr, env));
+        return cons(cons(a->car->car, eval(a->car->cdr->car, env)), augment(a->cdr, env));
     else
         return env;
 }
@@ -1056,9 +1057,10 @@ int main(int argc, char **argv, char **envp)
 #endif
 
     // allocate all the nodes we will ever have
-    block = (sexp)calloc(MAX, sizeof(Cons));
+    block = (sexp)malloc(MAX*sizeof(Cons));
     for (int i = MAX; --i >= 0; )
     {
+        block[i].car = 0;
         block[i].cdr = freelist;
         freelist = block+i;
     }
