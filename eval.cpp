@@ -21,6 +21,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <csignal>
+#include <climits>
 
 #define GC
 #define MAX 4096
@@ -90,10 +91,10 @@ sexp scan(std::istream& input);
 
 // these are the built-in atoms
 
-sexp atomsa, begin, cara, cdra, cond, consa, define, divide, dot;
-sexp elsea, gea, gta, eqva, globals, ifa, lambda, lparen, lea, let;
-sexp loada, lta, minus, modulo, nil, nota, plus, printa, println;
-sexp qchar, quote, reada, rparen, seta, t, times, voida;
+sexp atomsa, begin, cara, cdra, cond, consa, define, divide, dot, elsea;
+sexp gea, gta, eqva, globals, ifa, lambda, lparen, lea, let, loada, lta;
+sexp max, min, minus, modulo, nil, nota, plus, printa, println, qchar;
+sexp quote, reada, rparen, seta, t, times, voida, whilea;
 
 int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
@@ -349,12 +350,13 @@ sexp eqv(sexp x, sexp y)
 sexp addfunc(sexp args)
 {
     long result = 0;
-    while (args)
-        if (isFixnum(args->car)) {
-            result += asFixnum(args->car);
-            args = args->cdr;
-        } else
+    for (sexp p = args; p; p = p->cdr)
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
             return 0;
+        result += asFixnum(q);
+    }
     return fixnum(result);
 }
 
@@ -362,25 +364,26 @@ sexp subfunc(sexp args)
 {
     long result = 0;
     for (sexp p = args; p; p = p->cdr)
-        if (isFixnum(p->car)) {
-            if (args == p && p->cdr)
-                result += asFixnum(p->car);
-            else
-                result -= asFixnum(p->car);
-        } else
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
             return 0;
+        long n = asFixnum(q);
+        result += (args == p && p->cdr) ? n : -n;
+    }
     return fixnum(result);
 }
 
 sexp mulfunc(sexp args)
 {
     long result = 1;
-    while (args)
-        if (isFixnum(args->car)) {
-            result *= asFixnum(args->car);
-            args = args->cdr;
-        } else
+    for (sexp p = args; p; p = p->cdr)
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
             return 0;
+        result *= asFixnum(q);
+    }
     return fixnum(result);
 }
 
@@ -388,13 +391,15 @@ sexp divfunc(sexp args)
 {
     long result = 1;
     for (sexp p = args; p; p = p->cdr)
-        if (isFixnum(p->car))
-            if (args == p)
-                result *= asFixnum(args->car);
-            else
-                result /= asFixnum(args->car);
-        else
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
             return 0;
+        if (args == p)
+            result *= asFixnum(q);
+        else
+            result /= asFixnum(q);
+    }
     return fixnum(result);
 }
 
@@ -402,13 +407,45 @@ sexp modfunc(sexp args)
 {
     long result = 1;
     for (sexp p = args; p; p = p->cdr)
-        if (isFixnum(p->car))
-            if (args == p)
-                result *= asFixnum(args->car);
-            else
-                result %= asFixnum(args->car);
-        else
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
             return 0;
+        if (args == p)
+            result *= asFixnum(q);
+        else
+            result %= asFixnum(q);
+    }
+    return fixnum(result);
+}
+
+sexp maxfunc(sexp args)
+{
+    long result = LONG_MIN;
+    for (sexp p = args; p; p = p->cdr)
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
+            return 0;
+        long x = asFixnum(q);
+        if (x > result)
+            result = x;
+    }
+    return fixnum(result);
+}
+
+sexp minfunc(sexp args)
+{
+    long result = LONG_MAX;
+    for (sexp p = args; p; p = p->cdr)
+    {
+        sexp q = p->car;
+        if (!isFixnum(q))
+            return 0;
+        long x = asFixnum(q);
+        if (x < result)
+            result = x;
+    }
     return fixnum(result);
 }
 
@@ -664,8 +701,21 @@ sexp globalform(sexp expr, sexp env)
 sexp beginform(sexp expr, sexp env)
 {
     sexp v = 0;
-    for (sexp p = expr; p; p = p->cdr)
+    for (sexp p = expr->cdr; p; p = p->cdr)
         v = eval(p->car, env);
+    return v;
+}
+
+/*
+ * (while predicate exp..) returns evaluation of the last exp
+ */
+sexp whileform(sexp expr, sexp env)
+{
+    sexp v = 0;
+    expr = expr->cdr;
+    while (eval(expr->car, env))
+        for (sexp p = expr->cdr; p; p = p->cdr)
+            v = eval(p->car, env);
     return v;
 }
 
@@ -1036,6 +1086,8 @@ int main(int argc, char **argv, char **envp)
     loada   = intern_atom_chunk("load");
     lparen  = intern_atom_chunk("(");
     lta     = intern_atom_chunk("<");
+    max     = intern_atom_chunk("max");
+    min     = intern_atom_chunk("min");
     minus   = intern_atom_chunk("-");
     modulo  = intern_atom_chunk("%");
     nil     = intern_atom_chunk("#f");
@@ -1051,6 +1103,7 @@ int main(int argc, char **argv, char **envp)
     times   = intern_atom_chunk("*");
     t       = intern_atom_chunk("#t");
     voida   = intern_atom_chunk("");
+    whilea  = intern_atom_chunk("while");
 
     // set the definitions (special forms)
     set_form(begin,   beginform);
@@ -1063,6 +1116,7 @@ int main(int argc, char **argv, char **envp)
     set_form(quote,   quoteform);
     set_form(reada,   readform);
     set_form(seta,    setform);
+    set_form(whilea,  whileform);
 
     // set the definitions (one argument functions)
     set_onearg(cara,   car);
@@ -1084,6 +1138,8 @@ int main(int argc, char **argv, char **envp)
     set_vararg(minus,   subfunc);
     set_vararg(times,   mulfunc);
     set_vararg(divide,  divfunc);
+    set_vararg(max,     maxfunc);
+    set_vararg(min,     minfunc);
     set_vararg(modulo,  modfunc);
     set_vararg(printa,  printfunc);
     set_vararg(println, printlnfunc);

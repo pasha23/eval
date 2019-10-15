@@ -52,6 +52,22 @@
                  (tak (- z 1) x y))
             z))
 
+(define (even x)
+        (eqv? 0 (% x 2)))
+
+(define (odd x)
+        (not (even x)))
+
+(define (square x)
+        (* x x))
+
+(define (expt x n)
+        (if (eqv? 0 n)
+            1
+            (if (odd n)
+                (* x (expt x (- n 1)))
+                (square (expt x (/ n 2))))))
+
 (define (mapcar f s)
         (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 
