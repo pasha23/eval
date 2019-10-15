@@ -44,9 +44,9 @@ enum Tag
     ATOM   = 2,
     FORM   = 3,
     NUMBER = 4,
-    VARARG = 5,
-    ONEARG = 6,
-    TWOARG = 7,
+    FUNCT  = 5,
+    STRING = 6,
+    UNUSD7 = 7,
     MARK   = 8
 };
 
@@ -57,9 +57,9 @@ const char* nodeTypes[] =
 	"ATOM",
 	"FORM",
 	"NUMBER",
-	"VARARG",
-	"ONEARG",
-	"TWOARG",
+	"FUNCTION",
+	"STRING",
+	"UNUSD7",
 	"MARK"
 };
 
@@ -75,10 +75,9 @@ typedef sexp (*Twoargp)(sexp, sexp);
 struct Cons   { sexp   cdr; sexp    car;                 };
 struct Chunk  { Chunk* cdr; char    text[sizeof(void*)]; };
 struct Atom   { Tag    tag; Chunk*  chunks;              };
+struct String { Tag    tag; Chunk*  chunks;              };
 struct Fixnum { Tag    tag; long    fixnum;              };
-struct Vararg { Tag    tag; Varargp funcp;               };
-struct Onearg { Tag    tag; Oneargp funcp;               };
-struct Twoarg { Tag    tag; Twoargp funcp;               };
+struct Funct  { long   tag; void*   funcp;               };
 struct Form   { Tag    tag; Formp   formp;               };
 
 sexp eval(sexp p, sexp env);
@@ -105,13 +104,13 @@ sexp freelist = 0;          // available nodes are linked in a list
 int allocated = 0;          // how many nodes have been allocated
 
 static inline int  nodeType(const sexp p) { return 15                & (long)p->cdr;  }
+static inline int  numArgs(const sexp p)  { return (long)p->cdr >> 4;                 }
 static inline bool isMarked(const sexp p) { return p && MARK         & (long)p->cdr;  }
 static inline bool isCons(const sexp p)   { return p && CONS   == (7 & (long)p->cdr); }
 static inline bool isChunk(const sexp p)  { return p && CHUNK  == (7 & (long)p->cdr); }
 static inline bool isAtom(const sexp p)   { return p && ATOM   == (7 & (long)p->cdr); }
-static inline bool isVararg(const sexp p) { return p && VARARG == (7 & (long)p->cdr); }
-static inline bool isOnearg(const sexp p) { return p && ONEARG == (7 & (long)p->cdr); }
-static inline bool isTwoarg(const sexp p) { return p && TWOARG == (7 & (long)p->cdr); }
+static inline bool isString(const sexp p) { return p && STRING == (7 & (long)p->cdr); }
+static inline bool isFunct(const sexp p)  { return p && FUNCT  == (7 & (long)p->cdr); }
 static inline bool isForm(const sexp p)   { return p && FORM   == (7 & (long)p->cdr); }
 static inline bool isFixnum(const sexp p) { return p && NUMBER == (7 & (long)p->cdr); }
 
@@ -168,23 +167,34 @@ static void unmarkChunk(sexp p)
 }
 
 /*
+ * mark a list of Chunks
+ */
+void markChunks(Chunk *q)
+{
+    Chunk *r;
+    while (q)
+    {
+        r = q->cdr;
+        markChunk((sexp)q);
+        q = r;
+    }
+}
+
+/*
  * visit objects reachable from p, setting their MARK bit
  */
 void mark(sexp p)
 {
     if (!p || isMarked(p))
         return;
-    if (isCons(p))
+    if (isAtom(p))
+        markChunks(((Atom*)p)->chunks);
+    else if (isString(p))
+        markChunks(((String*)p)->chunks);
+    else if (isCons(p))
     {
         mark(p->car);
         mark(p->cdr);
-    } else if (isAtom(p)) {
-        Chunk* r = 0;
-        for (Chunk *q = ((Atom*)p)->chunks; q; q = r)
-        {
-            r = q->cdr;          // we have blown up here p->tag == 11 ??
-            markChunk((sexp)q);  // tag the Chunk so sweep will find it
-        }
     }
     markNode(p);
 }
@@ -329,22 +339,6 @@ sexp gt(sexp x, sexp y)
 }
 
 /*
- * comparison for equality
- */
-sexp eqv(sexp x, sexp y)
-{
-    if (x == y)
-        return t;
-    if (isAtom(x) && isAtom(y))
-        return x == y ? t : 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) == asFixnum(y) ? t : 0;
-    if (isCons(x) && isCons(y))
-        return eqv(x->car, y->car) && eqv(x->cdr, y->cdr) ? t : 0;
-    return 0;
-}
-
-/*
  * these arithmetic functions take a list of arguments
  */
 sexp addfunc(sexp args)
@@ -462,11 +456,21 @@ sexp isnot(sexp x)
  */
 sexp load(sexp x)
 {
-    if (isAtom(x))
-    {
-        // filename must fit in the first chunk
-        // since we have not yet implemented strings
-        std::ifstream fin(((Atom*)x)->chunks->text);
+    if (isString(x)) {
+        int length = 0;
+        for (Chunk* p = ((String*)x)->chunks; p; p = p->cdr)
+        {
+            int i = 0;
+            while (i < sizeof(void*) && p->text[i])
+                ++i;
+            length += i;
+        }
+        char *name = (char*) alloca(length+1);
+        int j = 0;
+        for (Chunk* p = ((String*)x)->chunks; p; p = p->cdr)
+            for (int i = 0; i < sizeof(void*) && p->text[i]; name[j++] = p->text[i++]) {}
+        name[j++] = 0;
+        std::ifstream fin(name);
         while (fin.good())
         {
             sexp input = read(fin);
@@ -475,9 +479,8 @@ sexp load(sexp x)
             eval(input, global);
         }
         fin.close();
-    }
-
-    return 0;
+    } else
+        return 0;
 }
 
 /*
@@ -536,12 +539,23 @@ Chunk* chunk(const char *t)
 }
 
 /*
- * construct an atom
+ * construct an Atom
  */
 sexp atom(Chunk* chunks)
 {
     Atom* p = (Atom*)node();
     p->tag = ATOM;
+    p->chunks = chunks;
+    return (sexp)p;
+}
+
+/*
+ * construct a String
+ */
+sexp string(Chunk* chunks)
+{
+    String* p = (String*)node();
+    p->tag = STRING;
     p->chunks = chunks;
     return (sexp)p;
 }
@@ -567,6 +581,23 @@ std::ostream& printList(std::ostream& output, sexp expr)
             expr = expr->cdr;
     }
     output.put(')');
+    return output;
+}
+
+std::ostream& printChunks(std::ostream& output, Chunk* p)
+{
+    while (p)
+    {
+        for (int i = 0; i < sizeof(void*); ++i)
+        {
+            char c = p->text[i];
+            if (!c)
+                break;
+            output.put(c);
+        }
+        p = p->cdr;
+    }
+    return output;
 }
 
 /*
@@ -578,23 +609,16 @@ std::ostream& print(std::ostream& output, sexp expr)
         output.write("#f", 2);
     else if (isCons(expr))
         printList(output, expr);
-    else if (isAtom(expr))
-        for (Chunk* chunk = ((Atom*)expr)->chunks; chunk; chunk = chunk->cdr)
-            for (int i = 0; i < sizeof(void*); ++i)
-            {
-                char c = chunk->text[i];
-                if (!c)
-                    break;
-                output.put(c);
-            }
+    else if (isString(expr)) {
+        output.put('"');
+        printChunks(output, ((String*)expr)->chunks);
+        output.put('"');
+    } else if (isAtom(expr))
+        printChunks(output, ((Atom*)expr)->chunks);
     else if (isFixnum(expr))
         std::cout << ((Fixnum*)expr)->fixnum;
-    else if (isVararg(expr))
-        std::cout << "#varargs@" << std::hex << (long)((Vararg*)expr)->funcp << std::dec;
-    else if (isOnearg(expr))
-        std::cout << "#onearg@" << std::hex << (long)((Onearg*)expr)->funcp << std::dec;
-    else if (isTwoarg(expr))
-        std::cout << "#twoarg@" << std::hex << (long)((Twoarg*)expr)->funcp << std::dec;
+    else if (isFunct(expr))
+        std::cout << "#function@" << std::hex << (long)((Funct*)expr)->funcp << std::dec;
     else if (isForm(expr))
         std::cout << "#form@" << std::hex << (long)((Form*)expr)->formp << std::dec;
     return output;
@@ -617,6 +641,24 @@ bool match(Chunk *p, Chunk *q)
         p = p->cdr;
         q = q->cdr;
     }
+}
+
+/*
+ * comparison for equality
+ */
+sexp eqv(sexp x, sexp y)
+{
+    if (x == y)
+        return t;
+    if (isAtom(x) && isAtom(y))
+        return x == y ? t : 0;
+    if (isFixnum(x) && isFixnum(y))
+        return asFixnum(x) == asFixnum(y) ? t : 0;
+    if (isCons(x) && isCons(y))
+        return eqv(x->car, y->car) && eqv(x->cdr, y->cdr) ? t : 0;
+    if (isString(x) && isString(y))
+        return match(((String*)x)->chunks, ((String*)y)->chunks) ? t : 0;
+    return 0;
 }
 
 /*
@@ -857,20 +899,25 @@ sexp eval(sexp p, sexp env)
         return get(p, env);
     if (isFixnum(p))
         return p;
+    if (isString(p))
+        return p;
     if (isCons(p) && lambda == p->car)
         return p;
     sexp q = eval(p->car, env);
     if (isCons(q) && lambda == q->car)
         return lambdaform(p, env);
-    if (isVararg(q))
-        return (*((Vararg*)q)->funcp)(evlis(p->cdr, env));
-    if (isOnearg(q))
-        return (*((Onearg*)q)->funcp)(eval(p->cdr->car, env));
-    if (isTwoarg(q))
-        return (*((Twoarg*)q)->funcp)(eval(p->cdr->car, env),
-                                      eval(p->cdr->cdr->car, env));
     if (isForm(q))
         return (*((Form*)q)->formp)(p, env);
+    if (isFunct(q))
+    {
+        if (0 == numArgs(q))
+            return (*(Varargp)((Funct*)q)->funcp)(evlis(p->cdr, env));
+        if (1 == numArgs(q))
+            return (*(Oneargp)((Funct*)q)->funcp)(eval(p->cdr->car, env));
+        if (2 == numArgs(q))
+            return (*(Twoargp)((Funct*)q)->funcp)(eval(p->cdr->car, env), eval(p->cdr->cdr->car, env));
+        return 0;
+    }
     return p;
 }
 
@@ -893,7 +940,34 @@ long readNumber(std::istream& input)
 }
 
 /*
- * read an atom or number from the input stream
+ * read Chunks terminated by some character
+ */
+Chunk *readChunks(std::istream& input, const char *ends)
+{
+    char c = input.get();
+
+    int i = 0;
+    Chunk *q = chunk("");
+    Chunk *p = q;
+
+    for (;;)
+    {
+        q->text[i++] = c;
+        c = input.get();
+
+        if (strchr(ends, c))
+            return p;
+
+        if (i == sizeof(void*)) {
+            q->cdr = chunk("");
+            q = q->cdr;
+            i = 0;
+        }
+    }
+}
+
+/*
+ * read an atom, number or string from the input stream
  */
 sexp scan(std::istream& input)
 {
@@ -924,27 +998,13 @@ sexp scan(std::istream& input)
         return fixnum(readNumber(input));
     }
 
-    int i = 0;
-    Chunk *q = chunk("");
-    Chunk *p = q;
+    if ('"' == c)
+        return string(readChunks(input, "\""));
 
-    for (;;)
-    {
-        q->text[i++] = c;
-        c = input.get();
-
-        if (strchr("( )\t\r\n", c))
-        {
-            input.unget();
-            return intern(atom(p));
-        }
-
-        if (i == sizeof(void*)) {
-            q->cdr = chunk("");
-            q = q->cdr;
-            i = 0;
-        }
-    }
+    input.unget();
+    sexp r = intern(atom(readChunks(input, "( )\t\r\n")));
+    input.unget();
+    return r;
 }
 
 /*
@@ -987,26 +1047,10 @@ void set_form(sexp name, Formp f)
     set(name, (sexp)p);
 }
 
-void set_onearg(sexp name, Oneargp f)
+void set_funct(sexp name, int arity, void* f)
 {
-    Onearg* p = (Onearg*)node();
-    p->tag = ONEARG;
-    p->funcp = f;
-    set(name, (sexp)p);
-}
-
-void set_twoarg(sexp name, Twoargp f)
-{
-    Twoarg* p = (Twoarg*)node();
-    p->tag = TWOARG;
-    p->funcp = f;
-    set(name, (sexp)p);
-}
-
-void set_vararg(sexp name, Varargp f)
-{
-    Vararg* p = (Vararg*)node();
-    p->tag = VARARG;
+    Funct* p = (Funct*)node();
+    p->tag = (arity << 4) | FUNCT;
     p->funcp = f;
     set(name, (sexp)p);
 }
@@ -1120,33 +1164,29 @@ int main(int argc, char **argv, char **envp)
     set_form(seta,    setform);
     set_form(whilea,  whileform);
 
-    // set the definitions (one argument functions)
-    set_onearg(cara,   car);
-    set_onearg(cdra,   cdr);
-    set_onearg(loada,  load);
-    set_onearg(nota,   isnot);
+    // set the definitions (functions)
+    set_funct(atomsa,  0, (void*)atomsfunc);
+    set_funct(cara,    1, (void*)car);
+    set_funct(cdra,    1, (void*)cdr);
+    set_funct(consa,   2, (void*)cons);
+    set_funct(divide,  0, (void*)divfunc);
+    set_funct(eqva,    2, (void*)eqv);
+    set_funct(gea,     2, (void*)ge);
+    set_funct(gta,     2, (void*)gt);
+    set_funct(lea,     2, (void*)le);
+    set_funct(loada,   1, (void*)load);
+    set_funct(lta,     2, (void*)lt);
+    set_funct(max,     0, (void*)maxfunc);
+    set_funct(min,     0, (void*)minfunc);
+    set_funct(minus,   0, (void*)subfunc);
+    set_funct(modulo,  0, (void*)modfunc);
+    set_funct(nota,    1, (void*)isnot);
+    set_funct(plus,    0, (void*)addfunc);
+    set_funct(printa,  0, (void*)printfunc);
+    set_funct(println, 0, (void*)printlnfunc);
+    set_funct(times,   0, (void*)mulfunc);
 
-    // set the definitions (two argument functions)
-    set_twoarg(consa, cons);
-    set_twoarg(eqva,  eqv);
-    set_twoarg(gea,   ge);
-    set_twoarg(gta,   gt);
-    set_twoarg(lea,   le);
-    set_twoarg(lta,   lt);
-
-    // set the definitions (varadic functions)
-    set_vararg(atomsa,  atomsfunc);
-    set_vararg(plus,    addfunc);
-    set_vararg(minus,   subfunc);
-    set_vararg(times,   mulfunc);
-    set_vararg(divide,  divfunc);
-    set_vararg(max,     maxfunc);
-    set_vararg(min,     minfunc);
-    set_vararg(modulo,  modfunc);
-    set_vararg(printa,  printfunc);
-    set_vararg(println, printlnfunc);
-
-    load(intern_atom_chunk("init.l"));
+    load(string(chunk("init.l")));
 
     setjmp(the_jmpbuf);
 
