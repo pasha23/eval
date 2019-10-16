@@ -618,9 +618,11 @@ std::ostream& print(std::ostream& output, sexp expr)
     else if (isFixnum(expr))
         std::cout << ((Fixnum*)expr)->fixnum;
     else if (isFunct(expr))
-        std::cout << "#function@" << std::hex << (long)((Funct*)expr)->funcp << std::dec;
+        std::cout << "#function" << arity(expr) << "@" << std::hex
+                  << (long)((Funct*)expr)->funcp << std::dec;
     else if (isForm(expr))
-        std::cout << "#form@" << std::hex << (long)((Form*)expr)->formp << std::dec;
+        std::cout << "#form@" << std::hex
+                  << (long)((Form*)expr)->formp << std::dec;
     return output;
 }
 

@@ -41,7 +41,7 @@
 (define (ack n m)
         (if (eqv? n 0)
             (+ m 1)
-            (if (eq m 0)
+            (if (eqv? m 0)
                 (ack (- n 1) 1)
                 (ack (- n 1) (ack n (- m 1))))))
 
@@ -64,6 +64,15 @@
             (if (odd n)
                 (* x (expt x (- n 1)))
                 (let ((y (expt x (/ n 2)))) (* y y)))))
+
+(define (gcd x y)
+  (if (eqv? y 0)
+      x
+      (gcd y (% x y))))
+
+(define (lcm x y)
+        (let ((t (gcd x y)))
+             (* (/ x t) (/ y t))))
 
 (define (mapcar f s)
         (if s (cons (f (car s)) (mapcar f (cdr s))) s))
