@@ -16,12 +16,13 @@
 #include <libunwind.h>
 #include <cxxabi.h>
 #include <setjmp.h>
-#include <iostream>
 #include <fstream>
+#include <iostream>
 #include <cstring>
 #include <cstdlib>
 #include <csignal>
 #include <climits>
+#include <cstdio>
 
 #define GC
 #define MAX 4096
@@ -82,7 +83,7 @@ struct Form   { Tag    tag; Formp   formp;               };
 
 sexp eval(sexp p, sexp env);
 sexp evlis(sexp p, sexp env);
-std::ostream& print(std::ostream& output, sexp p);
+void print(sexp p);
 sexp set(sexp p, sexp r);
 sexp assoc(sexp formals, sexp actuals, sexp env);
 sexp read(std::istream& input);
@@ -99,12 +100,30 @@ int  marked = 0;            // how many nodes were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
 sexp block = 0;             // all the storage starts here
 sexp global = 0;            // this is the global symbol table (a list)
-sexp protect = 0;           // protects otherwise unreachable objects from gc
 sexp freelist = 0;          // available nodes are linked in a list
 int allocated = 0;          // how many nodes have been allocated
 
+const int PSIZE=128;        // size of protection stack
+sexp protect[PSIZE];        // protection stack
+sexp *psp = protect;        // protection stack pointer
+
+void prot(sexp p)
+{
+    if (psp >= protect+PSIZE-1)
+        puts("protection stack overflow!");
+    *psp++ = p;
+}
+
+void unprot(int n)
+{
+    if (psp-n < protect)
+        puts("protection stack underflow!\n");
+    while (n--)
+        *psp-- = 0;
+}
+
 static inline int  nodeType(const sexp p) { return 15                & (long)p->cdr;  }
-static inline int  numArgs(const sexp p)  { return (long)p->cdr >> 4;                 }
+static inline int  arity(const sexp p)    { return (long)p->cdr >> 4;                 }
 static inline bool isMarked(const sexp p) { return p && MARK         & (long)p->cdr;  }
 static inline bool isCons(const sexp p)   { return p && CONS   == (7 & (long)p->cdr); }
 static inline bool isChunk(const sexp p)  { return p && CHUNK  == (7 & (long)p->cdr); }
@@ -122,7 +141,7 @@ jmp_buf the_jmpbuf;
 static void markNode(sexp p)
 {
 #ifdef DEBUG
-    std::cout << std::hex << (long)p << " markNode    " << nodeTypes[nodeType(p)] << std::endl;
+    printf("%lx markNode %s\n", (long)p, nodeTypes[nodeType(p)]);
 #endif
     *(long*)&p->cdr |= MARK;
     ++marked;
@@ -135,7 +154,7 @@ static void markChunk(sexp p)
 {
     *(long*)&p->cdr |= CHUNK;
 #ifdef DEBUG
-    std::cout << std::hex << (long)p << " markChunk   " << nodeTypes[nodeType(p)] << std::endl;
+    printf("%lx markChunk %s\n", (long)p, nodeTypes[nodeType(p)]);
 #endif
     *(long*)&p->cdr |= MARK;
     ++marked;
@@ -148,7 +167,7 @@ static void unmarkNode(sexp p)
 {
     *(long*)&p->cdr &= ~MARK;
 #ifdef DEBUG
-    std::cout << std::hex << (long)p << " unmarkNode  " << nodeTypes[nodeType(p)] << std::endl;
+    printf("%lx unmarkNode %s\n", (long)p, nodeTypes[nodeType(p)]);
 #endif
     --marked;
 }
@@ -160,7 +179,7 @@ static void unmarkChunk(sexp p)
 {
     *(long*)&p->cdr &= ~MARK;
 #ifdef DEBUG
-    std::cout << std::hex << (long)p << " unmarkChunk " << nodeTypes[nodeType(p)] << std::endl;
+    printf("%lx unmarkChunk %s\n", (long)p, nodeTypes[nodeType(p)]);
 #endif
     *(long*)&p->cdr &= ~CHUNK;
     --marked;
@@ -207,17 +226,20 @@ void mark(sexp p)
 void gc(void)
 {
 #ifdef GC
-    int werefree = 0;
-    for (sexp p = freelist; p; p = p->cdr)
-        ++werefree;
+    int werefree = MAX-allocated;
 
-    std::cout << "gc: allocated: " << allocated << " free: " << werefree;
+    printf("gc: allocated: %d free: %d", allocated, werefree);
 
     marked = 0;
     mark(atoms);
     mark(global);
-    mark(protect);
-    std::cout << " marked: " << std::dec << marked << " expected garbage: " << werefree+allocated-marked;
+    while (psp < protect+PSIZE)
+    {
+        mark(*psp);
+        *psp++ = 0;
+    }
+
+    printf(" marked: %d expected garbage: %d", marked, werefree+allocated-marked);
 
     freelist = 0;
     int reclaimed = 0;
@@ -234,16 +256,17 @@ void gc(void)
         else
             unmarkNode(p);
     }
-    std::cout << " reclaimed: " << reclaimed << std::endl;
+
+    printf(" reclaimed: %d\n", reclaimed);
     allocated -= reclaimed-werefree;
 
     if (!freelist)
     {
-        std::cout << "storage exhausted\n";
+        printf("storage exhausted!\n");
         exit(0);
     }
 #else
-    std::cout << "no gc\n";
+    printf("no gc\n");
     exit(0);
 #endif
 }
@@ -257,7 +280,7 @@ sexp node(void)
         gc();
 
     ++allocated;
-    Cons* p = protect = freelist;
+    Cons* p = freelist;
     freelist = freelist->cdr;
     p->cdr = 0;
     return p;
@@ -275,7 +298,9 @@ sexp car(sexp p)
 {
     if (!p || !isCons(p))
     {
-        std::cout << "longjmp! car of " << nodeTypes[nodeType(p)] << ' '; print(std::cout, p); std::cout << std::endl;
+        printf("longjmp! car of %s ", nodeTypes[nodeType(p)]);
+        print(p);
+        putchar('\n');
         longjmp(the_jmpbuf, 1);
     }
     return p->car;
@@ -285,7 +310,9 @@ sexp cdr(sexp p)
 {
     if (!p || !isCons(p))
     {
-        std::cout << "longjmp! cdr of " << nodeTypes[nodeType(p)] << ' '; print(std::cout, p); std::cout << std::endl;
+        printf("longjmp! cdr of %s ", nodeTypes[nodeType(p)]);
+        print(p);
+        putchar('\n');
         longjmp(the_jmpbuf, 1);
     }
     return p->cdr;
@@ -490,9 +517,9 @@ sexp printfunc(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
     {
-        print(std::cout, p->car);
+        print(p->car);
         if (p->cdr)
-            std::cout << ' ';
+            putchar(' ');
     }
     return voida;
 }
@@ -505,11 +532,11 @@ sexp printlnfunc(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
     {
-        print(std::cout, p->car);
+        print(p->car);
         if (p->cdr)
-            std::cout << ' ';
+            putchar(' ');
     }
-    std::cout << std::endl;
+    putchar('\n');
     return voida;
 }
 
@@ -530,10 +557,7 @@ Chunk* chunk(const char *t)
         if (i >= sizeof(void*))
         {
             i = 0;
-            Chunk* r = (Chunk*)node();
-            q->cdr = r;
-            protect = (sexp)p;
-            q = r;
+            q = q->cdr = (Chunk*)node();
         }
     }
 }
@@ -563,28 +587,27 @@ sexp string(Chunk* chunks)
 /*
  * print a list
  */
-std::ostream& printList(std::ostream& output, sexp expr)
+void printList(sexp expr)
 {
-    output.put('(');
+    putchar('(');
     while (expr) {
-        print(output, expr->car);
+        print(expr->car);
         if (expr->cdr) {
             if (isCons(expr->cdr)) {
-                output.put(' ');
+                putchar(' ');
                 expr = expr->cdr;
             } else {
-                output.write(" . ", 3);
-                print(output, expr->cdr);
+                printf("%s", " . ");
+                print(expr->cdr);
                 expr = 0;
             }
         } else
             expr = expr->cdr;
     }
-    output.put(')');
-    return output;
+    putchar(')');
 }
 
-std::ostream& printChunks(std::ostream& output, Chunk* p)
+void printChunks(Chunk* p)
 {
     while (p)
     {
@@ -593,37 +616,33 @@ std::ostream& printChunks(std::ostream& output, Chunk* p)
             char c = p->text[i];
             if (!c)
                 break;
-            output.put(c);
+            putchar(c);
         }
         p = p->cdr;
     }
-    return output;
 }
 
 /*
  * print an s-expression
  */
-std::ostream& print(std::ostream& output, sexp expr)
+void print(sexp expr)
 {
     if (!expr)
-        output.write("#f", 2);
+        printf("%s", "#f");
     else if (isCons(expr))
-        printList(output, expr);
+        printList(expr);
     else if (isString(expr)) {
-        output.put('"');
-        printChunks(output, ((String*)expr)->chunks);
-        output.put('"');
+        putchar('"');
+        printChunks(((String*)expr)->chunks);
+        putchar('"');
     } else if (isAtom(expr))
-        printChunks(output, ((Atom*)expr)->chunks);
+        printChunks(((Atom*)expr)->chunks);
     else if (isFixnum(expr))
-        std::cout << ((Fixnum*)expr)->fixnum;
+        printf("%ld", ((Fixnum*)expr)->fixnum);
     else if (isFunct(expr))
-        std::cout << "#function" << arity(expr) << "@" << std::hex
-                  << (long)((Funct*)expr)->funcp << std::dec;
+        printf("#function%d@%lx", arity(expr), (long)((Funct*)expr)->funcp);
     else if (isForm(expr))
-        std::cout << "#form@" << std::hex
-                  << (long)((Form*)expr)->formp << std::dec;
-    return output;
+        printf("#form@%lx", (long)((Form*)expr)->formp);
 }
 
 /*
@@ -912,11 +931,11 @@ sexp eval(sexp p, sexp env)
         return (*((Form*)q)->formp)(p, env);
     if (isFunct(q))
     {
-        if (0 == numArgs(q))
+        if (0 == arity(q))
             return (*(Varargp)((Funct*)q)->funcp)(evlis(p->cdr, env));
-        if (1 == numArgs(q))
+        if (1 == arity(q))
             return (*(Oneargp)((Funct*)q)->funcp)(eval(p->cdr->car, env));
-        if (2 == numArgs(q))
+        if (2 == arity(q))
             return (*(Twoargp)((Funct*)q)->funcp)(eval(p->cdr->car, env), eval(p->cdr->cdr->car, env));
         return 0;
     }
@@ -1083,10 +1102,9 @@ void signal_handler(int sig)
             name = symbol;
         }
 
-        std::cout << std::dec << "#" << ++n
-                  << " 0x" << std::hex << static_cast<uintptr_t>(ip)
-                  << " sp=0x" << static_cast<uintptr_t>(sp) << " " << name
-                  << " + 0x" << static_cast<uintptr_t>(off) << std::endl;
+        printf("#%d 0x%lx sp=0x%lx %s + 0x%lx\n", ++n,
+                static_cast<uintptr_t>(ip), static_cast<uintptr_t>(sp),
+                name, static_cast<uintptr_t>(off));
 
         if ( name != symbol )
           free(name);
@@ -1193,7 +1211,7 @@ int main(int argc, char **argv, char **envp)
     setjmp(the_jmpbuf);
 
     // read evaluate print ...
-    while (std::cin.good())
+    while (!feof(stdin))
     {
 #ifdef VOLUNTARY_GC
         gc();
@@ -1203,7 +1221,10 @@ int main(int argc, char **argv, char **envp)
             break;
         sexp v = eval(e, global);
         if (voida != v)
-            print(std::cout, eval(e, global)) << std::endl;
+        {
+            print(eval(e, global));
+            putchar('\n');
+        }
     }
     return 0;
 }
