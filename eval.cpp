@@ -16,8 +16,6 @@
 #include <libunwind.h>
 #include <cxxabi.h>
 #include <setjmp.h>
-#include <fstream>
-#include <iostream>
 #include <cstring>
 #include <cstdlib>
 #include <csignal>
@@ -31,11 +29,11 @@
 #undef  SIGNALS
 
 /*
- * storage is managed as a freelist of nodes, each potentially containing two pointers
- * the low 4 bits contain a tag that identifies the type of node except usual list cells
+ * storage is managed as a freelist of cells, each potentially containing two pointers
+ * the low 4 bits contain a tag that identifies the type of cell except usual list cells
  * naturally have a tag of 0.  Chunks contain the text of atoms linked in a list, but
  * the tag is not present unless the Chunk is marked for garbage collection. Bit 3 is
- * used to mark reachable nodes during garbage collection.  There are just enough bits
+ * used to mark reachable cells during garbage collection.  There are just enough bits
  * available to implement this plan.
  */
 enum Tag
@@ -51,7 +49,7 @@ enum Tag
     MARK   = 8
 };
 
-const char* nodeTypes[] =
+const char* cellTypes[] =
 {
 	"CONS",
     "CHUNK",
@@ -86,8 +84,8 @@ sexp evlis(sexp p, sexp env);
 void print(sexp p);
 sexp set(sexp p, sexp r);
 sexp assoc(sexp formals, sexp actuals, sexp env);
-sexp read(std::istream& input);
-sexp scan(std::istream& input);
+sexp read(FILE* fin);
+sexp scan(FILE* fin);
 
 // these are the built-in atoms
 
@@ -96,12 +94,12 @@ sexp gea, gta, eqva, globals, ifa, lambda, lparen, lea, let, loada, lta;
 sexp max, min, minus, modulo, nil, nota, plus, printa, println, qchar;
 sexp quote, reada, rparen, seta, t, times, voida, whilea;
 
-int  marked = 0;            // how many nodes were marked during gc
+int  marked = 0;            // how many cells were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
 sexp block = 0;             // all the storage starts here
 sexp global = 0;            // this is the global symbol table (a list)
-sexp freelist = 0;          // available nodes are linked in a list
-int allocated = 0;          // how many nodes have been allocated
+sexp freelist = 0;          // available cells are linked in a list
+int allocated = 0;          // how many cells have been allocated
 
 const int PSIZE=128;        // size of protection stack
 sexp protect[PSIZE];        // protection stack
@@ -122,7 +120,7 @@ void unprot(int n)
         *psp-- = 0;
 }
 
-static inline int  nodeType(const sexp p) { return 15                & (long)p->cdr;  }
+static inline int  cellType(const sexp p) { return 15                & (long)p->cdr;  }
 static inline int  arity(const sexp p)    { return (long)p->cdr >> 4;                 }
 static inline bool isMarked(const sexp p) { return p && MARK         & (long)p->cdr;  }
 static inline bool isCons(const sexp p)   { return p && CONS   == (7 & (long)p->cdr); }
@@ -136,38 +134,38 @@ static inline bool isFixnum(const sexp p) { return p && NUMBER == (7 & (long)p->
 jmp_buf the_jmpbuf;
 
 /*
- * mark the node
+ * mark the cell
  */
-static void markNode(sexp p)
+static void markCell(sexp p)
 {
 #ifdef DEBUG
-    printf("%lx markNode %s\n", (long)p, nodeTypes[nodeType(p)]);
+    printf("%lx markCell %s\n", (long)p, cellTypes[cellType(p)]);
 #endif
     *(long*)&p->cdr |= MARK;
     ++marked;
 }
 
 /*
- * mark the node, identify it as a Chunk
+ * mark the cell, identify it as a Chunk
  */
 static void markChunk(sexp p)
 {
     *(long*)&p->cdr |= CHUNK;
 #ifdef DEBUG
-    printf("%lx markChunk %s\n", (long)p, nodeTypes[nodeType(p)]);
+    printf("%lx markChunk %s\n", (long)p, cellTypes[cellType(p)]);
 #endif
     *(long*)&p->cdr |= MARK;
     ++marked;
 }
 
 /*
- * unmark the node
+ * unmark the cell
  */
-static void unmarkNode(sexp p)
+static void unmarkCell(sexp p)
 {
     *(long*)&p->cdr &= ~MARK;
 #ifdef DEBUG
-    printf("%lx unmarkNode %s\n", (long)p, nodeTypes[nodeType(p)]);
+    printf("%lx unmarkCell %s\n", (long)p, cellTypes[cellType(p)]);
 #endif
     --marked;
 }
@@ -179,7 +177,7 @@ static void unmarkChunk(sexp p)
 {
     *(long*)&p->cdr &= ~MARK;
 #ifdef DEBUG
-    printf("%lx unmarkChunk %s\n", (long)p, nodeTypes[nodeType(p)]);
+    printf("%lx unmarkChunk %s\n", (long)p, cellTypes[cellType(p)]);
 #endif
     *(long*)&p->cdr &= ~CHUNK;
     --marked;
@@ -215,7 +213,7 @@ void mark(sexp p)
         mark(p->car);
         mark(p->cdr);
     }
-    markNode(p);
+    markCell(p);
 }
 
 /*
@@ -254,7 +252,7 @@ void gc(void)
         } else if (isChunk(p))
             unmarkChunk(p);
         else
-            unmarkNode(p);
+            unmarkCell(p);
     }
 
     printf(" reclaimed: %d\n", reclaimed);
@@ -272,9 +270,9 @@ void gc(void)
 }
 
 /*
- * allocate a node from the freelist
+ * allocate a cell from the freelist
  */
-sexp node(void)
+sexp cell(void)
 {
     if (!freelist)
         gc();
@@ -288,7 +286,7 @@ sexp node(void)
 
 sexp cons(sexp car, sexp cdr)
 {
-    sexp p = node();
+    sexp p = cell();
     p->car = car;
     p->cdr = cdr;
     return p;
@@ -298,7 +296,7 @@ sexp car(sexp p)
 {
     if (!p || !isCons(p))
     {
-        printf("longjmp! car of %s ", nodeTypes[nodeType(p)]);
+        printf("longjmp! car of %s ", cellTypes[cellType(p)]);
         print(p);
         putchar('\n');
         longjmp(the_jmpbuf, 1);
@@ -310,7 +308,7 @@ sexp cdr(sexp p)
 {
     if (!p || !isCons(p))
     {
-        printf("longjmp! cdr of %s ", nodeTypes[nodeType(p)]);
+        printf("longjmp! cdr of %s ", cellTypes[cellType(p)]);
         print(p);
         putchar('\n');
         longjmp(the_jmpbuf, 1);
@@ -323,7 +321,7 @@ sexp cdr(sexp p)
  */
 sexp fixnum(long number)
 {
-    Fixnum* p = (Fixnum*)node();
+    Fixnum* p = (Fixnum*)cell();
     p->tag = NUMBER;
     p->fixnum = number;
     return (sexp)p;
@@ -497,15 +495,15 @@ sexp load(sexp x)
         for (Chunk* p = ((String*)x)->chunks; p; p = p->cdr)
             for (int i = 0; i < sizeof(void*) && p->text[i]; name[j++] = p->text[i++]) {}
         name[j++] = 0;
-        std::ifstream fin(name);
-        while (fin.good())
+        FILE* fin = fopen(name, "r");
+        while (!feof(fin))
         {
             sexp input = read(fin);
             if (!input)
                 break;
             eval(input, global);
         }
-        fin.close();
+        fclose(fin);
     } else
         return 0;
 }
@@ -545,7 +543,7 @@ sexp printlnfunc(sexp args)
  */
 Chunk* chunk(const char *t)
 {
-    Chunk* p = (Chunk*)node();
+    Chunk* p = (Chunk*)cell();
     Chunk *q = p;
     int i = 0;
     for (;;)
@@ -557,7 +555,7 @@ Chunk* chunk(const char *t)
         if (i >= sizeof(void*))
         {
             i = 0;
-            q = q->cdr = (Chunk*)node();
+            q = q->cdr = (Chunk*)cell();
         }
     }
 }
@@ -567,7 +565,7 @@ Chunk* chunk(const char *t)
  */
 sexp atom(Chunk* chunks)
 {
-    Atom* p = (Atom*)node();
+    Atom* p = (Atom*)cell();
     p->tag = ATOM;
     p->chunks = chunks;
     return (sexp)p;
@@ -578,7 +576,7 @@ sexp atom(Chunk* chunks)
  */
 sexp string(Chunk* chunks)
 {
-    String* p = (String*)node();
+    String* p = (String*)cell();
     p->tag = STRING;
     p->chunks = chunks;
     return (sexp)p;
@@ -854,7 +852,7 @@ sexp quoteform(sexp expr, sexp env)
  */
 sexp readform(sexp expr, sexp env)
 {
-    return read(std::cin);
+    return read(stdin);
 }
 
 /*
@@ -945,27 +943,28 @@ sexp eval(sexp p, sexp env)
 /*
  * an integer is read from the input stream
  */
-long readNumber(std::istream& input)
+long readNumber(FILE* fin)
 {
+    char c;
     long number = 0;
     for (;;)
     {
-        char c = input.get();
+        c = getc(fin);
         if ('0' <= c && c <= '9')
             number = 10 * number + (c - '0'); 
         else
             break;
     }
-    input.unget();
+    ungetc(c, fin);
     return number;
 }
 
 /*
  * read Chunks terminated by some character
  */
-Chunk *readChunks(std::istream& input, const char *ends)
+Chunk *readChunks(FILE* fin, const char *ends)
 {
-    char c = input.get();
+    char c = getc(fin);
 
     int i = 0;
     Chunk *q = chunk("");
@@ -974,10 +973,13 @@ Chunk *readChunks(std::istream& input, const char *ends)
     for (;;)
     {
         q->text[i++] = c;
-        c = input.get();
+        c = getc(fin);
 
         if (strchr(ends, c))
+        {
+            ungetc(c, fin);
             return p;
+        }
 
         if (i == sizeof(void*)) {
             q->cdr = chunk("");
@@ -990,11 +992,11 @@ Chunk *readChunks(std::istream& input, const char *ends)
 /*
  * read an atom, number or string from the input stream
  */
-sexp scan(std::istream& input)
+sexp scan(FILE* fin)
 {
-    char c = input.get();
+    char c = getc(fin);
     while (strchr(" \t\r\n", c))
-        c = input.get();
+        c = getc(fin);
     if (c < 0)
         return 0;
 
@@ -1009,49 +1011,52 @@ sexp scan(std::istream& input)
 
     // signed integers
     if ('-' == c) {
-        c = input.get();
+        c = getc(fin);
         if ('0' <= c && c <= '9')
-            return fixnum(-readNumber(input));
-        input.unget();
+            return fixnum(-readNumber(fin));
+        ungetc(c, fin);
         return minus;
     } else if ('0' <= c && c <= '9') {
-        input.unget();
-        return fixnum(readNumber(input));
+        ungetc(c, fin);
+        return fixnum(readNumber(fin));
     }
 
     if ('"' == c)
-        return string(readChunks(input, "\""));
+    {
+        sexp r = string(readChunks(fin, "\""));
+        (void)getc(fin);  // read the " again
+        return r;
+    }
 
-    input.unget();
-    sexp r = intern(atom(readChunks(input, "( )\t\r\n")));
-    input.unget();
+    ungetc(c, fin);
+    sexp r = intern(atom(readChunks(fin, "( )\t\r\n")));
     return r;
 }
 
 /*
  * finish reading a list
  */
-sexp readTail(std::istream& input)
+sexp readTail(FILE* fin)
 {
-    sexp q = read(input);
+    sexp q = read(fin);
     if (rparen == q)
         return 0;
-    sexp p = cons(q, readTail(input));
+    sexp p = cons(q, readTail(fin));
     return p;
 }
 
 /*
  * read an s-expression
  */
-sexp read(std::istream& input)
+sexp read(FILE* fin)
 {
-    sexp p = scan(input);
+    sexp p = scan(fin);
     if (nil == p)
         return 0;
     if (lparen == p)
-        return readTail(input);
+        return readTail(fin);
     if (qchar == p)
-        return cons(quote, cons(read(input), 0));
+        return cons(quote, cons(read(fin), 0));
     return p;
 }
 
@@ -1062,7 +1067,7 @@ sexp intern_atom_chunk(const char *s)
 
 void set_form(sexp name, Formp f)
 {
-    Form* p = (Form*)node();
+    Form* p = (Form*)cell();
     p->tag = FORM;
     p->formp = f;
     set(name, (sexp)p);
@@ -1070,7 +1075,7 @@ void set_form(sexp name, Formp f)
 
 void set_funct(sexp name, int arity, void* f)
 {
-    Funct* p = (Funct*)node();
+    Funct* p = (Funct*)cell();
     p->tag = (arity << 4) | FUNCT;
     p->funcp = f;
     set(name, (sexp)p);
@@ -1120,7 +1125,7 @@ int main(int argc, char **argv, char **envp)
     signal(SIGINT , signal_handler);
 #endif
 
-    // allocate all the nodes we will ever have
+    // allocate all the cells we will ever have
     block = (sexp)malloc(MAX*sizeof(Cons));
     for (int i = MAX; --i >= 0; )
     {
@@ -1216,7 +1221,7 @@ int main(int argc, char **argv, char **envp)
 #ifdef VOLUNTARY_GC
         gc();
 #endif
-        sexp e = read(std::cin);
+        sexp e = read(stdin);
         if (!e)
             break;
         sexp v = eval(e, global);
