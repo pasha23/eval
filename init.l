@@ -77,5 +77,5 @@
 (define (mapcar f s)
         (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 
-(println (mapcar car (globals)))
+(display (mapcar car (globals)) (newline))
 
