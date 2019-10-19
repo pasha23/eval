@@ -3,7 +3,6 @@
  * not at all standards compliant or industrial strength
  * dynamically scoped, without tail call optimization
  *
- * there are gc issues at present
  * circular lists cannot be displayed
  * syntactic atoms need meta-syntax when displayed
  * quasiquote
@@ -19,20 +18,18 @@
 #include <csignal>
 #include <climits>
 #include <cstdio>
+#include <assert.h>
 
 #define GC
-#define MAX 4096
+#define PSIZE 2048
+#define MAX 131072
 #undef  DEBUG
-#define VOLUNTARY_GC
-#undef  SIGNALS
+#define SIGNALS
 
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
  * the low 4 bits contain a tag that identifies the type of cell except usual list cells
- * naturally have a tag of 0.  Chunks contain the text of atoms linked in a list, but
- * the tag is not present unless the Chunk is marked for garbage collection. Bit 3 is
- * used to mark reachable cells during garbage collection.  There are just enough bits
- * available to implement this plan.
+ * naturally have a tag of 0.  Bit 3 is used to mark reachable cells during garbage collection.
  */
 enum Tag
 {
@@ -43,7 +40,7 @@ enum Tag
     NUMBER = 4,
     FUNCT  = 5,
     STRING = 6,
-    UNUSD7 = 7,
+    UNUSED = 7,
     MARK   = 8
 };
 
@@ -56,7 +53,7 @@ const char* cellTypes[] =
 	"NUMBER",
 	"FUNCTION",
 	"STRING",
-	"UNUSD7",
+	"UNUSED",
 	"MARK"
 };
 
@@ -113,34 +110,38 @@ sexp global = 0;            // this is the global symbol table (a list)
 sexp freelist = 0;          // available cells are linked in a list
 int allocated = 0;          // how many cells have been allocated
 
-const int PSIZE=1024;       // size of protection stack
 sexp protect[PSIZE];        // protection stack
-sexp *psp = protect+PSIZE;  // protection stack pointer
+sexp *psp = protect;        // protection stack pointer
 
 void prot(sexp p)
 {
-    if (psp <= protect)
-        puts("protection stack overflow!");
+    *psp++ = p;
 #ifdef DEBUG
-    printf("push: ");
+    printf("push: %ld ", psp-protect);
     display(stdout, p);
     putchar('\n');
 #endif
-    *--psp = p;
+    if (psp >= protect+PSIZE) {
+        puts("protection stack overflow!");
+        assert(false);
+    }
 }
 
 void unprot(int n)
 {
-    if (psp+n > protect+PSIZE)
+    if (psp-n < protect) {
         puts("protection stack underflow!");
-    while (n > 0)
+        assert(false);
+    }
+    for ( ; n > 0; --n)
     {
+        sexp p = *--psp;
+        *psp = 0;
 #ifdef DEBUG
         printf("popped: ");
-        display(stdout, *psp);
+        display(stdout, p);
         putchar('\n');
 #endif
-        --n, *psp++ = 0;
     }
 }
 
@@ -187,7 +188,6 @@ void mark(sexp p)
  */
 void gc(void)
 {
-#ifdef GC
     int werefree = MAX-allocated;
 
     printf("gc: allocated: %d free: %d", allocated, werefree);
@@ -195,11 +195,11 @@ void gc(void)
     marked = 0;
     mark(atoms);
     mark(global);
-    while (psp < protect+PSIZE)
-    {
-        mark(*psp);
-        *psp++ = 0;
-    }
+
+    printf(" protected: %lu", protect+PSIZE - psp);
+
+    for (sexp *p = protect; p < psp; ++p)
+        mark(*p);
 
     printf(" marked: %d expected garbage: %d", marked, werefree+allocated-marked);
 
@@ -225,15 +225,11 @@ void gc(void)
         printf("storage exhausted!\n");
         exit(0);
     }
-#else
-    printf("no gc\n");
-    exit(0);
-#endif
 }
 
 sexp cell(void)
 {
-    if (allocated+16 >= MAX)
+    if (allocated >= MAX)
         gc();
 
     ++allocated;
@@ -245,17 +241,21 @@ sexp cell(void)
 
 sexp atom(sexp chunks)
 {
+    prot(chunks);
     Atom* p = (Atom*)cell();
     p->tags[0] = ATOM;
     p->chunks = chunks;
+    unprot(1);
     return (sexp)p;
 }
 
 sexp string(sexp chunks)
 {
+    prot(chunks);
     String* p = (String*)cell();
     p->tags[0] = STRING;
     p->chunks = chunks;
+    unprot(1);
     return (sexp)p;
 }
 
@@ -272,7 +272,9 @@ void set_form(sexp name, Formp f)
     Form* p = (Form*)cell();
     p->tags[0] = FORM;
     p->formp = f;
+    prot((sexp)p);
     set(name, (sexp)p);
+    unprot(1);
 }
 
 void set_funct(sexp name, int arity, void* f)
@@ -281,14 +283,19 @@ void set_funct(sexp name, int arity, void* f)
     p->tags[0] = FUNCT;
     p->tags[1] = arity;
     p->funcp = f;
+    prot((sexp)p);
     set(name, (sexp)p);
+    unprot(1);
 }
 
 sexp cons(sexp car, sexp cdr)
 {
+    prot(car);
+    prot(cdr);
     sexp p = cell();
     p->car = car;
     p->cdr = cdr;
+    unprot(2);
     return p;
 }
 
@@ -346,25 +353,32 @@ sexp listp(sexp p)
 
 sexp andform(sexp p, sexp env)
 {
+    prot(p);
+    prot(env);
     sexp q = t;
     while (p = p->cdr)
     {
         q = eval(p->car, env);
         if (!q)
-            return 0;
+            break;
     }
+    unprot(2);
     return q;
 }
 
 sexp orform(sexp p, sexp env)
 {
-   while (p = p->cdr)
-   {
-        sexp q = eval(p->car, env);
+    prot(p);
+    prot(env);
+    sexp q = 0;
+    while (p = p->cdr)
+    {
+        q = eval(p->car, env);
         if (q)
-            return q;
-   }
-   return 0;
+            break;
+    }
+    unprot(2);
+    return q;
 }
 
 long asFixnum(sexp p)
@@ -402,104 +416,139 @@ sexp gt(sexp x, sexp y)
 
 sexp addfunc(sexp args)
 {
+    prot(args);
     long result = 0;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         result += asFixnum(q);
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp subfunc(sexp args)
 {
+    prot(args);
     long result = 0;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         long n = asFixnum(q);
         result += (args == p && p->cdr) ? n : -n;
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp mulfunc(sexp args)
 {
+    prot(args);
     long result = 1;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         result *= asFixnum(q);
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp divfunc(sexp args)
 {
+    prot(args);
     long result = 1;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         if (args == p)
             result *= asFixnum(q);
         else
             result /= asFixnum(q);
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp modfunc(sexp args)
 {
+    prot(args);
     long result = 1;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         if (args == p)
             result *= asFixnum(q);
         else
             result %= asFixnum(q);
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp maxfunc(sexp args)
 {
+    prot(args);
     long result = LONG_MIN;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         long x = asFixnum(q);
         if (x > result)
             result = x;
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp minfunc(sexp args)
 {
+    prot(args);
     long result = LONG_MAX;
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q))
+        if (!isFixnum(q)) {
+            unprot(1);
             return 0;
+        }
         long x = asFixnum(q);
         if (x < result)
             result = x;
     }
-    return fixnum(result);
+    sexp r = fixnum(result);
+    unprot(1);
+    return r;
 }
 
 sexp isnot(sexp x)
@@ -509,31 +558,32 @@ sexp isnot(sexp x)
 
 sexp load(sexp x)
 {
-    if (isString(x)) {
-        int length = 0;
-        for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-        {
-            int i = 0;
-            while (i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i])
-                ++i;
-            length += i;
-        }
-        char *name = (char*) alloca(length+1);
-        int j = 0;
-        for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-            for (int i = 0; i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i]; name[j++] = ((Chunk*)p->car)->text[i++]) {}
-        name[j++] = 0;
-        FILE* fin = fopen(name, "r");
-        while (!feof(fin))
-        {
-            sexp input = read(fin);
-            if (!input)
-                break;
-            eval(input, global);
-        }
-        fclose(fin);
-    } else
-        return 0;
+    sexp r = 0;
+    if (!isString(x))
+        return r;
+    int length = 0;
+    for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
+    {
+        int i = 0;
+        while (i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i])
+            ++i;
+        length += i;
+    }
+    char *name = (char*) alloca(length+1);
+    int j = 0;
+    for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
+        for (int i = 0; i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i]; name[j++] = ((Chunk*)p->car)->text[i++]) {}
+    name[j++] = 0;
+    FILE* fin = fopen(name, "r");
+    while (!feof(fin))
+    {
+        sexp input = read(fin);
+        if (!input)
+            break;
+        r = eval(input, global);
+    }
+    fclose(fin);
+    return r;
 }
 
 sexp newlinefunc(sexp args)
@@ -558,6 +608,7 @@ sexp displayfunc(sexp args)
 sexp chunk(const char *t)
 {
     sexp p = cell();
+    prot(p);
     sexp q = p;
     Chunk* r = (Chunk*) cell();
     r->tags[0] = CHUNK;
@@ -567,8 +618,10 @@ sexp chunk(const char *t)
     {
         char c = *t++;
         r->text[i++] = c;
-        if (!c)
+        if (!c) {
+            unprot(1);
             return p;
+        }
         if (i >= sizeof(Cons)-1)
         {
             i = 0;
@@ -700,7 +753,12 @@ sexp set(sexp p, sexp r)
             q->car->cdr = r;
             return s;
         }
-    global = cons(cons(p, r), global);
+    prot(p);
+    prot(r);
+    sexp u = cons(p, r);
+    prot(u);
+    global = cons(u, global);
+    unprot(3);
     return 0;
 }
 
@@ -708,15 +766,31 @@ sexp evlis(sexp p, sexp env)
 {
     if (!p)
         return 0;
-    return cons(eval(p->car, env), evlis(p->cdr, env));
+    prot(p);
+    prot(env);
+    sexp e = evlis(p->cdr, env);
+    prot(e);
+    sexp g = eval(p->car, env);
+    prot(g);
+    sexp r = cons(g, e);
+    unprot(4);
+    return r;
 }
 
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
-    if (actuals)
-        return cons(cons(formals->car, actuals->car),
-                    assoc(formals->cdr, actuals->cdr, env));
-    else
+    if (actuals) {
+        prot(env);
+        prot(actuals);
+        prot(formals);
+        sexp g = cons(formals->car, actuals->car);
+        prot(g);
+        sexp h = assoc(formals->cdr, actuals->cdr, env);
+        prot(h);
+        sexp i = cons(g, h);
+        unprot(5);
+        return i;
+    } else
         return env;
 }
 
@@ -727,19 +801,25 @@ sexp globalform(sexp expr, sexp env)
 
 sexp beginform(sexp expr, sexp env)
 {
+    prot(env);
+    prot(expr);
     sexp v = 0;
     for (sexp p = expr->cdr; p; p = p->cdr)
         v = eval(p->car, env);
+    unprot(2);
     return v;
 }
 
 sexp whileform(sexp expr, sexp env)
 {
+    prot(env);
+    prot(expr);
     sexp v = 0;
     expr = expr->cdr;
     while (eval(expr->car, env))
         for (sexp p = expr->cdr; p; p = p->cdr)
             v = eval(p->car, env);
+    unprot(2);
     return v;
 }
 
@@ -753,10 +833,16 @@ sexp whileform(sexp expr, sexp env)
  */
 sexp condform(sexp expr, sexp env)
 {
+    prot(env);
+    prot(expr);
+    sexp r = 0;
     for (sexp p = expr->cdr; p; p = p->cdr)
-        if (elsea == p->car->car || eval(p->car->car, env))
-            return eval(p->car->cdr->car, env);
-    return 0;
+        if (elsea == p->car->car || eval(p->car->car, env)) {
+            r = eval(p->car->cdr->car, env);
+            break;
+        }
+    unprot(2);
+    return r;
 }
 
 /*
@@ -770,15 +856,24 @@ sexp defineform(sexp p, sexp env)
 {
     if (isCons(p->cdr->car))
     {
-        sexp v = cons(lambda, cons(p->cdr->car->cdr, p->cdr->cdr));
+        prot(env);
+        prot(p);
+        sexp u = cons(p->cdr->car->cdr, p->cdr->cdr);
+        prot(u);
+        sexp v = cons(lambda, u);
+        prot(v);
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car->car == q->car->car)
             {
                 q->car->cdr = v;
-                return p->cdr->car->car;
+                sexp w = p->cdr->car->car;
+                unprot(4);
+                return w;
             }
-
-        global = cons(cons(p->cdr->car->car, v), global);
+        sexp x = cons(p->cdr->car->car, v);
+        prot(x);
+        global = cons(x, global);
+        unprot(5);
         return p->cdr->car->car;
     } else {
         for (sexp q = global; q; q = q->cdr)
@@ -787,8 +882,11 @@ sexp defineform(sexp p, sexp env)
                 q->car->cdr = p->cdr->cdr->car;
                 return p->cdr->car;
             }
-
-        global = cons(cons(p->cdr->car, p->cdr->cdr->car), global);
+        prot(p);
+        sexp r = cons(p->cdr->car, p->cdr->cdr->car);
+        prot(r);
+        global = cons(r, global);
+        unprot(2);
         return p->cdr->car;
     }
 }
@@ -817,8 +915,12 @@ sexp readform(sexp expr, sexp env)
  */
 sexp ifform(sexp expr, sexp env)
 {
-    return eval(expr->cdr->car, env) ?
-      eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env);
+    prot(env);
+    prot(expr);
+    sexp r = eval(expr->cdr->car, env) ?
+        eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env);
+    unprot(2);
+    return r;
 }
 
 /*
@@ -826,7 +928,13 @@ sexp ifform(sexp expr, sexp env)
  */
 sexp setform(sexp expr, sexp env)
 {
-    return set(expr->cdr->car, eval(expr->cdr->cdr->car, env));
+    prot(env);
+    prot(expr);
+    sexp r = eval(expr->cdr->cdr->car, env);
+    prot(r);
+    r = set(expr->cdr->car, r);
+    unprot(3);
+    return r;
 }
 
 /*
@@ -834,21 +942,44 @@ sexp setform(sexp expr, sexp env)
  */
 sexp lambdaform(sexp expr, sexp env)
 {
-    if (!isCons(expr->car))
-        expr = cons(eval(expr->car, env), expr->cdr);
-    return eval(expr->car->cdr->cdr->car,
-                assoc(expr->car->cdr->car,
-                      evlis(expr->cdr, env), env));
+    prot(env);
+    prot(expr);
+    if (!isCons(expr->car)) {
+        sexp u = eval(expr->car, env);
+        prot(u);
+        expr = cons(u, expr->cdr);
+        prot(expr);
+    } else {
+        prot(0);
+        prot(0);
+    }
+    sexp v = evlis(expr->cdr, env);
+    prot(v);
+    sexp w = assoc(expr->car->cdr->car, v, env);
+    prot(w);
+    sexp x = eval(expr->car->cdr->cdr->car, w);
+    unprot(6);
+    return x;
 }
 
 /*
  * associate variables with values, used by letform
  */
-sexp augment(sexp a, sexp env)
+sexp augment(sexp exp, sexp env)
 {
-    if (a)
-        return cons(cons(a->car->car, eval(a->car->cdr->car, env)), augment(a->cdr, env));
-    else
+    if (exp) {
+        prot(env);
+        prot(exp);
+        sexp b = augment(exp->cdr, env);
+        prot(b);
+        sexp c = eval(exp->car->cdr->car, env);
+        prot(c);
+        sexp d = cons(exp->car->car, c);
+        prot(d);
+        sexp e = cons(d, b);
+        unprot(5);
+        return e;
+    } else
         return env;
 }
 
@@ -857,7 +988,13 @@ sexp augment(sexp a, sexp env)
  */
 sexp letform(sexp expr, sexp env)
 {
-    return eval(expr->cdr->cdr->car, augment(expr->cdr->car, env));
+    prot(env);
+    prot(expr);
+    sexp a = augment(expr->cdr->car, env);
+    prot(a);
+    sexp b = eval(expr->cdr->cdr->car, a);
+    unprot(3);
+    return b;
 }
 
 /*
@@ -875,20 +1012,42 @@ sexp eval(sexp p, sexp env)
         return p;
     if (isCons(p) && lambda == p->car)
         return p;
+    prot(env);
+    prot(p);
     sexp q = eval(p->car, env);
-    if (isCons(q) && lambda == q->car)
-        return lambdaform(p, env);
-    if (isForm(q))
-        return (*((Form*)q)->formp)(p, env);
-    if (isFunct(q))
-    {
-        if (0 == arity(q))
-            return (*(Varargp)((Funct*)q)->funcp)(evlis(p->cdr, env));
-        if (1 == arity(q))
-            return (*(Oneargp)((Funct*)q)->funcp)(eval(p->cdr->car, env));
-        if (2 == arity(q))
-            return (*(Twoargp)((Funct*)q)->funcp)(eval(p->cdr->car, env), eval(p->cdr->cdr->car, env));
-        return 0;
+    prot(q);
+    if (isCons(q) && lambda == q->car) {
+        sexp r = lambdaform(p, env);
+        unprot(3);
+        return r;
+    }
+    if (isForm(q)) {
+        sexp r = (*((Form*)q)->formp)(p, env);
+        unprot(3);
+        return r;
+    }
+    if (isFunct(q) && 0 == arity(q)) {
+            sexp s = evlis(p->cdr, env);
+            prot(s);
+            sexp u = (*(Varargp)((Funct*)q)->funcp)(s);
+            unprot(4);
+            return u;
+    }
+    if (isFunct(q) && 1 == arity(q)) {
+            sexp s = eval(p->cdr->car, env);
+            prot(s);
+            sexp u = (*(Oneargp)((Funct*)q)->funcp)(s);
+            unprot(4);
+            return u;
+    }
+    if (isFunct(q) && 2 == arity(q)) {
+            sexp s = eval(p->cdr->car, env);
+            prot(s);
+            sexp u = eval(p->cdr->cdr->car, env);
+            prot(u);
+            sexp v = (*(Twoargp)((Funct*)q)->funcp)(s, u);
+            unprot(5);
+            return v;
     }
     printf("bad form: ");
     display(stdout, p);
@@ -926,6 +1085,7 @@ sexp readChunks(FILE* fin, const char *ends)
     int i = 0;
     sexp p = cell();
     sexp q = p;
+    prot(p);
     Chunk* r = (Chunk*) cell();
     r->tags[0] = CHUNK;
     q->car = (sexp) r;
@@ -938,6 +1098,7 @@ sexp readChunks(FILE* fin, const char *ends)
         if (strchr(ends, c))
         {
             ungetc(c, fin);
+            unprot(1);
             return p;
         }
 
@@ -1000,7 +1161,11 @@ sexp readTail(FILE* fin)
     sexp q = read(fin);
     if (rparen == q)
         return 0;
-    sexp p = cons(q, readTail(fin));
+    prot(q);
+    sexp r = readTail(fin);
+    prot(r);
+    sexp p = cons(q, r);
+    unprot(2);
     return p;
 }
 
@@ -1015,7 +1180,15 @@ sexp read(FILE* fin)
     if (lparen == p)
         return readTail(fin);
     if (qchar == p)
-        return cons(quote, cons(read(fin), 0));
+    {
+        sexp r = read(fin);
+        prot(r);
+        sexp s = cons(r, 0);
+        prot(s);
+        sexp u = cons(quote, s);
+        unprot(2);
+        return u;
+    }
     return p;
 }
 
@@ -1179,7 +1352,7 @@ int main(int argc, char **argv, char **envp)
     // read evaluate display ...
     while (!feof(stdin))
     {
-#ifdef VOLUNTARY_GC
+#ifdef GC
         gc();
 #endif
         sexp e = read(stdin);
@@ -1188,6 +1361,12 @@ int main(int argc, char **argv, char **envp)
         {
             display(stdout, v);
             putchar('\n');
+        }
+
+        for (sexp *p = protect; p < psp; ++p)
+        {
+            mark(*p);
+            *p = 0;
         }
     }
     return 0;
