@@ -113,7 +113,7 @@ int allocated = 0;          // how many cells have been allocated
 sexp protect[PSIZE];        // protection stack
 sexp *psp = protect;        // protection stack pointer
 
-void prot(sexp p)
+sexp prot(sexp p)
 {
     *psp++ = p;
 #ifdef DEBUG
@@ -125,9 +125,10 @@ void prot(sexp p)
         puts("protection stack overflow!");
         assert(false);
     }
+    return p;
 }
 
-void unprot(int n)
+sexp unprot(int n, sexp p)
 {
     if (psp-n < protect) {
         puts("protection stack underflow!");
@@ -143,6 +144,7 @@ void unprot(int n)
         putchar('\n');
 #endif
     }
+    return p;
 }
 
 static void markCell(sexp p)
@@ -245,8 +247,7 @@ sexp atom(sexp chunks)
     Atom* p = (Atom*)cell();
     p->tags[0] = ATOM;
     p->chunks = chunks;
-    unprot(1);
-    return (sexp)p;
+    return unprot(1, (sexp)p);
 }
 
 sexp string(sexp chunks)
@@ -255,8 +256,7 @@ sexp string(sexp chunks)
     String* p = (String*)cell();
     p->tags[0] = STRING;
     p->chunks = chunks;
-    unprot(1);
-    return (sexp)p;
+    return unprot(1, (sexp)p);
 }
 
 sexp fixnum(long number)
@@ -267,25 +267,21 @@ sexp fixnum(long number)
     return (sexp)p;
 }
 
-void set_form(sexp name, Formp f)
+sexp set_form(sexp name, Formp f)
 {
     Form* p = (Form*)cell();
     p->tags[0] = FORM;
     p->formp = f;
-    prot((sexp)p);
-    set(name, (sexp)p);
-    unprot(1);
+    return unprot(1, set(name, prot((sexp)p)));
 }
 
-void set_funct(sexp name, int arity, void* f)
+sexp set_funct(sexp name, int arity, void* f)
 {
     Funct* p = (Funct*)cell();
     p->tags[0] = FUNCT;
     p->tags[1] = arity;
     p->funcp = f;
-    prot((sexp)p);
-    set(name, (sexp)p);
-    unprot(1);
+    return unprot(1, set(name, prot((sexp)p)));
 }
 
 sexp cons(sexp car, sexp cdr)
@@ -295,8 +291,7 @@ sexp cons(sexp car, sexp cdr)
     sexp p = cell();
     p->car = car;
     p->cdr = cdr;
-    unprot(2);
-    return p;
+    return unprot(2, p);
 }
 
 sexp car(sexp p)
@@ -362,8 +357,7 @@ sexp andform(sexp p, sexp env)
         if (!q)
             break;
     }
-    unprot(2);
-    return q;
+    return unprot(2, q);
 }
 
 sexp orform(sexp p, sexp env)
@@ -377,8 +371,7 @@ sexp orform(sexp p, sexp env)
         if (q)
             break;
     }
-    unprot(2);
-    return q;
+    return unprot(2, q);
 }
 
 long asFixnum(sexp p)
@@ -421,15 +414,11 @@ sexp addfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         result += asFixnum(q);
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp subfunc(sexp args)
@@ -439,16 +428,12 @@ sexp subfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         long n = asFixnum(q);
         result += (args == p && p->cdr) ? n : -n;
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp mulfunc(sexp args)
@@ -458,15 +443,11 @@ sexp mulfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         result *= asFixnum(q);
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp divfunc(sexp args)
@@ -476,18 +457,14 @@ sexp divfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         if (args == p)
             result *= asFixnum(q);
         else
             result /= asFixnum(q);
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp modfunc(sexp args)
@@ -497,18 +474,14 @@ sexp modfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         if (args == p)
             result *= asFixnum(q);
         else
             result %= asFixnum(q);
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp maxfunc(sexp args)
@@ -518,17 +491,13 @@ sexp maxfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         long x = asFixnum(q);
         if (x > result)
             result = x;
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp minfunc(sexp args)
@@ -538,17 +507,13 @@ sexp minfunc(sexp args)
     for (sexp p = args; p; p = p->cdr)
     {
         sexp q = p->car;
-        if (!isFixnum(q)) {
-            unprot(1);
-            return 0;
-        }
+        if (!isFixnum(q))
+            return unprot(1, 0);
         long x = asFixnum(q);
         if (x < result)
             result = x;
     }
-    sexp r = fixnum(result);
-    unprot(1);
-    return r;
+    return unprot(1, fixnum(result));
 }
 
 sexp isnot(sexp x)
@@ -618,10 +583,8 @@ sexp chunk(const char *t)
     {
         char c = *t++;
         r->text[i++] = c;
-        if (!c) {
-            unprot(1);
-            return p;
-        }
+        if (!c)
+            return unprot(1, p);
         if (i >= sizeof(Cons)-1)
         {
             i = 0;
@@ -753,13 +716,8 @@ sexp set(sexp p, sexp r)
             q->car->cdr = r;
             return s;
         }
-    prot(p);
-    prot(r);
-    sexp u = cons(p, r);
-    prot(u);
-    global = cons(u, global);
-    unprot(3);
-    return 0;
+    global = cons(prot(cons(prot(p), prot(r))), global);
+    return unprot(3, 0);
 }
 
 sexp evlis(sexp p, sexp env)
@@ -767,14 +725,7 @@ sexp evlis(sexp p, sexp env)
     if (!p)
         return 0;
     prot(p);
-    prot(env);
-    sexp e = evlis(p->cdr, env);
-    prot(e);
-    sexp g = eval(p->car, env);
-    prot(g);
-    sexp r = cons(g, e);
-    unprot(4);
-    return r;
+    return unprot(4, cons(prot(eval(p->car, env)), prot(evlis(p->cdr, prot(env)))));
 }
 
 sexp assoc(sexp formals, sexp actuals, sexp env)
@@ -783,13 +734,7 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
         prot(env);
         prot(actuals);
         prot(formals);
-        sexp g = cons(formals->car, actuals->car);
-        prot(g);
-        sexp h = assoc(formals->cdr, actuals->cdr, env);
-        prot(h);
-        sexp i = cons(g, h);
-        unprot(5);
-        return i;
+        return unprot(5, cons(prot(cons(formals->car, actuals->car)), prot(assoc(formals->cdr, actuals->cdr, env))));
     } else
         return env;
 }
@@ -806,8 +751,7 @@ sexp beginform(sexp expr, sexp env)
     sexp v = 0;
     for (sexp p = expr->cdr; p; p = p->cdr)
         v = eval(p->car, env);
-    unprot(2);
-    return v;
+    return unprot(2, v);
 }
 
 sexp whileform(sexp expr, sexp env)
@@ -819,8 +763,7 @@ sexp whileform(sexp expr, sexp env)
     while (eval(expr->car, env))
         for (sexp p = expr->cdr; p; p = p->cdr)
             v = eval(p->car, env);
-    unprot(2);
-    return v;
+    return unprot(2, v);
 }
 
 /*
@@ -841,8 +784,7 @@ sexp condform(sexp expr, sexp env)
             r = eval(p->car->cdr->car, env);
             break;
         }
-    unprot(2);
-    return r;
+    return unprot(2, r);
 }
 
 /*
@@ -867,14 +809,12 @@ sexp defineform(sexp p, sexp env)
             {
                 q->car->cdr = v;
                 sexp w = p->cdr->car->car;
-                unprot(4);
-                return w;
+                return unprot(4, w);
             }
         sexp x = cons(p->cdr->car->car, v);
         prot(x);
         global = cons(x, global);
-        unprot(5);
-        return p->cdr->car->car;
+        return unprot(5, p->cdr->car->car);
     } else {
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
@@ -886,8 +826,7 @@ sexp defineform(sexp p, sexp env)
         sexp r = cons(p->cdr->car, p->cdr->cdr->car);
         prot(r);
         global = cons(r, global);
-        unprot(2);
-        return p->cdr->car;
+        return unprot(2, p->cdr->car);
     }
 }
 
@@ -917,10 +856,9 @@ sexp ifform(sexp expr, sexp env)
 {
     prot(env);
     prot(expr);
-    sexp r = eval(expr->cdr->car, env) ?
-        eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env);
-    unprot(2);
-    return r;
+    return unprot(2,
+                  eval(expr->cdr->car, env) ?
+             eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env));
 }
 
 /*
@@ -932,9 +870,7 @@ sexp setform(sexp expr, sexp env)
     prot(expr);
     sexp r = eval(expr->cdr->cdr->car, env);
     prot(r);
-    r = set(expr->cdr->car, r);
-    unprot(3);
-    return r;
+    return unprot(3, set(expr->cdr->car, r));
 }
 
 /*
@@ -945,21 +881,11 @@ sexp lambdaform(sexp expr, sexp env)
     prot(env);
     prot(expr);
     if (!isCons(expr->car)) {
-        sexp u = eval(expr->car, env);
-        prot(u);
-        expr = cons(u, expr->cdr);
-        prot(expr);
+        expr = prot(cons(prot(eval(expr->car, env)), expr->cdr));
+        return unprot(6, eval(expr->car->cdr->cdr->car, prot(assoc(expr->car->cdr->car, prot(evlis(expr->cdr, env)), env))));
     } else {
-        prot(0);
-        prot(0);
+        return unprot(4, eval(expr->car->cdr->cdr->car, prot(assoc(expr->car->cdr->car, prot(evlis(expr->cdr, env)), env))));
     }
-    sexp v = evlis(expr->cdr, env);
-    prot(v);
-    sexp w = assoc(expr->car->cdr->car, v, env);
-    prot(w);
-    sexp x = eval(expr->car->cdr->cdr->car, w);
-    unprot(6);
-    return x;
 }
 
 /*
@@ -968,17 +894,8 @@ sexp lambdaform(sexp expr, sexp env)
 sexp augment(sexp exp, sexp env)
 {
     if (exp) {
-        prot(env);
         prot(exp);
-        sexp b = augment(exp->cdr, env);
-        prot(b);
-        sexp c = eval(exp->car->cdr->car, env);
-        prot(c);
-        sexp d = cons(exp->car->car, c);
-        prot(d);
-        sexp e = cons(d, b);
-        unprot(5);
-        return e;
+        return unprot(5, cons(prot(cons(exp->car->car, prot(eval(exp->car->cdr->car, env)))), prot(augment(exp->cdr, prot(env)))));
     } else
         return env;
 }
@@ -990,11 +907,7 @@ sexp letform(sexp expr, sexp env)
 {
     prot(env);
     prot(expr);
-    sexp a = augment(expr->cdr->car, env);
-    prot(a);
-    sexp b = eval(expr->cdr->cdr->car, a);
-    unprot(3);
-    return b;
+    return unprot(3, eval(expr->cdr->cdr->car, prot(augment(expr->cdr->car, env))));
 }
 
 /*
@@ -1012,43 +925,18 @@ sexp eval(sexp p, sexp env)
         return p;
     if (isCons(p) && lambda == p->car)
         return p;
-    prot(env);
     prot(p);
-    sexp q = eval(p->car, env);
-    prot(q);
-    if (isCons(q) && lambda == q->car) {
-        sexp r = lambdaform(p, env);
-        unprot(3);
-        return r;
-    }
-    if (isForm(q)) {
-        sexp r = (*((Form*)q)->formp)(p, env);
-        unprot(3);
-        return r;
-    }
-    if (isFunct(q) && 0 == arity(q)) {
-            sexp s = evlis(p->cdr, env);
-            prot(s);
-            sexp u = (*(Varargp)((Funct*)q)->funcp)(s);
-            unprot(4);
-            return u;
-    }
-    if (isFunct(q) && 1 == arity(q)) {
-            sexp s = eval(p->cdr->car, env);
-            prot(s);
-            sexp u = (*(Oneargp)((Funct*)q)->funcp)(s);
-            unprot(4);
-            return u;
-    }
-    if (isFunct(q) && 2 == arity(q)) {
-            sexp s = eval(p->cdr->car, env);
-            prot(s);
-            sexp u = eval(p->cdr->cdr->car, env);
-            prot(u);
-            sexp v = (*(Twoargp)((Funct*)q)->funcp)(s, u);
-            unprot(5);
-            return v;
-    }
+    sexp q = prot(eval(p->car, prot(env)));
+    if (isCons(q) && lambda == q->car)
+        return unprot(3, lambdaform(p, env));
+    if (isForm(q))
+        return unprot(3, (*((Form*)q)->formp)(p, env));
+    if (isFunct(q) && 0 == arity(q))
+            return unprot(4, (*(Varargp)((Funct*)q)->funcp)(prot(evlis(p->cdr, env))));
+    if (isFunct(q) && 1 == arity(q))
+            return unprot(4, (*(Oneargp)((Funct*)q)->funcp)(prot(eval(p->cdr->car, env))));
+    if (isFunct(q) && 2 == arity(q))
+            return unprot(5, (*(Twoargp)((Funct*)q)->funcp)(prot(eval(p->cdr->car, env)), prot(eval(p->cdr->cdr->car, env))));
     printf("bad form: ");
     display(stdout, p);
     putchar('\n');
@@ -1098,8 +986,7 @@ sexp readChunks(FILE* fin, const char *ends)
         if (strchr(ends, c))
         {
             ungetc(c, fin);
-            unprot(1);
-            return p;
+            return unprot(1, p);
         }
 
         if (i == sizeof(Cons)-1) {
@@ -1162,11 +1049,7 @@ sexp readTail(FILE* fin)
     if (rparen == q)
         return 0;
     prot(q);
-    sexp r = readTail(fin);
-    prot(r);
-    sexp p = cons(q, r);
-    unprot(2);
-    return p;
+    return unprot(2, cons(q, prot(readTail(fin))));
 }
 
 /*
@@ -1180,15 +1063,7 @@ sexp read(FILE* fin)
     if (lparen == p)
         return readTail(fin);
     if (qchar == p)
-    {
-        sexp r = read(fin);
-        prot(r);
-        sexp s = cons(r, 0);
-        prot(s);
-        sexp u = cons(quote, s);
-        unprot(2);
-        return u;
-    }
+        return unprot(2, cons(quote, prot(cons(prot(read(fin)), 0))));
     return p;
 }
 
@@ -1361,12 +1236,6 @@ int main(int argc, char **argv, char **envp)
         {
             display(stdout, v);
             putchar('\n');
-        }
-
-        for (sexp *p = protect; p < psp; ++p)
-        {
-            mark(*p);
-            *p = 0;
         }
     }
     return 0;
