@@ -1103,10 +1103,9 @@ sexp eval(sexp p, sexp env)
             return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
     if (isFunct(q) && 2 == arity(q))
             return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
-    printf("bad form: ");
     display(stdout, p);
     putchar('\n');
-    longjmp(the_jmpbuf,1);
+    longjmp(the_jmpbuf, (long)"bad form");
     return p;
 }
 
