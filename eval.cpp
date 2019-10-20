@@ -23,10 +23,10 @@
 #include <cfloat>
 
 #define GC
-#define PSIZE 8192
-#define MAX 262144
 #undef  DEBUG
 #define SIGNALS
+#define PSIZE   8192
+#define MAX     262144
 
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
@@ -230,10 +230,7 @@ void gc(void)
     allocated -= reclaimed-werefree;
 
     if (!freelist)
-    {
-        printf("storage exhausted!\n");
-        exit(0);
-    }
+        longjmp(the_jmpbuf, (long)"storage exhausted");
 }
 
 /*
@@ -312,41 +309,24 @@ sexp cons(sexp car, sexp cdr)
     return lose(2, p);
 }
 
-char format_buffer[32];
-
 sexp car(sexp p)
 {
     if (!p || !isCons(p))
-    {
-        sprintf(format_buffer, "car of %s", cellTypes[cellType(p)]);
-        display(stdout, p);
-        putchar(' ');
-        longjmp(the_jmpbuf, (long)format_buffer);
-    }
+        longjmp(the_jmpbuf, (long)"car: bad argument");
     return p->car;
 }
 
 sexp cdr(sexp p)
 {
     if (!p || !isCons(p))
-    {
-        sprintf(format_buffer, "cdr of %s", cellTypes[cellType(p)]);
-        display(stdout, p);
-        putchar(' ');
-        longjmp(the_jmpbuf, (long)format_buffer);
-    }
+        longjmp(the_jmpbuf, (long)"cdr: bad argument");
     return p->cdr;
 }
 
 sexp setcarfunc(sexp p, sexp q)
 {
     if (!isCons(p))
-    {
-        sprintf(format_buffer, "setcar of %s", cellTypes[cellType(p)]);
-        display(stdout, p);
-        putchar(' ');
-        longjmp(the_jmpbuf, (long)format_buffer);
-    }
+        longjmp(the_jmpbuf, (long)"setcar: bad argument");
     sexp r = p->car;
     p->car = q;
     return r;
@@ -355,12 +335,7 @@ sexp setcarfunc(sexp p, sexp q)
 sexp setcdrfunc(sexp p, sexp q)
 {
     if (!isCons(p))
-    {
-        sprintf(format_buffer, "setcdr of %s", cellTypes[cellType(p)]);
-        display(stdout, p);
-        putchar(' ');
-        longjmp(the_jmpbuf, (long)format_buffer);
-    }
+        longjmp(the_jmpbuf, (long)"setcdr: bad argument");
     sexp r = p->cdr;
     p->cdr = q;
     return r;
@@ -416,38 +391,66 @@ double asFlonum(sexp p)
 
 sexp lt(sexp x, sexp y)
 {
-    if (isFlonum(x) || isFlonum(y))
-        return asFlonum(x) < asFlonum(y) ? t : 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) < asFixnum(y) ? t : 0;
-    return 0;
+    if (isFlonum(x)) {
+        if (isFlonum(y))
+            return asFlonum(x) < asFlonum(y) ? t : 0;
+        if (isFixnum(y))
+            return asFlonum(x) < (double)asFixnum(y) ? t : 0;
+    } else if (isFixnum(x)) {
+        if (isFixnum(y))
+            return asFixnum(x) < asFixnum(y) ? t : 0;
+        if (isFlonum(y))
+            return (double)asFixnum(x) < asFixnum(y) ? t : 0;
+    }
+    longjmp(the_jmpbuf, (long)"< bad argument");
 }
 
 sexp le(sexp x, sexp y)
 {
-    if (isFlonum(x) || isFlonum(y))
-        return asFlonum(x) <= asFlonum(y) ? t : 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) <= asFixnum(y) ? t : 0;
-    return 0;
+    if (isFlonum(x)) {
+        if (isFlonum(y))
+            return asFlonum(x) <= asFlonum(y) ? t : 0;
+        if (isFixnum(y))
+            return asFlonum(x) <= (double)asFixnum(y) ? t : 0;
+    } else if (isFixnum(x)) {
+        if (isFixnum(y))
+            return asFixnum(x) <= asFixnum(y) ? t : 0;
+        if (isFlonum(y))
+            return (double)asFixnum(x) <= asFixnum(y) ? t : 0;
+    }
+    longjmp(the_jmpbuf, (long)"<= bad argument");
 }
 
 sexp ge(sexp x, sexp y)
 {
-    if (isFlonum(x) || isFlonum(y))
-        return asFlonum(x) >= asFlonum(y) ? t : 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) >= asFixnum(y) ? t : 0;
-    return 0;
+    if (isFlonum(x)) {
+        if (isFlonum(y))
+            return asFlonum(x) >= asFlonum(y) ? t : 0;
+        if (isFixnum(y))
+            return asFlonum(x) >= (double)asFixnum(y) ? t : 0;
+    } else if (isFixnum(x)) {
+        if (isFixnum(y))
+            return asFixnum(x) >= asFixnum(y) ? t : 0;
+        if (isFlonum(y))
+            return (double)asFixnum(x) >= asFixnum(y) ? t : 0;
+    }
+    longjmp(the_jmpbuf, (long)">= bad argument");
 }
 
 sexp gt(sexp x, sexp y)
 {
-    if (isFlonum(x) || isFlonum(y))
-        return asFlonum(x) > asFlonum(y) ? t : 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) > asFixnum(y) ? t : 0;
-    return 0;
+    if (isFlonum(x)) {
+        if (isFlonum(y))
+            return asFlonum(x) > asFlonum(y) ? t : 0;
+        if (isFixnum(y))
+            return asFlonum(x) > (double)asFixnum(y) ? t : 0;
+    } else if (isFixnum(x)) {
+        if (isFixnum(y))
+            return asFixnum(x) > asFixnum(y) ? t : 0;
+        if (isFlonum(y))
+            return (double)asFixnum(x) > asFixnum(y) ? t : 0;
+    }
+    longjmp(the_jmpbuf, (long)"> bad argument");
 }
 
 sexp allfixnums(sexp args)
@@ -487,7 +490,7 @@ sexp addfunc(sexp args)
             else if (isFixnum(p->car))
                 result += asFixnum(p->car);
             else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"+ bad argument");
         return lose(1, flonum(result));
     }
 }
@@ -522,7 +525,7 @@ sexp subfunc(sexp args)
                 double n = (double)asFixnum(p->car);
                 result += (args == p && p->cdr) ? n : -n;
             } else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"- bad argument");
         }
         return lose(1, flonum(result));
     }
@@ -549,7 +552,7 @@ sexp mulfunc(sexp args)
             else if (isFlonum(p->car))
                 result *= asFlonum(p->car);
             else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"* bad argument");
         return lose(1, flonum(result));
     }
 }
@@ -575,7 +578,7 @@ sexp divfunc(sexp args)
             else if (isFlonum(p->car))
                 result = result / asFlonum(p->car);
             else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"/ bad argument");
         return lose(1, flonum(result));
     }
 }
@@ -601,7 +604,7 @@ sexp modfunc(sexp args)
             else if (isFlonum(p->car))
                 result = fmod(result, asFlonum(p->car));
             else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"% bad argument");
         return lose(1, flonum(result));
     }
 }
@@ -641,7 +644,7 @@ sexp maxfunc(sexp args)
                 if (x > result)
                     result = x;
             } else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"max: bad argument");
         }
         return lose(1, flonum(result));
     }
@@ -682,7 +685,7 @@ sexp minfunc(sexp args)
                 if (x < result)
                     result = x;
             } else
-                return lose(1, 0);
+                longjmp(the_jmpbuf, (long)"min: bad argument");
         }
         return lose(1, flonum(result));
     }
@@ -891,10 +894,7 @@ sexp intern(sexp p)
     {
         Atom* b = (Atom*)(q->car);
         if (match(a->chunks, b->chunks))
-        {
-            // a is garbage
             return (sexp)b;
-        }
     }
     atoms = cons(p, atoms);
     return p;
@@ -1112,6 +1112,10 @@ sexp eval(sexp p, sexp env)
 {
     if (!p)
         return 0;
+    if (f == p)
+        return f;
+    if (t == p)
+        return t;
     if (isAtom(p))
         return get(p, env);
     if (isFixnum(p))
@@ -1129,65 +1133,14 @@ sexp eval(sexp p, sexp env)
         return lose(3, (*((Form*)q)->formp)(p, env));
     if (isFunct(q) && 0 == arity(q))
             return lose(4, (*(Varargp)((Funct*)q)->funcp)(save(evlis(p->cdr, env))));
-    if (isFunct(q) && 1 == arity(q))
+    if (isFunct(q) && 1 == arity(q) && p->cdr)
             return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
-    if (isFunct(q) && 2 == arity(q))
+    if (isFunct(q) && 2 == arity(q) && p->cdr && p->cdr->cdr)
             return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
     display(stdout, p);
     putchar('\n');
     longjmp(the_jmpbuf, (long)"bad form");
     return p;
-}
-
-/*
- * a number is read from the input stream, return true if floating point
- */
-bool readNumber(FILE* fin, double& flonum, long& fixnum)
-{
-    char c;
-    flonum = 0;
-    fixnum = 0;
-    double factor = 0;
-    for (;;)
-    {
-        c = getc(fin);
-        if ('0' <= c && c <= '9') {
-            flonum = 10 * flonum + (c - '0'); 
-            fixnum = 10 * fixnum + (c - '0'); 
-            factor *= 0.1;
-        } else if ('.' == c)
-            factor = 1;
-        else
-            break;
-    }
-
-    if ('e' == c || 'E' == c)
-    {
-        int exp = 0;
-        c = getc(fin);
-        if ('-' == c) {
-            c = getc(fin);
-            while ('0' <= c && c <= '9')
-                exp = 10 * exp + (c - '0');
-            while (exp++ < 0)
-                factor *= 0.1;
-        } else if ('+' == c) {
-            c = getc(fin);
-            while ('0' <= c && c <= '9')
-                exp = 10 * exp + (c - '0');
-            while (exp-- > 0)
-                factor *= 10.0;
-        }
-    }
-
-    ungetc(c, fin);
-
-    if (factor)
-    {
-        flonum *= factor;
-        return true;
-    } else
-        return false;
 }
 
 /*
@@ -1285,6 +1238,7 @@ sexp scan(FILE* fin)
             *p++ = c;
             c = getc(fin);
         }
+
         if ((INT_NUMERIC == rc || FLO_NUMERIC == rc) && ('e' == c || 'E' == c))
         {
             rc = NON_NUMERIC;
@@ -1474,9 +1428,6 @@ int main(int argc, char **argv, char **envp)
     times    = intern_atom_chunk("*");
     voida    = intern_atom_chunk("");
     whilea   = intern_atom_chunk("while");
-
-    set(f, f);
-    set(t, t);
 
     // set the definitions (special forms)
     set_form(anda,    andform);

@@ -80,9 +80,7 @@
         i))
 
 (define (iota n)
-    (if (> n 0)
-        (cons n (iota (- n 1)))
-        '()))
+        (let ((riot (lambda (n m) (if (> n 0) (cons (- m n) (riot (- n 1) m)) '())))) (riot n n)))
 
 (define (pairs a b)
     (if b
