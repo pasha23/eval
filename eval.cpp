@@ -628,8 +628,23 @@ sexp maxfunc(sexp args)
                 result = x;
         }
         return lose(1, flonum(result));
-    } else
-        return lose(1, 0);
+    } else {
+        double result = DBL_MIN;
+        for (sexp p = args; p; p = p->cdr)
+        {
+            if (isFixnum(p->car)) {
+                double x = (double)asFixnum(p->car);
+                if (x > result)
+                    result = x;
+            } else if (isFlonum(p->car)) {
+                double x = asFlonum(p->car);
+                if (x > result)
+                    result = x;
+            } else
+                return lose(1, 0);
+        }
+        return lose(1, flonum(result));
+    }
 }
 
 sexp minfunc(sexp args)
@@ -654,8 +669,23 @@ sexp minfunc(sexp args)
                 result = x;
         }
         return lose(1, flonum(result));
-    } else
-        return lose(1, 0);
+    } else {
+        double result = DBL_MAX;
+        for (sexp p = args; p; p = p->cdr)
+        {
+            if (isFixnum(p->car)) {
+                double x = (double)asFixnum(p->car);
+                if (x < result)
+                    result = x;
+            } else if (isFlonum(p->car)) {
+                double x = asFlonum(p->car);
+                if (x < result)
+                    result = x;
+            } else
+                return lose(1, 0);
+        }
+        return lose(1, flonum(result));
+    }
 }
 
 sexp cosfunc(sexp x)
