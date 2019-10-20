@@ -458,6 +458,14 @@ sexp allfixnums(sexp args)
     return t;
 }
 
+sexp allflonums(sexp args)
+{
+    for (sexp p = args; p; p = p->cdr)
+        if (!isFlonum(p->car))
+            return 0;
+    return t;
+}
+
 sexp addfunc(sexp args)
 {
     save(args);
@@ -466,11 +474,21 @@ sexp addfunc(sexp args)
         for (sexp p = args; p; p = p->cdr)
             result += asFixnum(p->car);
         return lose(1, fixnum(result));
-    } else {
+    } else if (allflonums(args)) {
         double result = 0;
         for (sexp p = args; p; p = p->cdr)
             result += asFlonum(p->car);
-        return lose(1, fixnum(result));
+        return lose(1, flonum(result));
+    } else {
+        double result = 0;
+        for (sexp p = args; p; p = p->cdr)
+            if (isFlonum(p->car))
+                result += asFlonum(p->car);
+            else if (isFixnum(p->car))
+                result += asFixnum(p->car);
+            else
+                return lose(1, 0);
+        return lose(1, flonum(result));
     }
 }
 
@@ -485,12 +503,26 @@ sexp subfunc(sexp args)
             result += (args == p && p->cdr) ? n : -n;
         }
         return lose(1, fixnum(result));
-    } else {
+    } else if (allflonums(args)) {
         double result = 0;
         for (sexp p = args; p; p = p->cdr)
         {
             double n = asFlonum(p->car);
             result += (args == p && p->cdr) ? n : -n;
+        }
+        return lose(1, flonum(result));
+    } else {
+        double result = 0;
+        for (sexp p = args; p; p = p->cdr)
+        {
+            if (isFlonum(p->car)) {
+                double n = asFlonum(p->car);
+                result += (args == p && p->cdr) ? n : -n;
+            } else if (isFixnum(p->car)) {
+                double n = (double)asFixnum(p->car);
+                result += (args == p && p->cdr) ? n : -n;
+            } else
+                return lose(1, 0);
         }
         return lose(1, flonum(result));
     }
@@ -504,10 +536,20 @@ sexp mulfunc(sexp args)
         for (sexp p = args; p; p = p->cdr)
             result *= asFixnum(p->car);
         return lose(1, fixnum(result));
-    } else {
+    } else if (allflonums(args)) {
         double result = 1;
         for (sexp p = args; p; p = p->cdr)
             result *= asFlonum(p->car);
+        return lose(1, flonum(result));
+    } else {
+        double result = 1;
+        for (sexp p = args; p; p = p->cdr)
+            if (isFixnum(p->car))
+                result *= (double)asFixnum(p->car);
+            else if (isFlonum(p->car))
+                result *= asFlonum(p->car);
+            else
+                return lose(1, 0);
         return lose(1, flonum(result));
     }
 }
@@ -516,22 +558,24 @@ sexp divfunc(sexp args)
 {
     save(args);
     if (allfixnums(args)) {
-        long result = 1;
-        for (sexp p = args; p; p = p->cdr)
-            if (args == p)
-                result = result * asFixnum(p->car);
-            else
-                result = result / asFixnum(p->car);
+        long result = asFixnum(args->car);
+        for (sexp p = args->cdr; p; p = p->cdr)
+            result = result / asFixnum(p->car);
         return lose(1, fixnum(result));
+    } else if (allflonums(args)) {
+        double result = asFlonum(args->car);
+        for (sexp p = args->cdr; p; p = p->cdr)
+            result = result / asFlonum(p->car);
+        return lose(1, flonum(result));
     } else {
-        double result = 1;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            if (args == p)
-                result = result * asFlonum(p->car);
-            else
+        double result = asFlonum(args->car);
+        for (sexp p = args->cdr; p; p = p->cdr)
+            if (isFixnum(p->car))
+                result = result / (double)asFixnum(p->car);
+            else if (isFlonum(p->car))
                 result = result / asFlonum(p->car);
-        }
+            else
+                return lose(1, 0);
         return lose(1, flonum(result));
     }
 }
@@ -540,24 +584,24 @@ sexp modfunc(sexp args)
 {
     save(args);
     if (allfixnums(args)) {
-        long result = 1;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            if (args == p)
-                result = result * asFixnum(p->car);
-            else
-                result = result / asFixnum(p->car);
-        }
+        long result = asFixnum(args->car);
+        for (sexp p = args->cdr; p; p = p->cdr)
+            result = result % asFixnum(p->car);
         return lose(1, fixnum(result));
+    } else if (allflonums(args)) {
+        double result = asFlonum(args->car);
+        for (sexp p = args->cdr; p; p = p->cdr)
+            result = fmod(result, asFlonum(p->car));
+        return lose(1, flonum(result));
     } else {
-        double result = 1;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            if (args == p)
-                result = result * asFlonum(p->car);
-            else
+        double result = asFlonum(args->car);
+        for (sexp p = args->cdr; p; p = p->cdr)
+            if (isFixnum(p->car))
+                result = fmod(result, (double)asFixnum(p->car));
+            else if (isFlonum(p->car))
                 result = fmod(result, asFlonum(p->car));
-        }
+            else
+                return lose(1, 0);
         return lose(1, flonum(result));
     }
 }
@@ -575,7 +619,7 @@ sexp maxfunc(sexp args)
                 result = x;
         }
         return lose(1, fixnum(result));
-    } else {
+    } else if (allflonums(args)) {
         double result = DBL_MIN;
         for (sexp p = args; p; p = p->cdr)
         {
@@ -584,7 +628,8 @@ sexp maxfunc(sexp args)
                 result = x;
         }
         return lose(1, flonum(result));
-    }
+    } else
+        return lose(1, 0);
 }
 
 sexp minfunc(sexp args)
@@ -600,7 +645,7 @@ sexp minfunc(sexp args)
                 result = x;
         }
         return lose(1, fixnum(result));
-    } else {
+    } else if (allflonums(args)) {
         double result = DBL_MAX;
         for (sexp p = args; p; p = p->cdr)
         {
@@ -609,7 +654,8 @@ sexp minfunc(sexp args)
                 result = x;
         }
         return lose(1, flonum(result));
-        }
+    } else
+        return lose(1, 0);
 }
 
 sexp cosfunc(sexp x)
@@ -1085,10 +1131,34 @@ bool readNumber(FILE* fin, double& flonum, long& fixnum)
         else
             break;
     }
-    if (factor)
-        flonum *= factor;
+
+    if ('e' == c || 'E' == c)
+    {
+        int exp = 0;
+        c = getc(fin);
+        if ('-' == c) {
+            c = getc(fin);
+            while ('0' <= c && c <= '9')
+                exp = 10 * exp + (c - '0');
+            while (exp++ < 0)
+                factor *= 0.1;
+        } else if ('+' == c) {
+            c = getc(fin);
+            while ('0' <= c && c <= '9')
+                exp = 10 * exp + (c - '0');
+            while (exp-- > 0)
+                factor *= 10.0;
+        }
+    }
+
     ungetc(c, fin);
-    return exp > 0;
+
+    if (factor)
+    {
+        flonum *= factor;
+        return true;
+    } else
+        return false;
 }
 
 /*
@@ -1127,11 +1197,15 @@ sexp readChunks(FILE* fin, const char *ends)
     }
 }
 
+enum { NON_NUMERIC, INT_NUMERIC, FLO_NUMERIC };
+
 /*
  * read an atom, number or string from the input stream
  */
 sexp scan(FILE* fin)
 {
+    char buffer[32];
+    char *p = buffer;
     char c = getc(fin);
     while (strchr(" \t\r\n", c))
         c = getc(fin);
@@ -1146,30 +1220,80 @@ sexp scan(FILE* fin)
         return rparen;
     else if ('\'' == c)
         return qchar;
-
-    // signed numbers
-    if ('-' == c) {
+    else if ('-' == c) {
         c = getc(fin);
-        long fixer;
-        double floater;
-        if ('0' <= c && c <= '9') {
+        if ('.' == c || '0' <= c && c <= '9')
+            *p++ = '-';
+        else {
             ungetc(c, fin);
-            if (readNumber(fin, floater, fixer))
-                return flonum(-floater);
-            else
-                return fixnum(-fixer);
+            return minus;
+        } 
+    }
+
+    int rc = NON_NUMERIC;
+
+    for (;;)
+    {
+        while (' ' == c || '\t' == c || '\n' == c)
+            c = getc(fin);
+
+        while ('0' <= c && c <= '9')
+        {
+            rc = INT_NUMERIC;
+            *p++ = c;
+            c = getc(fin);
         }
+
+        if ('.' == c)
+        {
+            rc = FLO_NUMERIC;
+            *p++ = c;
+            c = getc(fin);
+        }
+
+        while ('0' <= c && c <= '9')
+        {
+            *p++ = c;
+            c = getc(fin);
+        }
+        if ((INT_NUMERIC == rc || FLO_NUMERIC == rc) && ('e' == c || 'E' == c))
+        {
+            rc = NON_NUMERIC;
+            *p++ = c;
+            c = getc(fin);
+            if ('-' == c) {
+                *p++ = c;
+                c = getc(fin);
+            } else if ('+' == c) {
+                *p++ = c;
+                c = getc(fin);
+            }
+            while ('0' <= c && c <= '9')
+            {
+                rc = FLO_NUMERIC;
+                *p++ = c;
+                c = getc(fin);
+            }
+        }
+        *p++ = 0;
         ungetc(c, fin);
-        return minus;
-    } else if ('0' <= c && c <= '9') {
-        ungetc(c, fin);
-        long fixer;
-        double floater;
-        if ('0' <= c && c <= '9')
-            if (readNumber(fin, floater, fixer))
-                return flonum(floater);
-            else
-                return fixnum(fixer);
+        break;
+    }
+
+    if (FLO_NUMERIC == rc)
+    {
+        char *nptr;
+        double floater = strtod(buffer, &nptr);
+        if (nptr == strchr(buffer, '\0'))
+            return flonum(floater);
+    }
+
+    if (INT_NUMERIC == rc)
+    {
+        char *nptr;
+        long fixer = strtol(buffer, &nptr, 10);
+        if (nptr == strchr(buffer, '\0'))
+            return fixnum(fixer);
     }
 
     if ('"' == c)
@@ -1179,9 +1303,7 @@ sexp scan(FILE* fin)
         return r;
     }
 
-    ungetc(c, fin);
-    sexp r = intern(atom(readChunks(fin, "( )\t\r\n")));
-    return r;
+    return intern(atom(readChunks(fin, "( )\t\r\n")));
 }
 
 sexp readTail(FILE* fin)
