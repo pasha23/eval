@@ -24,8 +24,9 @@
 
 #define GC
 #undef  DEBUG
-#define SIGNALS
-#define PSIZE   8192
+#undef  SIGNALS
+#undef  VERBOSE
+#define PSIZE   16384
 #define MAX     262144
 
 /*
@@ -36,8 +37,8 @@
 enum Tag
 {
     CONS   = 0,
-    CHUNK  = 1,
-    ATOM   = 2,
+    ATOM   = 1,
+    CHUNK  = 2,
     FORM   = 3,
     FIXNUM = 4,
     FUNCT  = 5,
@@ -49,8 +50,8 @@ enum Tag
 const char* cellTypes[] =
 {
 	"CONS",
-    "CHUNK",
 	"ATOM",
+    "CHUNK",
 	"FORM",
 	"FIXNUM",
 	"FUNCTION",
@@ -93,17 +94,17 @@ sexp lparen, lea, let, loada, lta, lista, max, min, minus, modulo, newlinea, nil
 sexp nota, ora, plus, powa, qchar, quote, reada, rparen, seta, setcara, setcdra, sina, t;
 sexp times, voida, whilea;
 
-static inline int  arity(const sexp p)    { return                     ((Chunk*)p)->tags[1];  }
-static inline int  cellType(const sexp p) { return                (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isMarked(const sexp p) { return p &&        (MARK & ((Chunk*)p)->tags[0]); }
-static inline bool isCons(const sexp p)   { return p && CONS   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isChunk(const sexp p)  { return p && CHUNK  == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)   { return p && ATOM   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isString(const sexp p) { return p && STRING == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isFunct(const sexp p)  { return p && FUNCT  == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isForm(const sexp p)   { return p && FORM   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isFixnum(const sexp p) { return p && FIXNUM == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isFlonum(const sexp p) { return p && FLONUM == (7 & ((Chunk*)p)->tags[0]); }
+static inline int  arity(const sexp p)    { return                      ((Chunk*)p)->tags[1];  }
+static inline int  cellType(const sexp p) { return                 (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isMarked(const sexp p) { return p && (MARK         & ((Chunk*)p)->tags[0]); }
+static inline bool isCons(const sexp p)   { return p &&  CONS   == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isChunk(const sexp p)  { return p &&  CHUNK  == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isAtom(const sexp p)   { return p &&  ATOM   == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isString(const sexp p) { return p &&  STRING == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isFunct(const sexp p)  { return p &&  FUNCT  == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isForm(const sexp p)   { return p &&  FORM   == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isFixnum(const sexp p) { return p &&  FIXNUM == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isFlonum(const sexp p) { return p &&  FLONUM == (7 & ((Chunk*)p)->tags[0]); }
 
 jmp_buf the_jmpbuf;
 
@@ -113,6 +114,8 @@ sexp block = 0;             // all the storage starts here
 sexp global = 0;            // this is the global symbol table (a list)
 sexp freelist = 0;          // available cells are linked in a list
 int allocated = 0;          // how many cells have been allocated
+int total = 0;              // total allocation across gc's
+int collected = 0;          // how many gc's
 
 sexp protect[PSIZE];        // protection stack
 sexp *psp = protect;        // protection stack pointer
@@ -123,11 +126,6 @@ sexp *psp = protect;        // protection stack pointer
 sexp save(sexp p)
 {
     *psp++ = p;
-#ifdef DEBUG
-    printf("push: %ld ", psp-protect);
-    display(stdout, p);
-    putchar('\n');
-#endif
     if (psp >= protect+PSIZE)
         longjmp(the_jmpbuf, (long)"protection stack overflow");
     return p;
@@ -140,25 +138,16 @@ sexp lose(int n, sexp p)
 {
     if (psp-n < protect)
         longjmp(the_jmpbuf, (long)"protection stack underflow");
-
     for ( ; n > 0; --n)
     {
         sexp p = *--psp;
         *psp = 0;
-#ifdef DEBUG
-        printf("popped: ");
-        display(stdout, p);
-        putchar('\n');
-#endif
     }
     return p;
 }
 
 static void markCell(sexp p)
 {
-#ifdef DEBUG
-    printf("%lx markCell %s\n", (long)p, cellTypes[cellType(p)]);
-#endif
     ((Chunk*)p)->tags[0] |=  MARK;
     ++marked;
 }
@@ -166,9 +155,6 @@ static void markCell(sexp p)
 static void unmarkCell(sexp p)
 {
     ((Chunk*)p)->tags[0] &= ~MARK;
-#ifdef DEBUG
-    printf("%lx unmarkCell %s\n", (long)p, cellTypes[cellType(p)]);
-#endif
     --marked;
 }
 
@@ -198,20 +184,20 @@ void mark(sexp p)
 void gc(void)
 {
     int werefree = MAX-allocated;
-
+#ifdef VERBOSE
     printf("gc: allocated: %d free: %d", allocated, werefree);
-
+#endif
     marked = 0;
     mark(atoms);
     mark(global);
-
+#ifdef VERBOSE
     printf(" protected: %lu", psp-protect);
-
+#endif
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
-
+#ifdef VERBOSE
     printf(" marked: %d expected garbage: %d", marked, werefree+allocated-marked);
-
+#endif
     freelist = 0;
     int reclaimed = 0;
     for (sexp p = block; p < block+MAX; ++p)
@@ -225,9 +211,13 @@ void gc(void)
         } else 
             unmarkCell(p);
     }
-
+#ifdef VERBOSE
     printf(" reclaimed: %d\n", reclaimed);
+#endif
     allocated -= reclaimed-werefree;
+
+    total += allocated;
+    ++collected;
 
     if (!freelist)
         longjmp(the_jmpbuf, (long)"storage exhausted");
@@ -889,12 +879,11 @@ sexp eqv(sexp x, sexp y)
 
 sexp intern(sexp p)
 {
-    Atom* a = (Atom*)p;
     for (sexp q = atoms; q; q = q->cdr)
     {
-        Atom* b = (Atom*)(q->car);
-        if (match(a->chunks, b->chunks))
-            return (sexp)b;
+        sexp r = q->car;
+        if (match(((Atom*)p)->chunks, ((Atom*)r)->chunks))
+            return r;
     }
     atoms = cons(p, atoms);
     return p;
@@ -926,19 +915,14 @@ sexp evlis(sexp p, sexp env)
 {
     if (!p)
         return 0;
-    save(p);
-    return lose(4, cons(save(eval(p->car, env)), save(evlis(p->cdr, save(env)))));
+    return lose(4, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env)))));
 }
 
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
-    if (actuals) {
-        save(env);
-        save(actuals);
-        save(formals);
-        return lose(5, cons(save(cons(formals->car, actuals->car)), save(assoc(formals->cdr, actuals->cdr, env))));
-    } else
+    if (!actuals)
         return env;
+    return lose(5, cons(save(cons(formals->car, actuals->car)), save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
 }
 
 sexp globalform(sexp expr, sexp env)
@@ -949,9 +933,8 @@ sexp globalform(sexp expr, sexp env)
 sexp beginform(sexp expr, sexp env)
 {
     save(env);
-    save(expr);
     sexp v = 0;
-    for (sexp p = expr->cdr; p; p = p->cdr)
+    for (sexp p = save(expr)->cdr; p; p = p->cdr)
         v = eval(p->car, env);
     return lose(2, v);
 }
@@ -959,9 +942,8 @@ sexp beginform(sexp expr, sexp env)
 sexp whileform(sexp expr, sexp env)
 {
     save(env);
-    save(expr);
     sexp v = 0;
-    expr = expr->cdr;
+    expr = save(expr)->cdr;
     while (eval(expr->car, env))
         for (sexp p = expr->cdr; p; p = p->cdr)
             v = eval(p->car, env);
@@ -979,9 +961,8 @@ sexp whileform(sexp expr, sexp env)
 sexp condform(sexp expr, sexp env)
 {
     save(env);
-    save(expr);
     sexp r = 0;
-    for (sexp p = expr->cdr; p; p = p->cdr)
+    for (sexp p = save(expr)->cdr; p; p = p->cdr)
         if (elsea == p->car->car || eval(p->car->car, env)) {
             r = eval(p->car->cdr->car, env);
             break;
@@ -1000,9 +981,8 @@ sexp defineform(sexp p, sexp env)
 {
     if (isCons(p->cdr->car))
     {
-        save(p);
         save(env);
-        sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, p->cdr->cdr))));
+        sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, save(p)->cdr->cdr))));
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car->car == q->car->car)
             {
@@ -1018,8 +998,7 @@ sexp defineform(sexp p, sexp env)
                 q->car->cdr = p->cdr->cdr->car;
                 return p->cdr->car;
             }
-        save(p);
-        global = cons(save(cons(p->cdr->car, p->cdr->cdr->car)), global);
+        global = cons(save(cons(p->cdr->car, save(p)->cdr->cdr->car)), global);
         return lose(2, p->cdr->car);
     }
 }
@@ -1048,11 +1027,8 @@ sexp readform(sexp expr, sexp env)
  */
 sexp ifform(sexp expr, sexp env)
 {
-    save(env);
-    save(expr);
-    return lose(2,
-                  eval(expr->cdr->car, env) ?
-             eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env));
+    return lose(2, eval(save(expr)->cdr->car, save(env)) ?
+                          eval(expr->cdr->cdr->car, env) : eval(expr->cdr->cdr->cdr->car, env));
 }
 
 /*
@@ -1060,25 +1036,7 @@ sexp ifform(sexp expr, sexp env)
  */
 sexp setform(sexp expr, sexp env)
 {
-    save(env);
-    save(expr);
-    return lose(3, set(expr->cdr->car, save(eval(expr->cdr->cdr->car, env))));
-}
-
-/*
- * lambda implements user-defined functions
- */
-sexp lambdaform(sexp expr, sexp env)
-{
-    save(env);
-    save(expr);
-    if (!isCons(expr->car)) {
-        expr = save(cons(save(eval(expr->car, env)), expr->cdr));
-        return lose(6, eval(expr->car->cdr->cdr->car,
-                              save(assoc(expr->car->cdr->car, save(evlis(expr->cdr, env)), env))));
-    } else
-        return lose(4, eval(expr->car->cdr->cdr->car,
-                              save(assoc(expr->car->cdr->car, save(evlis(expr->cdr, env)), env))));
+    return lose(3, set(expr->cdr->car, save(eval(save(expr)->cdr->cdr->car, save(env)))));
 }
 
 /*
@@ -1086,13 +1044,9 @@ sexp lambdaform(sexp expr, sexp env)
  */
 sexp augment(sexp exp, sexp env)
 {
-    if (exp) {
-        save(exp);
-        return lose(5, cons(save(cons(exp->car->car,
-                                        save(eval(exp->car->cdr->car, env)))),
-                              save(augment(exp->cdr, save(env)))));
-    } else
+    if (!exp)
         return env;
+    return lose(5, cons(save(cons(exp->car->car, save(eval(exp->car->cdr->car, env)))), save(augment(save(exp)->cdr, save(env)))));
 }
 
 /*
@@ -1100,9 +1054,7 @@ sexp augment(sexp exp, sexp env)
  */
 sexp letform(sexp expr, sexp env)
 {
-    save(env);
-    save(expr);
-    return lose(3, eval(expr->cdr->cdr->car, save(augment(expr->cdr->car, env))));
+    return lose(3, eval(expr->cdr->cdr->car, save(augment(save(expr)->cdr->car, save(env)))));
 }
 
 /*
@@ -1110,33 +1062,28 @@ sexp letform(sexp expr, sexp env)
  */
 sexp eval(sexp p, sexp env)
 {
-    if (!p)
-        return 0;
-    if (f == p)
-        return f;
-    if (t == p)
-        return t;
+    if (!p ||
+        f == p || t == p ||
+        ATOM < cellType(p))
+        return p;
     if (isAtom(p))
         return get(p, env);
-    if (isFixnum(p))
-        return p;
-    if (isFlonum(p))
-        return p;
-    if (isString(p))
-        return p;
-    if (isCons(p) && lambda == p->car)
+    if (lambda == p->car)
         return p;
     sexp q = save(eval(save(p)->car, save(env)));
     if (isCons(q) && lambda == q->car)
-        return lose(3, lambdaform(p, env));
+        return lose(5, eval(q->cdr->cdr->car, save(assoc(q->cdr->car, save(evlis(p->cdr, env)), env))));
     if (isForm(q))
         return lose(3, (*((Form*)q)->formp)(p, env));
-    if (isFunct(q) && 0 == arity(q))
+    if (isFunct(q))
+    {
+        if (0 == arity(q))
             return lose(4, (*(Varargp)((Funct*)q)->funcp)(save(evlis(p->cdr, env))));
-    if (isFunct(q) && 1 == arity(q) && p->cdr)
-            return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
-    if (isFunct(q) && 2 == arity(q) && p->cdr && p->cdr->cdr)
-            return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
+        if (1 == arity(q) && p->cdr)
+                return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
+        if (2 == arity(q) && p->cdr && p->cdr->cdr)
+                return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
+    }
     display(stdout, p);
     putchar('\n');
     longjmp(the_jmpbuf, (long)"bad form");
@@ -1239,7 +1186,7 @@ sexp scan(FILE* fin)
             c = getc(fin);
         }
 
-        if ((INT_NUMERIC == rc || FLO_NUMERIC == rc) && ('e' == c || 'E' == c))
+        if (NON_NUMERIC != rc && ('e' == c || 'E' == c))
         {
             rc = NON_NUMERIC;
             *p++ = c;
@@ -1258,6 +1205,7 @@ sexp scan(FILE* fin)
                 c = getc(fin);
             }
         }
+
         *p++ = 0;
         ungetc(c, fin);
         break;
@@ -1353,17 +1301,11 @@ void signal_handler(int sig)
         if ( name != symbol )
           free(name);
     }
-    exit(0);
 }
 #endif
 
 int main(int argc, char **argv, char **envp)
 {
-#ifdef SIGNALS
-    signal(SIGSEGV, signal_handler);
-    signal(SIGINT , signal_handler);
-#endif
-
     // allocate all the cells we will ever have
     block = (sexp)malloc(MAX*sizeof(Cons));
     for (int i = MAX; --i >= 0; )
@@ -1436,7 +1378,6 @@ int main(int argc, char **argv, char **envp)
     set_form(define,  defineform);
     set_form(globals, globalform);
     set_form(ifa,     ifform);
-    set_form(lambda,  lambdaform);
     set_form(let,     letform);
     set_form(ora,     orform);
     set_form(quote,   quoteform);
@@ -1481,9 +1422,15 @@ int main(int argc, char **argv, char **envp)
     if (s)
         printf("%s!\n", s);
 
+#ifdef SIGNALS
+    signal(SIGSEGV, signal_handler);
+    signal(SIGINT , signal_handler);
+#endif
     // read evaluate display ...
     while (!feof(stdin))
     {
+        total = 0;
+        collected = 0;
 #ifdef GC
         gc();
 #endif
@@ -1494,6 +1441,11 @@ int main(int argc, char **argv, char **envp)
             display(stdout, v);
             putchar('\n');
         }
+#ifdef VERBOSE
+        printf("collections: %d allocation: %d\n", collected, total);
+#endif
+        total = 0;
+        collected = 0;
     }
     return 0;
 }
