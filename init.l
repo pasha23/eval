@@ -74,6 +74,26 @@
         (let ((t (gcd x y)))
              (* (/ x t) (/ y t))))
 
+(define (fold f i s)
+    (if s
+        (f (car s) (fold f i (cdr s)))
+        i))
+
+(define (iota n)
+    (if (> n 0)
+        (cons n (iota (- n 1)))
+        '()))
+
+(define (pairs a b)
+    (if b
+        (cons (cons a (cons (car b) '())) (pairs a (cdr b)))
+        b))
+
+(define (cross a b)
+    (if a
+        (cons (pairs (car a) b) (cross (cdr a) b))
+        a))
+
 (define (mapcar f s)
         (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 
