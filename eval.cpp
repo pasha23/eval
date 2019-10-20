@@ -920,7 +920,7 @@ sexp evlis(sexp p, sexp env)
 
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
-    if (!actuals)
+    if (!actuals || !formals)
         return env;
     return lose(5, cons(save(cons(formals->car, actuals->car)), save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
 }
@@ -975,22 +975,39 @@ sexp condform(sexp expr, sexp env)
  *      (define (mycar x) (car x))
  * as
  *      (define mycar (lambda (x) (car x)))
- * 
+ * or
+ *      (define (mycar . x) (car x))
+ * as
+ *      (define mycar (lambda (mycar . x) (car x)))
  */
 sexp defineform(sexp p, sexp env)
 {
     if (isCons(p->cdr->car))
     {
-        save(env);
-        sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, save(p)->cdr->cdr))));
-        for (sexp q = global; q; q = q->cdr)
-            if (p->cdr->car->car == q->car->car)
-            {
-                q->car->cdr = v;
-                return lose(4, p->cdr->car->car);
-            }
-        global = cons(save(cons(p->cdr->car->car, v)), global);
-        return lose(5, p->cdr->car->car);
+        if (isCons(p->cdr->car->cdr))
+        {
+            save(env);
+            sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, save(p)->cdr->cdr))));
+            for (sexp q = global; q; q = q->cdr)
+                if (p->cdr->car->car == q->car->car)
+                {
+                    q->car->cdr = v;
+                    return lose(4, p->cdr->car->car);
+                }
+            global = cons(save(cons(p->cdr->car->car, v)), global);
+            return lose(5, p->cdr->car->car);
+        } else {
+            save(env);
+            sexp v = cons(lambda, save(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), save(p)->cdr->cdr)));
+            for (sexp q = global; q; q = q->cdr)
+                if (p->cdr->car->car == q->car->car)
+                {
+                    q->car->cdr = v;
+                    return lose(4, p->cdr->car->car);
+                }
+            global = cons(save(cons(p->cdr->car->car, v)), global);
+            return lose(5, p->cdr->car->car);
+        }
     } else {
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
@@ -1072,7 +1089,10 @@ sexp eval(sexp p, sexp env)
         return p;
     sexp q = save(eval(save(p)->car, save(env)));
     if (isCons(q) && lambda == q->car)
-        return lose(5, eval(q->cdr->cdr->car, save(assoc(q->cdr->car, save(evlis(p->cdr, env)), env))));
+        if (isAtom(q->cdr->car->cdr))
+            return lose(5, eval(q->cdr->cdr->car, save(cons(save(cons(q->cdr->car->cdr, save(evlis(p->cdr, env)))), env))));
+        else
+            return lose(4, eval(q->cdr->cdr->car, save(assoc(q->cdr->car, save(evlis(p->cdr, env)), env))));
     if (isForm(q))
         return lose(3, (*((Form*)q)->formp)(p, env));
     if (isFunct(q))
@@ -1243,7 +1263,8 @@ sexp readTail(FILE* fin)
     if (rparen == q)
         return 0;
     save(q);
-    return lose(2, cons(q, save(readTail(fin))));
+    sexp r = save(readTail(fin));
+    return lose(2, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
 }
 
 /*
@@ -1300,6 +1321,8 @@ void signal_handler(int sig)
 
         if ( name != symbol )
           free(name);
+
+        exit(0);
     }
 }
 #endif
@@ -1426,6 +1449,7 @@ int main(int argc, char **argv, char **envp)
     signal(SIGSEGV, signal_handler);
     signal(SIGINT , signal_handler);
 #endif
+
     // read evaluate display ...
     while (!feof(stdin))
     {
