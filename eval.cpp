@@ -9,25 +9,29 @@
  * 
  * Robert Kelley October 2019
  */
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
-#include <cxxabi.h>
-#include <csetjmp>
-#include <cstring>
-#include <cstdlib>
-#include <csignal>
-#include <climits>
-#include <cstdio>
-#include <assert.h>
-#include <cmath>
-#include <cfloat>
-
 #define GC
 #undef  DEBUG
-#undef  SIGNALS
-#undef  VERBOSE
+#define SIGNALS
+#define VERBOSE
 #define PSIZE   16384
 #define MAX     262144
+
+#ifdef SIGNALS
+#define UNW_LOCAL_ONLY
+#include <libunwind.h>
+#endif
+
+#include <assert.h>
+#include <cfloat>
+#include <climits>
+#include <cmath>
+#include <csetjmp>
+#include <csignal>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cxxabi.h>
+#include <unistd.h>
 
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
@@ -108,6 +112,7 @@ static inline bool isFlonum(const sexp p) { return p &&  FLONUM == (7 & ((Chunk*
 
 jmp_buf the_jmpbuf;
 
+bool killed = 0;            // to catch consecutive SIGINTs
 int  marked = 0;            // how many cells were marked during gc
 sexp atoms = 0;             // all atoms are linked in a list
 sexp block = 0;             // all the storage starts here
@@ -184,20 +189,13 @@ void mark(sexp p)
 void gc(void)
 {
     int werefree = MAX-allocated;
-#ifdef VERBOSE
-    printf("gc: allocated: %d free: %d", allocated, werefree);
-#endif
+    int wereprot = psp-protect;
     marked = 0;
     mark(atoms);
     mark(global);
-#ifdef VERBOSE
-    printf(" protected: %lu", psp-protect);
-#endif
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
-#ifdef VERBOSE
-    printf(" marked: %d expected garbage: %d", marked, werefree+allocated-marked);
-#endif
+    int weremark = marked;
     freelist = 0;
     int reclaimed = 0;
     for (sexp p = block; p < block+MAX; ++p)
@@ -212,13 +210,11 @@ void gc(void)
             unmarkCell(p);
     }
 #ifdef VERBOSE
-    printf(" reclaimed: %d\n", reclaimed);
+    printf("gc: allocated: %d protected: %d marked: %d reclaimed: %d\n", allocated, wereprot, weremark, reclaimed);
 #endif
     allocated -= reclaimed-werefree;
-
     total += allocated;
     ++collected;
-
     if (!freelist)
         longjmp(the_jmpbuf, (long)"storage exhausted");
 }
@@ -837,6 +833,7 @@ void display(FILE* fout, sexp expr)
     else if (isFixnum(expr))
         fprintf(fout, "%ld", ((Fixnum*)expr)->fixnum);
     else if (isFlonum(expr))
+        // maybe we should ensure the presence of a decimal point
         fprintf(fout, "%.12g", ((Flonum*)expr)->flonum);
     else if (isFunct(expr))
         fprintf(fout, "#function%d@%lx", arity(expr), (long)((Funct*)expr)->funcp);
@@ -1145,6 +1142,22 @@ sexp readChunks(FILE* fin, const char *ends)
     }
 }
 
+char whitespace(FILE* fin, char c)
+{
+    while (strchr(" \t\r\n", c))
+        c = getc(fin);
+
+    while (';' == c)
+    {
+        while ('\n' != c)
+            c = getc(fin);
+        while (strchr(" \t\r\n", c))
+            c = getc(fin);
+    }
+
+    return c;
+}
+
 enum { NON_NUMERIC, INT_NUMERIC, FLO_NUMERIC };
 
 /*
@@ -1154,9 +1167,14 @@ sexp scan(FILE* fin)
 {
     char buffer[32];
     char *p = buffer;
+    char *pend = buffer + sizeof(buffer);
+#if 0
     char c = getc(fin);
     while (strchr(" \t\r\n", c))
         c = getc(fin);
+#else
+    char c = whitespace(fin, getc(fin));
+#endif
     if (c < 0)
         return 0;
 
@@ -1185,7 +1203,7 @@ sexp scan(FILE* fin)
         while (' ' == c || '\t' == c || '\n' == c)
             c = getc(fin);
 
-        while ('0' <= c && c <= '9')
+        while (p < pend && '0' <= c && c <= '9')
         {
             rc = INT_NUMERIC;
             *p++ = c;
@@ -1199,7 +1217,7 @@ sexp scan(FILE* fin)
             c = getc(fin);
         }
 
-        while ('0' <= c && c <= '9')
+        while (p < pend && '0' <= c && c <= '9')
         {
             *p++ = c;
             c = getc(fin);
@@ -1217,7 +1235,7 @@ sexp scan(FILE* fin)
                 *p++ = c;
                 c = getc(fin);
             }
-            while ('0' <= c && c <= '9')
+            while (p < pend && '0' <= c && c <= '9')
             {
                 rc = FLO_NUMERIC;
                 *p++ = c;
@@ -1287,7 +1305,16 @@ sexp intern_atom_chunk(const char *s)
 }
 
 #ifdef SIGNALS
-void signal_handler(int sig)
+
+void intr_handler(int sig, siginfo_t *si, void *ctx)
+{
+    if (killed++)
+        exit(0);
+    if (SIGINT == sig)
+        longjmp(the_jmpbuf, (long)"SIGINT");
+}
+
+void segv_handler(int sig, siginfo_t *si, void *ctx)
 {
     putchar('\n');
 
@@ -1393,6 +1420,8 @@ int main(int argc, char **argv, char **envp)
     voida    = intern_atom_chunk("");
     whilea   = intern_atom_chunk("while");
 
+    set(lambda, lambda);
+
     // set the definitions (special forms)
     set_form(anda,    andform);
     set_form(begin,   beginform);
@@ -1440,13 +1469,21 @@ int main(int argc, char **argv, char **envp)
 
     load(string(chunk("init.l")));
 
-    const char *s = (const char *)setjmp(the_jmpbuf);
+    struct sigaction intr_action;
+    intr_action.sa_flags = SA_SIGINFO;
+    intr_action.sa_sigaction = intr_handler;
+    struct sigaction segv_action;
+    segv_action.sa_flags = SA_SIGINFO;
+    segv_action.sa_sigaction = segv_handler;
+    char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
-        printf("%s!\n", s);
-
+        printf(" caught %s!\n", s);
+#ifdef GC
+    gc();
+#endif
 #ifdef SIGNALS
-    signal(SIGSEGV, signal_handler);
-    signal(SIGINT , signal_handler);
+    sigaction(SIGSEGV, &segv_action, NULL);
+    sigaction(SIGINT,  &intr_action, NULL);
 #endif
 
     // read evaluate display ...
@@ -1454,16 +1491,18 @@ int main(int argc, char **argv, char **envp)
     {
         total = 0;
         collected = 0;
-#ifdef GC
-        gc();
-#endif
+        psp = protect;
         sexp e = read(stdin);
+        killed = 0;
         sexp v = eval(e, global);
         if (voida != v)
         {
             display(stdout, v);
             putchar('\n');
         }
+#ifdef GC
+        gc();
+#endif
 #ifdef VERBOSE
         printf("collections: %d allocation: %d\n", collected, total);
 #endif
