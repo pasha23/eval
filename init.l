@@ -58,7 +58,7 @@
 
 (define (gcd x y) (if (eqv? y 0) x (gcd y (% x y))))
 
-(define (lcm x y) (let ((t (gcd x y))) (* (/ x t) (/ y t))))
+(define (lcm x y) (let ((g (gcd x y))) (* (/ x g) (/ y g))))
 
 (define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
 

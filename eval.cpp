@@ -70,7 +70,7 @@ typedef sexp (*Twoargp)(sexp, sexp);
  * setting up union declarations isn't all that fun
  */
 struct Cons   { sexp              cdr; sexp                  car; };
-struct Chunk  { unsigned char tags[1]; char text[sizeof(Cons)-1]; };
+struct Chunk  { unsigned char tags[sizeof(Cons)];                 };
 struct Atom   { unsigned char tags[8]; sexp               chunks; };
 struct String { unsigned char tags[8]; sexp               chunks; };
 struct Fixnum { unsigned char tags[8]; long               fixnum; };
@@ -719,15 +719,15 @@ sexp load(sexp x)
     int length = 0;
     for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
     {
-        int i = 0;
-        while (i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i])
+        int i = 1;
+        while (i < sizeof(Cons) && ((Chunk*)p->car)->tags[i])
             ++i;
-        length += i;
+        length += i-1;
     }
     char *name = (char*) alloca(length+1);
     int j = 0;
     for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-        for (int i = 0; i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i]; name[j++] = ((Chunk*)p->car)->text[i++]) {}
+        for (int i = 1; i < sizeof(Cons) && ((Chunk*)p->car)->tags[i]; name[j++] = ((Chunk*)p->car)->tags[i++]) {}
     name[j++] = 0;
     FILE* fin = fopen(name, "r");
     while (!feof(fin))
@@ -769,16 +769,16 @@ sexp chunk(const char *t)
     Chunk* r = (Chunk*) cell();
     r->tags[0] = CHUNK;
     q->car = (sexp) r;
-    int i = 0;
+    int i = 1;
     for (;;)
     {
         char c = *t++;
-        r->text[i++] = c;
+        r->tags[i++] = c;
         if (!c)
             return lose(1, p);
-        if (i >= sizeof(Cons)-1)
+        if (i >= sizeof(Cons))
         {
-            i = 0;
+            i = 1;
             q = q->cdr = cell();
             r = (Chunk*) cell();
             r->tags[0] = CHUNK;
@@ -811,9 +811,9 @@ void printChunks(FILE* fout, sexp p)
 {
     while (p)
     {
-        for (int i = 0; i < sizeof(Cons)-1; ++i)
+        for (int i = 1; i < sizeof(Cons); ++i)
         {
-            char c = ((Chunk*)p->car)->text[i];
+            char c = ((Chunk*)p->car)->tags[i];
             if (!c)
                 break;
             putc(c, fout);
@@ -852,8 +852,8 @@ bool match(sexp p, sexp q)
             return true;
         if (!p || !q)
             return false;
-        for (int i = 0; i < sizeof(Cons)-1; ++i)
-            if (((Chunk*)p->car)->text[i] != ((Chunk*)q->car)->text[i])
+        for (int i = 1; i < sizeof(Cons); ++i)
+            if (((Chunk*)p->car)->tags[i] != ((Chunk*)q->car)->tags[i])
                 return false;
         p = p->cdr;
         q = q->cdr;
@@ -1090,9 +1090,9 @@ sexp eval(sexp p, sexp env)
     sexp q = save(eval(save(p)->car, save(env)));
     if (isCons(q) && lambda == q->car)
         if (isAtom(q->cdr->car->cdr))
-            return lose(5, eval(q->cdr->cdr->car, save(cons(save(cons(q->cdr->car->cdr, save(evlis(p->cdr, env)))), env))));
+            return lose(6, eval(q->cdr->cdr->car, save(cons(save(cons(q->cdr->car->cdr, save(evlis(p->cdr, env)))), env))));
         else
-            return lose(4, eval(q->cdr->cdr->car, save(assoc(q->cdr->car, save(evlis(p->cdr, env)), env))));
+            return lose(5, eval(q->cdr->cdr->car, save(assoc(q->cdr->car, save(evlis(p->cdr, env)), env))));
     if (isForm(q))
         return lose(3, (*((Form*)q)->formp)(p, env));
     if (isFunct(q))
@@ -1117,7 +1117,6 @@ sexp readChunks(FILE* fin, const char *ends)
 {
     char c = getc(fin);
 
-    int i = 0;
     sexp p = cell();
     sexp q = p;
     save(p);
@@ -1125,9 +1124,9 @@ sexp readChunks(FILE* fin, const char *ends)
     r->tags[0] = CHUNK;
     q->car = (sexp) r;
 
-    for (;;)
+    for (int i = 1; ; )
     {
-        r->text[i++] = c;
+        r->tags[i++] = c;
         c = getc(fin);
 
         if (strchr(ends, c))
@@ -1136,12 +1135,12 @@ sexp readChunks(FILE* fin, const char *ends)
             return lose(1, p);
         }
 
-        if (i == sizeof(Cons)-1) {
+        if (i == sizeof(Cons)) {
             q = q->cdr = cell();
             r = (Chunk*) cell();
             r->tags[0] = CHUNK;
             q->car = (sexp) r;
-            i = 0;
+            i = 1;
         }
     }
 }
