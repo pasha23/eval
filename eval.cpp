@@ -10,17 +10,12 @@
  * Robert Kelley October 2019
  */
 #define GC
-#undef  DEBUG
-#define SIGNALS
 #define VERBOSE
 #define PSIZE   16384
 #define MAX     262144
 
-#ifdef SIGNALS
 #define UNW_LOCAL_ONLY
 #include <libunwind.h>
-#endif
-
 #include <assert.h>
 #include <cfloat>
 #include <climits>
@@ -92,17 +87,17 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 
 // these are the built-in atoms
 
-sexp anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa, define, displaya;
-sexp divide, dot, elsea, endl, expa, f, gea, gta, eqva, globals, ifa, lambda, loga;
-sexp lparen, lea, let, loada, lta, lista, max, min, minus, modulo, newlinea, nil;
-sexp nota, ora, plus, powa, qchar, quote, reada, rparen, seta, setcara, setcdra, sina, t;
-sexp times, voida, whilea;
+sexp ampera, anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa, define;
+sexp displaya, divide, dot, elsea, endl, expa, f, gea, gta, eqva, globals;
+sexp ifa, lambda, loga, lparen, lea, let, loada, lta, lista, max, min, minus;
+sexp modulo, newlinea, nil, nota, ora, pipea, plus, powa, qchar, quote, reada;
+sexp rparen, seta, setcara, setcdra, sina, t, times, voida, whilea, lsha, rsha;
+sexp tilde, xora;
 
 static inline int  arity(const sexp p)    { return                      ((Chunk*)p)->tags[1];  }
 static inline int  cellType(const sexp p) { return                 (7 & ((Chunk*)p)->tags[0]); }
 static inline bool isMarked(const sexp p) { return p && (MARK         & ((Chunk*)p)->tags[0]); }
 static inline bool isCons(const sexp p)   { return p &&  CONS   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isChunk(const sexp p)  { return p &&  CHUNK  == (7 & ((Chunk*)p)->tags[0]); }
 static inline bool isAtom(const sexp p)   { return p &&  ATOM   == (7 & ((Chunk*)p)->tags[0]); }
 static inline bool isString(const sexp p) { return p &&  STRING == (7 & ((Chunk*)p)->tags[0]); }
 static inline bool isFunct(const sexp p)  { return p &&  FUNCT  == (7 & ((Chunk*)p)->tags[0]); }
@@ -112,18 +107,17 @@ static inline bool isFlonum(const sexp p) { return p &&  FLONUM == (7 & ((Chunk*
 
 jmp_buf the_jmpbuf;
 
-bool killed = 0;            // to catch consecutive SIGINTs
-int  marked = 0;            // how many cells were marked during gc
-sexp atoms = 0;             // all atoms are linked in a list
-sexp block = 0;             // all the storage starts here
-sexp global = 0;            // this is the global symbol table (a list)
-sexp freelist = 0;          // available cells are linked in a list
-int allocated = 0;          // how many cells have been allocated
-int total = 0;              // total allocation across gc's
-int collected = 0;          // how many gc's
-
-sexp protect[PSIZE];        // protection stack
-sexp *psp = protect;        // protection stack pointer
+bool killed = 0;        // to catch consecutive SIGINTs
+sexp atoms = 0;         // all atoms are linked in a list
+sexp block = 0;         // all the storage starts here
+sexp global = 0;        // this is the global symbol table (a list)
+sexp freelist = 0;      // available cells are linked in a list
+int  marked = 0;        // how many cells were marked during gc
+int  allocated = 0;     // how many cells have been allocated
+int  total = 0;         // total allocation across gc's
+int  collected = 0;     // how many gc's
+sexp protect[PSIZE];    // protection stack
+sexp *psp = protect;    // protection stack pointer
 
 /*
  * save the argument on the protection stack, return it
@@ -375,68 +369,56 @@ double asFlonum(sexp p)
     return isFlonum(p) ? ((Flonum*)p)->flonum : (double)((Fixnum*)p)->fixnum;
 }
 
-sexp lt(sexp x, sexp y)
+bool cmplt(sexp x, sexp y)
 {
     if (isFlonum(x)) {
         if (isFlonum(y))
-            return asFlonum(x) < asFlonum(y) ? t : 0;
+            return asFlonum(x) < asFlonum(y);
         if (isFixnum(y))
-            return asFlonum(x) < (double)asFixnum(y) ? t : 0;
+            return asFlonum(x) < (double)asFixnum(y);
     } else if (isFixnum(x)) {
         if (isFixnum(y))
-            return asFixnum(x) < asFixnum(y) ? t : 0;
+            return asFixnum(x) < asFixnum(y);
         if (isFlonum(y))
-            return (double)asFixnum(x) < asFixnum(y) ? t : 0;
+            return (double)asFixnum(x) < asFixnum(y);
     }
-    longjmp(the_jmpbuf, (long)"< bad argument");
+    longjmp(the_jmpbuf, (long)"comparison bad argument");
+}
+
+bool cmple(sexp x, sexp y)
+{
+    if (isFlonum(x)) {
+        if (isFlonum(y))
+            return asFlonum(x) <= asFlonum(y);
+        if (isFixnum(y))
+            return asFlonum(x) <= (double)asFixnum(y);
+    } else if (isFixnum(x)) {
+        if (isFixnum(y))
+            return asFixnum(x) <= asFixnum(y);
+        if (isFlonum(y))
+            return (double)asFixnum(x) <= asFixnum(y);
+    }
+    longjmp(the_jmpbuf, (long)"comparison bad argument");
+}
+
+sexp lt(sexp x, sexp y)
+{
+    return cmplt(x, y) ? t : 0;
 }
 
 sexp le(sexp x, sexp y)
 {
-    if (isFlonum(x)) {
-        if (isFlonum(y))
-            return asFlonum(x) <= asFlonum(y) ? t : 0;
-        if (isFixnum(y))
-            return asFlonum(x) <= (double)asFixnum(y) ? t : 0;
-    } else if (isFixnum(x)) {
-        if (isFixnum(y))
-            return asFixnum(x) <= asFixnum(y) ? t : 0;
-        if (isFlonum(y))
-            return (double)asFixnum(x) <= asFixnum(y) ? t : 0;
-    }
-    longjmp(the_jmpbuf, (long)"<= bad argument");
+    return cmple(x, y) ? t : 0;
 }
 
 sexp ge(sexp x, sexp y)
 {
-    if (isFlonum(x)) {
-        if (isFlonum(y))
-            return asFlonum(x) >= asFlonum(y) ? t : 0;
-        if (isFixnum(y))
-            return asFlonum(x) >= (double)asFixnum(y) ? t : 0;
-    } else if (isFixnum(x)) {
-        if (isFixnum(y))
-            return asFixnum(x) >= asFixnum(y) ? t : 0;
-        if (isFlonum(y))
-            return (double)asFixnum(x) >= asFixnum(y) ? t : 0;
-    }
-    longjmp(the_jmpbuf, (long)">= bad argument");
+    return cmplt(x, y) ? 0 : t;
 }
 
 sexp gt(sexp x, sexp y)
 {
-    if (isFlonum(x)) {
-        if (isFlonum(y))
-            return asFlonum(x) > asFlonum(y) ? t : 0;
-        if (isFixnum(y))
-            return asFlonum(x) > (double)asFixnum(y) ? t : 0;
-    } else if (isFixnum(x)) {
-        if (isFixnum(y))
-            return asFixnum(x) > asFixnum(y) ? t : 0;
-        if (isFlonum(y))
-            return (double)asFixnum(x) > asFixnum(y) ? t : 0;
-    }
-    longjmp(the_jmpbuf, (long)"> bad argument");
+    return cmple(y, x) ? 0 : t;
 }
 
 sexp allfixnums(sexp args)
@@ -707,6 +689,57 @@ sexp isnot(sexp x)
     return x ? 0 : t;
 }
 
+sexp complement(sexp x)
+{
+    return isFixnum(x) ? fixnum(~asFixnum(x)) : 0;
+}
+
+sexp lsh(sexp x, sexp y)
+{
+    return isFixnum(x) && isFixnum(y) ? fixnum(asFixnum(x) << asFixnum(y)) : 0;
+}
+
+sexp rsh(sexp x, sexp y)
+{
+    return isFixnum(x) && isFixnum(y) ? fixnum(asFixnum(x) >> asFixnum(y)) : 0;
+}
+
+sexp andfunc(sexp args)
+{
+    save(args);
+    if (allfixnums(args)) {
+        long result = ~0;
+        for (sexp p = args; p; p = p->cdr)
+            result = result & asFixnum(p->car);
+        return lose(1, fixnum(result));
+    } else
+        return lose(1, 0);
+}
+
+sexp orfunc(sexp args)
+{
+    save(args);
+    if (allfixnums(args)) {
+        long result = 0;
+        for (sexp p = args; p; p = p->cdr)
+            result = result | asFixnum(p->car);
+        return lose(1, fixnum(result));
+    } else
+        return lose(1, 0);
+}
+
+sexp xorfunc(sexp args)
+{
+    save(args);
+    if (allfixnums(args)) {
+        long result = 0;
+        for (sexp p = args; p; p = p->cdr)
+            result = result ^ asFixnum(p->car);
+        return lose(1, fixnum(result));
+    } else
+        return lose(1, 0);
+}
+
 sexp load(sexp x)
 {
     sexp r = 0;
@@ -803,7 +836,7 @@ void displayList(FILE* fout, sexp expr)
     putc(')', fout);
 }
 
-void printChunks(FILE* fout, sexp p)
+void displayChunks(FILE* fout, sexp p)
 {
     while (p)
     {
@@ -826,10 +859,10 @@ void display(FILE* fout, sexp expr)
         displayList(fout, expr);
     else if (isString(expr)) {
         putc('"', fout);
-        printChunks(fout, ((String*)expr)->chunks);
+        displayChunks(fout, ((String*)expr)->chunks);
         putc('"', fout);
     } else if (isAtom(expr))
-        printChunks(fout, ((Atom*)expr)->chunks);
+        displayChunks(fout, ((Atom*)expr)->chunks);
     else if (isFixnum(expr))
         fprintf(fout, "%ld", ((Fixnum*)expr)->fixnum);
     else if (isFlonum(expr))
@@ -1304,8 +1337,6 @@ sexp intern_atom_chunk(const char *s)
     return intern(atom(chunk(s)));
 }
 
-#ifdef SIGNALS
-
 void intr_handler(int sig, siginfo_t *si, void *ctx)
 {
     if (killed++)
@@ -1351,7 +1382,6 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
         exit(0);
     }
 }
-#endif
 
 int main(int argc, char **argv, char **envp)
 {
@@ -1366,6 +1396,7 @@ int main(int argc, char **argv, char **envp)
 
     // set up all predefined atoms
 
+    ampera   = intern_atom_chunk("&");
     anda     = intern_atom_chunk("and");
     atoma    = intern_atom_chunk("atom?");
     atomsa   = intern_atom_chunk("atoms");
@@ -1395,6 +1426,7 @@ int main(int argc, char **argv, char **envp)
     loada    = intern_atom_chunk("load");
     loga     = intern_atom_chunk("log");
     lparen   = intern_atom_chunk("(");
+    lsha     = intern_atom_chunk("<<");
     lta      = intern_atom_chunk("<");
     max      = intern_atom_chunk("max");
     min      = intern_atom_chunk("min");
@@ -1404,21 +1436,24 @@ int main(int argc, char **argv, char **envp)
     nil      = intern_atom_chunk("#f");
     nota     = intern_atom_chunk("not");
     ora      = intern_atom_chunk("or");
+    pipea    = intern_atom_chunk("|");
     plus     = intern_atom_chunk("+");
     powa     = intern_atom_chunk("pow");
     qchar    = intern_atom_chunk("'");
     quote    = intern_atom_chunk("quote");
     reada    = intern_atom_chunk("read");
     rparen   = intern_atom_chunk(")");
+    rsha     = intern_atom_chunk(">>");
     seta     = intern_atom_chunk("set");
     setcara  = intern_atom_chunk("set-car");
     setcdra  = intern_atom_chunk("set-cdr");
-    seta     = intern_atom_chunk("set");
     sina     = intern_atom_chunk("sin");
-    t        = intern_atom_chunk("#t");
+    tilde    = intern_atom_chunk("~");
     times    = intern_atom_chunk("*");
+    t        = intern_atom_chunk("#t");
     voida    = intern_atom_chunk("");
     whilea   = intern_atom_chunk("while");
+    xora     = intern_atom_chunk("^");
 
     set(lambda, lambda);
 
@@ -1437,6 +1472,7 @@ int main(int argc, char **argv, char **envp)
     set_form(whilea,  whileform);
 
     // set the definitions (functions)
+    set_funct(ampera,   0, (void*)andfunc);
     set_funct(atoma,    1, (void*)atomp);
     set_funct(atomsa,   0, (void*)atomsfunc);
     set_funct(cara,     1, (void*)car);
@@ -1451,8 +1487,9 @@ int main(int argc, char **argv, char **envp)
     set_funct(gta,      2, (void*)gt);
     set_funct(lea,      2, (void*)le);
     set_funct(lista,    1, (void*)listp);
-    set_funct(loga,     1, (void*)logfunc);
     set_funct(loada,    1, (void*)load);
+    set_funct(loga,     1, (void*)logfunc);
+    set_funct(lsha,     2, (void*)lsh);
     set_funct(lta,      2, (void*)lt);
     set_funct(max,      0, (void*)maxfunc);
     set_funct(min,      0, (void*)minfunc);
@@ -1460,12 +1497,16 @@ int main(int argc, char **argv, char **envp)
     set_funct(modulo,   0, (void*)modfunc);
     set_funct(newlinea, 0, (void*)newlinefunc);
     set_funct(nota,     1, (void*)isnot);
+    set_funct(pipea,    0, (void*)orfunc);
     set_funct(plus,     0, (void*)addfunc);
     set_funct(powa,     2, (void*)powfunc);
+    set_funct(rsha,     2, (void*)rsh);
     set_funct(setcara,  2, (void*)setcarfunc);
     set_funct(setcdra,  2, (void*)setcdrfunc);
     set_funct(sina,     1, (void*)sinfunc);
+    set_funct(tilde,    1, (void*)complement);
     set_funct(times,    0, (void*)mulfunc);
+    set_funct(xora,     0, (void*)xorfunc);
 
     load(string(chunk("init.l")));
 
@@ -1478,13 +1519,13 @@ int main(int argc, char **argv, char **envp)
     char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
         printf(" caught %s!\n", s);
+
 #ifdef GC
     gc();
 #endif
-#ifdef SIGNALS
+
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
-#endif
 
     // read evaluate display ...
     while (!feof(stdin))
