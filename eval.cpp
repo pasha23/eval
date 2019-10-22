@@ -9,13 +9,15 @@
  * 
  * Robert Kelley October 2019
  */
-#define GC
-#define VERBOSE
+#define UNWIND
 #define PSIZE   16384
 #define MAX     262144
 
 #define UNW_LOCAL_ONLY
+#ifdef  UNWIND
 #include <libunwind.h>
+#include <cxxabi.h>
+#endif
 #include <assert.h>
 #include <cfloat>
 #include <climits>
@@ -25,7 +27,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <cxxabi.h>
 #include <unistd.h>
 
 /*
@@ -69,7 +70,7 @@ typedef sexp (*Twoargp)(sexp, sexp);
  * setting up union declarations isn't all that fun
  */
 struct Cons   { sexp              cdr; sexp                  car; };
-struct Chunk  { unsigned char tags[sizeof(Cons)];                 };
+struct Chunk  { unsigned char tags[1]; char text[sizeof(Cons)-1]; };
 struct Atom   { unsigned char tags[8]; sexp               chunks; };
 struct String { unsigned char tags[8]; sexp               chunks; };
 struct Fixnum { unsigned char tags[8]; long               fixnum; };
@@ -87,12 +88,12 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 
 // these are the built-in atoms
 
-sexp ampera, anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa, define;
-sexp displaya, divide, dot, elsea, endl, expa, f, gea, gta, eqva, globals;
-sexp ifa, lambda, loga, lparen, lea, let, loada, lta, lista, max, min, minus;
-sexp modulo, newlinea, nil, nota, ora, pipea, plus, powa, qchar, quote, reada;
-sexp rparen, seta, setcara, setcdra, sina, t, times, voida, whilea, lsha, rsha;
-sexp tilde, xora;
+sexp absa, adda, ampera, anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa;
+sexp define, displaya, diva, dot, elsea, endl, expa, f, gea, gta, eqva;
+sexp globals, ifa, lambda, loga, lparen, lea, let, loada, lta, lista, minus;
+sexp moda, modulo, mula, newlinea, nil, nota, ora, pipea, plus, powa, qchar, quote;
+sexp reada, rparen, seta, setcara, setcdra, sina, sqrta, suba, t, times, voida, whilea;
+sexp lsha, rsha, tilde, xora;
 
 static inline int  arity(const sexp p)    { return                      ((Chunk*)p)->tags[1];  }
 static inline int  cellType(const sexp p) { return                 (7 & ((Chunk*)p)->tags[0]); }
@@ -145,13 +146,13 @@ sexp lose(int n, sexp p)
     return p;
 }
 
-static void markCell(sexp p)
+static inline void markCell(sexp p)
 {
     ((Chunk*)p)->tags[0] |=  MARK;
     ++marked;
 }
 
-static void unmarkCell(sexp p)
+static inline void unmarkCell(sexp p)
 {
     ((Chunk*)p)->tags[0] &= ~MARK;
     --marked;
@@ -180,7 +181,7 @@ void mark(sexp p)
  *
  * sweep all storage, putting unmarked objects on the freelist
  */
-void gc(void)
+void gc(bool verbose)
 {
     int werefree = MAX-allocated;
     int wereprot = psp-protect;
@@ -203,9 +204,10 @@ void gc(void)
         } else 
             unmarkCell(p);
     }
-#ifdef VERBOSE
-    printf("gc: allocated: %d protected: %d marked: %d reclaimed: %d\n", allocated, wereprot, weremark, reclaimed);
-#endif
+    if (verbose)
+        printf("gc: allocated: %d protected: %d marked: %d reclaimed: %d collections: %d allocation: %d\n",
+               allocated, wereprot, weremark, reclaimed, collected, total);
+
     allocated -= reclaimed-werefree;
     total += allocated;
     ++collected;
@@ -219,7 +221,7 @@ void gc(void)
 sexp cell(void)
 {
     if (allocated >= MAX)
-        gc();
+        gc(false);
 
     ++allocated;
     Cons* p = freelist;
@@ -418,7 +420,7 @@ sexp ge(sexp x, sexp y)
 
 sexp gt(sexp x, sexp y)
 {
-    return cmple(y, x) ? 0 : t;
+    return cmple(x, y) ? 0 : t;
 }
 
 sexp allfixnums(sexp args)
@@ -429,234 +431,104 @@ sexp allfixnums(sexp args)
     return t;
 }
 
-sexp allflonums(sexp args)
+sexp add(sexp x, sexp y)
 {
-    for (sexp p = args; p; p = p->cdr)
-        if (!isFlonum(p->car))
+    if (isFixnum(x)) {
+        if (isFixnum(y))
+            return fixnum(asFixnum(x) + asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFixnum(x) + asFlonum(y));
+        else
             return 0;
-    return t;
+    } else if (isFlonum(x)) {
+        if (isFixnum(y))
+            return flonum(asFlonum(x) + asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFlonum(x) + asFlonum(y));
+        else
+            return 0;
+    } else
+        return 0;
 }
 
-sexp addfunc(sexp args)
+sexp sub(sexp x, sexp y)
 {
-    save(args);
-    if (allfixnums(args)) {
-        long result = 0;
-        for (sexp p = args; p; p = p->cdr)
-            result += asFixnum(p->car);
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = 0;
-        for (sexp p = args; p; p = p->cdr)
-            result += asFlonum(p->car);
-        return lose(1, flonum(result));
-    } else {
-        double result = 0;
-        for (sexp p = args; p; p = p->cdr)
-            if (isFlonum(p->car))
-                result += asFlonum(p->car);
-            else if (isFixnum(p->car))
-                result += asFixnum(p->car);
-            else
-                longjmp(the_jmpbuf, (long)"+ bad argument");
-        return lose(1, flonum(result));
-    }
+    if (isFixnum(x)) {
+        if (isFixnum(y))
+            return fixnum(asFixnum(x) - asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFixnum(x) - asFlonum(y));
+        else
+            return 0;
+    } else if (isFlonum(x)) {
+        if (isFixnum(y))
+            return flonum(asFlonum(x) - asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFlonum(x) - asFlonum(y));
+        else
+            return 0;
+    } else
+        return 0;
 }
 
-sexp subfunc(sexp args)
+sexp mul(sexp x, sexp y)
 {
-    save(args);
-    if (allfixnums(args)) {
-        long result = 0;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            long n = asFixnum(p->car);
-            result += (args == p && p->cdr) ? n : -n;
-        }
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = 0;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            double n = asFlonum(p->car);
-            result += (args == p && p->cdr) ? n : -n;
-        }
-        return lose(1, flonum(result));
-    } else {
-        double result = 0;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            if (isFlonum(p->car)) {
-                double n = asFlonum(p->car);
-                result += (args == p && p->cdr) ? n : -n;
-            } else if (isFixnum(p->car)) {
-                double n = (double)asFixnum(p->car);
-                result += (args == p && p->cdr) ? n : -n;
-            } else
-                longjmp(the_jmpbuf, (long)"- bad argument");
-        }
-        return lose(1, flonum(result));
-    }
+    if (isFixnum(x)) {
+        if (isFixnum(y))
+            return fixnum(asFixnum(x) * asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFixnum(x) * asFlonum(y));
+        else
+            return 0;
+    } else if (isFlonum(x)) {
+        if (isFixnum(y))
+            return flonum(asFlonum(x) * asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFlonum(x) * asFlonum(y));
+        else
+            return 0;
+    } else
+        return 0;
 }
 
-sexp mulfunc(sexp args)
+sexp divf(sexp x, sexp y)
 {
-    save(args);
-    if (allfixnums(args)) {
-        long result = 1;
-        for (sexp p = args; p; p = p->cdr)
-            result *= asFixnum(p->car);
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = 1;
-        for (sexp p = args; p; p = p->cdr)
-            result *= asFlonum(p->car);
-        return lose(1, flonum(result));
-    } else {
-        double result = 1;
-        for (sexp p = args; p; p = p->cdr)
-            if (isFixnum(p->car))
-                result *= (double)asFixnum(p->car);
-            else if (isFlonum(p->car))
-                result *= asFlonum(p->car);
-            else
-                longjmp(the_jmpbuf, (long)"* bad argument");
-        return lose(1, flonum(result));
-    }
+    if (isFixnum(x)) {
+        if (isFixnum(y))
+            return fixnum(asFixnum(x) / asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFixnum(x) / asFlonum(y));
+        else
+            return 0;
+    } else if (isFlonum(x)) {
+        if (isFixnum(y))
+            return flonum(asFlonum(x) / asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(asFlonum(x) / asFlonum(y));
+        else
+            return 0;
+    } else
+        return 0;
 }
 
-sexp divfunc(sexp args)
+sexp mod(sexp x, sexp y)
 {
-    save(args);
-    if (allfixnums(args)) {
-        long result = asFixnum(args->car);
-        for (sexp p = args->cdr; p; p = p->cdr)
-            result = result / asFixnum(p->car);
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = asFlonum(args->car);
-        for (sexp p = args->cdr; p; p = p->cdr)
-            result = result / asFlonum(p->car);
-        return lose(1, flonum(result));
-    } else {
-        double result = asFlonum(args->car);
-        for (sexp p = args->cdr; p; p = p->cdr)
-            if (isFixnum(p->car))
-                result = result / (double)asFixnum(p->car);
-            else if (isFlonum(p->car))
-                result = result / asFlonum(p->car);
-            else
-                longjmp(the_jmpbuf, (long)"/ bad argument");
-        return lose(1, flonum(result));
-    }
-}
-
-sexp modfunc(sexp args)
-{
-    save(args);
-    if (allfixnums(args)) {
-        long result = asFixnum(args->car);
-        for (sexp p = args->cdr; p; p = p->cdr)
-            result = result % asFixnum(p->car);
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = asFlonum(args->car);
-        for (sexp p = args->cdr; p; p = p->cdr)
-            result = fmod(result, asFlonum(p->car));
-        return lose(1, flonum(result));
-    } else {
-        double result = asFlonum(args->car);
-        for (sexp p = args->cdr; p; p = p->cdr)
-            if (isFixnum(p->car))
-                result = fmod(result, (double)asFixnum(p->car));
-            else if (isFlonum(p->car))
-                result = fmod(result, asFlonum(p->car));
-            else
-                longjmp(the_jmpbuf, (long)"% bad argument");
-        return lose(1, flonum(result));
-    }
-}
-
-sexp maxfunc(sexp args)
-{
-    save(args);
-    if (allfixnums(args))
-    {
-        long result = LONG_MIN;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            long x = asFixnum(p->car);
-            if (x > result)
-                result = x;
-        }
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = DBL_MIN;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            long x = asFlonum(p->car);
-            if (x > result)
-                result = x;
-        }
-        return lose(1, flonum(result));
-    } else {
-        double result = DBL_MIN;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            if (isFixnum(p->car)) {
-                double x = (double)asFixnum(p->car);
-                if (x > result)
-                    result = x;
-            } else if (isFlonum(p->car)) {
-                double x = asFlonum(p->car);
-                if (x > result)
-                    result = x;
-            } else
-                longjmp(the_jmpbuf, (long)"max: bad argument");
-        }
-        return lose(1, flonum(result));
-    }
-}
-
-sexp minfunc(sexp args)
-{
-    save(args);
-    if (allfixnums(args))
-    {
-        long result = LONG_MAX;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            long x = asFixnum(p->car);
-            if (x < result)
-                result = x;
-        }
-        return lose(1, fixnum(result));
-    } else if (allflonums(args)) {
-        double result = DBL_MAX;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            double x = asFixnum(p->car);
-            if (x < result)
-                result = x;
-        }
-        return lose(1, flonum(result));
-    } else {
-        double result = DBL_MAX;
-        for (sexp p = args; p; p = p->cdr)
-        {
-            if (isFixnum(p->car)) {
-                double x = (double)asFixnum(p->car);
-                if (x < result)
-                    result = x;
-            } else if (isFlonum(p->car)) {
-                double x = asFlonum(p->car);
-                if (x < result)
-                    result = x;
-            } else
-                longjmp(the_jmpbuf, (long)"min: bad argument");
-        }
-        return lose(1, flonum(result));
-    }
+    if (isFixnum(x)) {
+        if (isFixnum(y))
+            return fixnum(asFixnum(x) % asFixnum(y));
+        else if (isFlonum(y))
+            return flonum(fmod((double)asFixnum(x), asFlonum(y)));
+        else
+            return 0;
+    } else if (isFlonum(x)) {
+        if (isFixnum(y))
+            return flonum(fmod(asFlonum(x), (double)asFixnum(y)));
+        else if (isFlonum(y))
+            return flonum(fmod(asFlonum(x), asFlonum(y)));
+        else
+            return 0;
+    } else
+        return 0;
 }
 
 sexp cosfunc(sexp x)
@@ -667,6 +539,11 @@ sexp cosfunc(sexp x)
 sexp sinfunc(sexp x)
 {
     return isFlonum(x) ? flonum(sin(asFlonum(x))) : 0;
+}
+
+sexp sqrtfunc(sexp x)
+{
+    return isFlonum(x) ? flonum(sqrt(asFlonum(x))) : 0;
 }
 
 sexp logfunc(sexp x)
@@ -687,6 +564,23 @@ sexp powfunc(sexp x, sexp y)
 sexp isnot(sexp x)
 {
     return x ? 0 : t;
+}
+
+sexp absfunc(sexp x)
+{
+    if (isFixnum(x))
+    {
+        long r = asFixnum(x);
+        if (r < 0) r = -r;
+        return fixnum(r);
+    }
+    if (isFlonum(x))
+    {
+        long r = asFlonum(x);
+        if (r < 0) r = -r;
+        return flonum(r);
+    }
+    return 0;
 }
 
 sexp complement(sexp x)
@@ -748,15 +642,15 @@ sexp load(sexp x)
     int length = 0;
     for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
     {
-        int i = 1;
-        while (i < sizeof(Cons) && ((Chunk*)p->car)->tags[i])
+        int i = 0;
+        while (i < sizeof(Cons)-1 && ((Chunk*)p->car)->tags[i])
             ++i;
-        length += i-1;
+        length += i;
     }
     char *name = (char*) alloca(length+1);
     int j = 0;
     for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-        for (int i = 1; i < sizeof(Cons) && ((Chunk*)p->car)->tags[i]; name[j++] = ((Chunk*)p->car)->tags[i++]) {}
+        for (int i = 0; i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i]; name[j++] = ((Chunk*)p->car)->text[i++]) {}
     name[j++] = 0;
     FILE* fin = fopen(name, "r");
     while (!feof(fin))
@@ -798,16 +692,16 @@ sexp chunk(const char *t)
     Chunk* r = (Chunk*) cell();
     r->tags[0] = CHUNK;
     q->car = (sexp) r;
-    int i = 1;
+    int i = 0;
     for (;;)
     {
         char c = *t++;
-        r->tags[i++] = c;
+        r->text[i++] = c;
         if (!c)
             return lose(1, p);
-        if (i >= sizeof(Cons))
+        if (i >= sizeof(Cons)-1)
         {
-            i = 1;
+            i = 0;
             q = q->cdr = cell();
             r = (Chunk*) cell();
             r->tags[0] = CHUNK;
@@ -840,9 +734,9 @@ void displayChunks(FILE* fout, sexp p)
 {
     while (p)
     {
-        for (int i = 1; i < sizeof(Cons); ++i)
+        for (int i = 0; i < sizeof(Cons)-1; ++i)
         {
-            char c = ((Chunk*)p->car)->tags[i];
+            char c = ((Chunk*)p->car)->text[i];
             if (!c)
                 break;
             putc(c, fout);
@@ -866,8 +760,7 @@ void display(FILE* fout, sexp expr)
     else if (isFixnum(expr))
         fprintf(fout, "%ld", ((Fixnum*)expr)->fixnum);
     else if (isFlonum(expr))
-        // maybe we should ensure the presence of a decimal point
-        fprintf(fout, "%.12g", ((Flonum*)expr)->flonum);
+        fprintf(fout, "%#.12f", ((Flonum*)expr)->flonum);
     else if (isFunct(expr))
         fprintf(fout, "#function%d@%lx", arity(expr), (long)((Funct*)expr)->funcp);
     else if (isForm(expr))
@@ -882,8 +775,8 @@ bool match(sexp p, sexp q)
             return true;
         if (!p || !q)
             return false;
-        for (int i = 1; i < sizeof(Cons); ++i)
-            if (((Chunk*)p->car)->tags[i] != ((Chunk*)q->car)->tags[i])
+        for (int i = 0; i < sizeof(Cons)-1; ++i)
+            if (((Chunk*)p->car)->text[i] != ((Chunk*)q->car)->text[i])
                 return false;
         p = p->cdr;
         q = q->cdr;
@@ -1130,9 +1023,9 @@ sexp eval(sexp p, sexp env)
         if (0 == arity(q))
             return lose(4, (*(Varargp)((Funct*)q)->funcp)(save(evlis(p->cdr, env))));
         if (1 == arity(q) && p->cdr)
-                return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
+            return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
         if (2 == arity(q) && p->cdr && p->cdr->cdr)
-                return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
+            return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
     }
     display(stdout, p);
     putchar('\n');
@@ -1154,9 +1047,9 @@ sexp readChunks(FILE* fin, const char *ends)
     r->tags[0] = CHUNK;
     q->car = (sexp) r;
 
-    for (int i = 1; ; )
+    for (int i = 0; ; )
     {
-        r->tags[i++] = c;
+        r->text[i++] = c;
         c = getc(fin);
 
         if (strchr(ends, c))
@@ -1165,12 +1058,12 @@ sexp readChunks(FILE* fin, const char *ends)
             return lose(1, p);
         }
 
-        if (i == sizeof(Cons)) {
+        if (i >= sizeof(Cons)-1) {
             q = q->cdr = cell();
             r = (Chunk*) cell();
             r->tags[0] = CHUNK;
             q->car = (sexp) r;
-            i = 1;
+            i = 0;
         }
     }
 }
@@ -1299,6 +1192,7 @@ sexp scan(FILE* fin)
 
     if ('"' == c)
     {
+        c = getc(fin);
         sexp r = string(readChunks(fin, "\""));
         (void)getc(fin);  // read the " again
         return r;
@@ -1348,7 +1242,7 @@ void intr_handler(int sig, siginfo_t *si, void *ctx)
 void segv_handler(int sig, siginfo_t *si, void *ctx)
 {
     putchar('\n');
-
+#ifdef UNWIND
     unw_cursor_t cursor;
     unw_context_t context;
 
@@ -1378,9 +1272,9 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
 
         if ( name != symbol )
           free(name);
-
-        exit(0);
     }
+#endif
+    exit(0);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -1396,6 +1290,8 @@ int main(int argc, char **argv, char **envp)
 
     // set up all predefined atoms
 
+    absa     = intern_atom_chunk("abs");
+    adda     = intern_atom_chunk("add");
     ampera   = intern_atom_chunk("&");
     anda     = intern_atom_chunk("and");
     atoma    = intern_atom_chunk("atom?");
@@ -1408,7 +1304,7 @@ int main(int argc, char **argv, char **envp)
     cosa     = intern_atom_chunk("cos");
     define   = intern_atom_chunk("define");
     displaya = intern_atom_chunk("display");
-    divide   = intern_atom_chunk("/");
+    diva     = intern_atom_chunk("div");
     dot      = intern_atom_chunk(".");
     elsea    = intern_atom_chunk("else");
     endl     = intern_atom_chunk("\n");
@@ -1428,16 +1324,14 @@ int main(int argc, char **argv, char **envp)
     lparen   = intern_atom_chunk("(");
     lsha     = intern_atom_chunk("<<");
     lta      = intern_atom_chunk("<");
-    max      = intern_atom_chunk("max");
-    min      = intern_atom_chunk("min");
     minus    = intern_atom_chunk("-");
-    modulo   = intern_atom_chunk("%");
+    moda     = intern_atom_chunk("mod");
+    mula     = intern_atom_chunk("mul");
     newlinea = intern_atom_chunk("newline");
     nil      = intern_atom_chunk("#f");
     nota     = intern_atom_chunk("not");
     ora      = intern_atom_chunk("or");
     pipea    = intern_atom_chunk("|");
-    plus     = intern_atom_chunk("+");
     powa     = intern_atom_chunk("pow");
     qchar    = intern_atom_chunk("'");
     quote    = intern_atom_chunk("quote");
@@ -1448,8 +1342,9 @@ int main(int argc, char **argv, char **envp)
     setcara  = intern_atom_chunk("set-car");
     setcdra  = intern_atom_chunk("set-cdr");
     sina     = intern_atom_chunk("sin");
+    sqrta    = intern_atom_chunk("sqrt");
+    suba     = intern_atom_chunk("sub");
     tilde    = intern_atom_chunk("~");
-    times    = intern_atom_chunk("*");
     t        = intern_atom_chunk("#t");
     voida    = intern_atom_chunk("");
     whilea   = intern_atom_chunk("while");
@@ -1472,6 +1367,8 @@ int main(int argc, char **argv, char **envp)
     set_form(whilea,  whileform);
 
     // set the definitions (functions)
+    set_funct(absa,     1, (void*)absfunc);
+    set_funct(adda,     2, (void*)add);
     set_funct(ampera,   0, (void*)andfunc);
     set_funct(atoma,    1, (void*)atomp);
     set_funct(atomsa,   0, (void*)atomsfunc);
@@ -1480,7 +1377,7 @@ int main(int argc, char **argv, char **envp)
     set_funct(consa,    2, (void*)cons);
     set_funct(cosa,     1, (void*)cosfunc);
     set_funct(displaya, 0, (void*)displayfunc);
-    set_funct(divide,   0, (void*)divfunc);
+    set_funct(diva,     2, (void*)divf);
     set_funct(eqva,     2, (void*)eqv);
     set_funct(expa,     1, (void*)expfunc);
     set_funct(gea,      2, (void*)ge);
@@ -1491,21 +1388,19 @@ int main(int argc, char **argv, char **envp)
     set_funct(loga,     1, (void*)logfunc);
     set_funct(lsha,     2, (void*)lsh);
     set_funct(lta,      2, (void*)lt);
-    set_funct(max,      0, (void*)maxfunc);
-    set_funct(min,      0, (void*)minfunc);
-    set_funct(minus,    0, (void*)subfunc);
-    set_funct(modulo,   0, (void*)modfunc);
+    set_funct(moda,     2, (void*)mod);
+    set_funct(mula,     2, (void*)mul);
     set_funct(newlinea, 0, (void*)newlinefunc);
     set_funct(nota,     1, (void*)isnot);
     set_funct(pipea,    0, (void*)orfunc);
-    set_funct(plus,     0, (void*)addfunc);
     set_funct(powa,     2, (void*)powfunc);
     set_funct(rsha,     2, (void*)rsh);
     set_funct(setcara,  2, (void*)setcarfunc);
     set_funct(setcdra,  2, (void*)setcdrfunc);
     set_funct(sina,     1, (void*)sinfunc);
+    set_funct(sqrta,    1, (void*)sqrtfunc);
+    set_funct(suba,     2, (void*)sub);
     set_funct(tilde,    1, (void*)complement);
-    set_funct(times,    0, (void*)mulfunc);
     set_funct(xora,     0, (void*)xorfunc);
 
     load(string(chunk("init.l")));
@@ -1520,16 +1415,13 @@ int main(int argc, char **argv, char **envp)
     if (s)
         printf(" caught %s!\n", s);
 
-#ifdef GC
-    gc();
-#endif
-
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
 
     // read evaluate display ...
     while (!feof(stdin))
     {
+        gc(true);
         total = 0;
         collected = 0;
         psp = protect;
@@ -1541,14 +1433,6 @@ int main(int argc, char **argv, char **envp)
             display(stdout, v);
             putchar('\n');
         }
-#ifdef GC
-        gc();
-#endif
-#ifdef VERBOSE
-        printf("collections: %d allocation: %d\n", collected, total);
-#endif
-        total = 0;
-        collected = 0;
     }
     return 0;
 }

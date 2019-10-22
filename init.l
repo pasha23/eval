@@ -56,11 +56,11 @@
                 (* x (expt x (- n 1)))
                 (let ((y (expt x (/ n 2)))) (* y y)))))
 
-(define (even x) (eqv? 0 (% x 2)))
+(define (even x) (eqv? 0 (mod x 2)))
 
 (define (odd x) (not (even x)))
 
-(define (gcd x y) (if (eqv? y 0) x (gcd y (% x y))))
+(define (gcd x y) (if (eqv? y 0) x (gcd y (mod x y))))
 
 (define (lcm x y) (let ((g (gcd x y))) (* (/ x g) (/ y g))))
 
@@ -76,14 +76,16 @@
 
 (define (maxi x y) (if (< x y) y x))
 
-(define (mini x y) (if (< x y) x y))
-
 (define (maxx l)
     (if (cdr l)
         (if (cddr l)
             (maxi (car l) (maxx (cdr l)))
             (maxi (car l) (cadr l)))
         (car l)))
+
+(define (max . l) (maxx l))
+
+(define (mini x y) (if (< x y) x y))
 
 (define (minx l)
     (if (cdr l)
@@ -92,9 +94,45 @@
             (mini (car l) (cadr l)))
         (car l)))
 
-(define (max . l) (maxx l))
-
 (define (min . l) (minx l))
+
+(define (sum l)
+    (if l
+        (add (car l) (sum (cdr l)))
+        0))
+
+(define (+ . l) (sum l))
+
+(define (diff l)
+    (if l
+        (if (cdr l)
+            (if (cddr l)
+                (sub (car l) (sum(cdr l)))
+                (sub (car l) (cadr l)))
+            (sub 0 (car l)))
+        0))
+
+(define (- . l) (diff l))
+
+(define (product l)
+    (if l
+        (mul (car l) (product (cdr l)))
+        1))
+
+(define (* . l) (product l))
+
+(define (quotient l)
+    (if l
+        (if (cdr l)
+            (if (cddr l)
+                (div (car l) (product (cdr l)))
+                (div (car l) (cadr l)))
+            (div 1.0 (car l)))
+        1))
+
+(define (/ . l) (quotient l))
+
+(define (% . l) (mod (car l) (cadr l)))
 
 (display (mapcar car (globals)) (newline))
 
