@@ -74,6 +74,8 @@
 
 (define (abs x) (if (< x 0) (sub 0 x) x))
 
+(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
+
 (define (maxi x y) (if (< x y) y x))
 
 (define (maxx l)
@@ -121,20 +123,9 @@
 
 (define (* . l) (product l))
 
-(define (quotient l)
-    (if l
-        (if (cdr l)
-            (if (cddr l)
-                (div (car l) (product (cdr l)))
-                (div (car l) (cadr l)))
-            (div 1.0 (car l)))
-        1))
-
-(define (/ . l) (quotient l))
-
 (define (% . l) (mod (car l) (cadr l)))
 
-(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
+(define (/ . l) (div (car l) (cadr l)))
 
 (display (mapcar car (globals)) (newline))
 

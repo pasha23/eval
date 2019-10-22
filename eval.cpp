@@ -675,37 +675,6 @@ sexp displayfunc(sexp args)
     return voida;
 }
 
-/*
- * construct a linked list of chunks of sizeof(void*) characters
- */
-sexp chunk(const char *t)
-{
-    sexp p = cell();
-    save(p);
-    sexp q = p;
-    Chunk* r = (Chunk*) cell();
-    r->tags[0] = OTHER;
-    r->tags[1] = CHUNK;
-    q->car = (sexp) r;
-    int i = 0;
-    for (;;)
-    {
-        char c = *t++;
-        r->text[i++] = c;
-        if (!c)
-            return lose(1, p);
-        if (i == sizeof(r->text))
-        {
-            i = 0;
-            q = q->cdr = cell();
-            r = (Chunk*) cell();
-            r->tags[0] = OTHER;
-            r->tags[1] = CHUNK;
-            q->car = (sexp) r;
-        }
-    }
-}
-
 void displayList(FILE* fout, sexp expr)
 {
     putc('(', fout);
@@ -775,8 +744,12 @@ bool match(sexp p, sexp q)
         Chunk* s = (Chunk*)(p->car);
         Chunk* t = (Chunk*)(q->car);
         for (int i = 0; i < sizeof(s->text); ++i)
+        {
+            if (0 == s->text[i] && 0 == t->text[i])
+                return true;
             if (s->text[i] != t->text[i])
                 return false;
+        }
         p = p->cdr;
         q = q->cdr;
     }
@@ -1030,6 +1003,49 @@ sexp eval(sexp p, sexp env)
 }
 
 /*
+ * construct a linked list of chunks of sizeof(void*) characters
+ */
+sexp chunk(const char *t)
+{
+    if (0 == *t)
+        return 0;
+
+    char c = *t++;
+
+    sexp p = cell();
+    save(p);
+    sexp q = p;
+    Chunk* r = (Chunk*) cell();
+    r->tags[0] = OTHER;
+    r->tags[1] = CHUNK;
+    q->car = (sexp) r;
+
+    int i = 0;
+    for (;;)
+    {
+        r->text[i++] = c;
+
+        c = *t++;
+
+        if (!c) {
+            while (i < sizeof(r->text))
+                r->text[i++] = 0;
+            return lose(1, p);
+        }
+
+        if (i == sizeof(r->text))
+        {
+            i = 0;
+            q = q->cdr = cell();
+            r = (Chunk*) cell();
+            r->tags[0] = OTHER;
+            r->tags[1] = CHUNK;
+            q->car = (sexp) r;
+        }
+    }
+}
+
+/*
  * read Chunks terminated by some character
  */
 sexp readChunks(FILE* fin, const char *ends)
@@ -1047,10 +1063,13 @@ sexp readChunks(FILE* fin, const char *ends)
     for (int i = 0; ; )
     {
         r->text[i++] = c;
+
         c = getc(fin);
 
         if (strchr(ends, c))
         {
+            while (i < sizeof(r->text))
+                r->text[i++] = 0;
             ungetc(c, fin);
             return lose(1, p);
         }
@@ -1396,8 +1415,6 @@ int main(int argc, char **argv, char **envp)
     set_funct(xora,     0, (void*)xorfunc);
 
     load(string(chunk("init.l")));
-
-    //printf("globals: "); display(stdout, global); putchar('\n');
 
     struct sigaction intr_action;
     intr_action.sa_flags = SA_SIGINFO;
