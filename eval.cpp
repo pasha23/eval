@@ -69,14 +69,15 @@ typedef sexp (*Twoargp)(sexp, sexp);
 /*
  * setting up union declarations isn't all that fun
  */
-struct Cons   { sexp              cdr; sexp                  car; };
-struct Chunk  { unsigned char tags[1]; char text[sizeof(Cons)-1]; };
-struct Atom   { unsigned char tags[8]; sexp               chunks; };
-struct String { unsigned char tags[8]; sexp               chunks; };
-struct Fixnum { unsigned char tags[8]; long               fixnum; };
-struct Flonum { unsigned char tags[8]; double             flonum; };
-struct Funct  { unsigned char tags[8]; void*               funcp; };
-struct Form   { unsigned char tags[8]; Formp               formp; };
+struct Cons   { sexp                cdr; sexp                  car; };
+struct Other  { char                          tags[sizeof(Cons)-0]; };
+struct Chunk  { char tags[1];            char text[sizeof(Cons)-1]; };
+struct Atom   { char tags[sizeof(sexp)]; sexp               chunks; };
+struct String { char tags[sizeof(sexp)]; sexp               chunks; };
+struct Fixnum { char tags[sizeof(sexp)]; long               fixnum; };
+struct Flonum { char tags[sizeof(sexp)]; double             flonum; };
+struct Funct  { char tags[sizeof(sexp)]; void*               funcp; };
+struct Form   { char tags[sizeof(sexp)]; Formp               formp; };
 
 sexp read(FILE* fin);
 sexp scan(FILE* fin);
@@ -148,13 +149,13 @@ sexp lose(int n, sexp p)
 
 static inline void markCell(sexp p)
 {
-    ((Chunk*)p)->tags[0] |=  MARK;
+    ((Other*)p)->tags[0] |=  MARK;
     ++marked;
 }
 
 static inline void unmarkCell(sexp p)
 {
-    ((Chunk*)p)->tags[0] &= ~MARK;
+    ((Other*)p)->tags[0] &= ~MARK;
     --marked;
 }
 
@@ -293,14 +294,14 @@ sexp cons(sexp car, sexp cdr)
 
 sexp car(sexp p)
 {
-    if (!p || !isCons(p))
+    if (!isCons(p))
         longjmp(the_jmpbuf, (long)"car: bad argument");
     return p->car;
 }
 
 sexp cdr(sexp p)
 {
-    if (!p || !isCons(p))
+    if (!isCons(p))
         longjmp(the_jmpbuf, (long)"cdr: bad argument");
     return p->cdr;
 }
@@ -325,12 +326,12 @@ sexp setcdrfunc(sexp p, sexp q)
 
 sexp atomp(sexp p)
 {
-    return p && isAtom(p) ? t : 0;
+    return isAtom(p) ? t : 0;
 }
 
 sexp listp(sexp p)
 {
-    return p && isCons(p) ? t : 0;
+    return isCons(p) ? t : 0;
 }
 
 sexp andform(sexp p, sexp env)
@@ -639,29 +640,40 @@ sexp load(sexp x)
     sexp r = 0;
     if (!isString(x))
         return r;
+
     int length = 0;
     for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
     {
         int i = 0;
-        while (i < sizeof(Cons)-1 && ((Chunk*)p->car)->tags[i])
+        Chunk* t = (Chunk*)(p->car);
+        while (i < sizeof(t->text) && t->text[i])
             ++i;
         length += i;
     }
-    char *name = (char*) alloca(length+1);
+
     int j = 0;
+    char *name = (char*) alloca(length+1);
     for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-        for (int i = 0; i < sizeof(Cons)-1 && ((Chunk*)p->car)->text[i]; name[j++] = ((Chunk*)p->car)->text[i++]) {}
-    name[j++] = 0;
-    FILE* fin = fopen(name, "r");
-    while (!feof(fin))
     {
-        sexp input = read(fin);
-        if (!input)
-            break;
-        save(input);
-        r = lose(1, eval(input, global));
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; name[j++] = t->text[i++]) {}
     }
-    fclose(fin);
+
+    name[j++] = 0;
+    printf("load: %s\n", name);
+    FILE* fin = fopen(name, "r");
+    if (fin)
+    {
+        while (!feof(fin))
+        {
+            sexp input = read(fin);
+            if (!input)
+                break;
+            save(input);
+            r = lose(1, eval(input, global));
+        }
+        fclose(fin);
+    }
     return r;
 }
 
@@ -699,7 +711,7 @@ sexp chunk(const char *t)
         r->text[i++] = c;
         if (!c)
             return lose(1, p);
-        if (i >= sizeof(Cons)-1)
+        if (i == sizeof(r->text))
         {
             i = 0;
             q = q->cdr = cell();
@@ -734,9 +746,10 @@ void displayChunks(FILE* fout, sexp p)
 {
     while (p)
     {
-        for (int i = 0; i < sizeof(Cons)-1; ++i)
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text); ++i)
         {
-            char c = ((Chunk*)p->car)->text[i];
+            char c = t->text[i];
             if (!c)
                 break;
             putc(c, fout);
@@ -775,8 +788,10 @@ bool match(sexp p, sexp q)
             return true;
         if (!p || !q)
             return false;
-        for (int i = 0; i < sizeof(Cons)-1; ++i)
-            if (((Chunk*)p->car)->text[i] != ((Chunk*)q->car)->text[i])
+        Chunk* s = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(q->car);
+        for (int i = 0; i < sizeof(s->text); ++i)
+            if (s->text[i] != t->text[i])
                 return false;
         p = p->cdr;
         q = q->cdr;
@@ -1058,7 +1073,7 @@ sexp readChunks(FILE* fin, const char *ends)
             return lose(1, p);
         }
 
-        if (i >= sizeof(Cons)-1) {
+        if (i == sizeof(r->text)) {
             q = q->cdr = cell();
             r = (Chunk*) cell();
             r->tags[0] = CHUNK;
@@ -1290,6 +1305,7 @@ int main(int argc, char **argv, char **envp)
 
     // set up all predefined atoms
 
+    endl     = intern_atom_chunk("\n");
     absa     = intern_atom_chunk("abs");
     adda     = intern_atom_chunk("add");
     ampera   = intern_atom_chunk("&");
@@ -1307,7 +1323,6 @@ int main(int argc, char **argv, char **envp)
     diva     = intern_atom_chunk("div");
     dot      = intern_atom_chunk(".");
     elsea    = intern_atom_chunk("else");
-    endl     = intern_atom_chunk("\n");
     eqva     = intern_atom_chunk("eqv?");
     expa     = intern_atom_chunk("exp");
     f        = intern_atom_chunk("#f");
