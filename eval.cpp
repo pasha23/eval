@@ -9,7 +9,6 @@
  * 
  * Robert Kelley October 2019
  */
-#define UNWIND
 #define PSIZE   16384
 #define MAX     262144
 
@@ -31,33 +30,27 @@
 
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
- * the low 4 bits contain a tag that identifies the type of cell except usual list cells
- * naturally have a tag of 0.  Bit 3 is used to mark reachable cells during garbage collection.
+ *
+ * if bit 0 is 0 it's a Cons
+ * otherwise the type is in the second byte
+ * if bit 1 is set then it's marked
  */
-enum Tag
+enum Tag0
 {
     CONS   = 0,
-    ATOM   = 1,
+    OTHER  = 1,
+    MARK   = 2
+};
+
+enum Tag1
+{
+    ATOM   = 0,
+    STRING = 1,
     CHUNK  = 2,
     FORM   = 3,
     FIXNUM = 4,
     FUNCT  = 5,
-    STRING = 6,
-    FLONUM = 7,
-    MARK   = 8
-};
-
-const char* cellTypes[] =
-{
-	"CONS",
-	"ATOM",
-    "CHUNK",
-	"FORM",
-	"FIXNUM",
-	"FUNCTION",
-	"STRING",
-	"FLONUM",
-	"MARK"
+    FLONUM = 6
 };
 
 typedef struct Cons *sexp;
@@ -71,7 +64,7 @@ typedef sexp (*Twoargp)(sexp, sexp);
  */
 struct Cons   { sexp                cdr; sexp                  car; };
 struct Other  { char                          tags[sizeof(Cons)-0]; };
-struct Chunk  { char tags[1];            char text[sizeof(Cons)-1]; };
+struct Chunk  { char tags[2];            char text[sizeof(Cons)-2]; };
 struct Atom   { char tags[sizeof(sexp)]; sexp               chunks; };
 struct String { char tags[sizeof(sexp)]; sexp               chunks; };
 struct Fixnum { char tags[sizeof(sexp)]; long               fixnum; };
@@ -89,23 +82,25 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 
 // these are the built-in atoms
 
-sexp absa, adda, ampera, anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa;
+sexp adda, ampera, anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa;
 sexp define, displaya, diva, dot, elsea, endl, expa, f, gea, gta, eqva;
 sexp globals, ifa, lambda, loga, lparen, lea, let, loada, lta, lista, minus;
 sexp moda, modulo, mula, newlinea, nil, nota, ora, pipea, plus, powa, qchar, quote;
 sexp reada, rparen, seta, setcara, setcdra, sina, sqrta, suba, t, times, voida, whilea;
 sexp lsha, rsha, tilde, xora;
 
-static inline int  arity(const sexp p)    { return                      ((Chunk*)p)->tags[1];  }
-static inline int  cellType(const sexp p) { return                 (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isMarked(const sexp p) { return p && (MARK         & ((Chunk*)p)->tags[0]); }
-static inline bool isCons(const sexp p)   { return p &&  CONS   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)   { return p &&  ATOM   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isString(const sexp p) { return p &&  STRING == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isFunct(const sexp p)  { return p &&  FUNCT  == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isForm(const sexp p)   { return p &&  FORM   == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isFixnum(const sexp p) { return p &&  FIXNUM == (7 & ((Chunk*)p)->tags[0]); }
-static inline bool isFlonum(const sexp p) { return p &&  FLONUM == (7 & ((Chunk*)p)->tags[0]); }
+static inline bool isMarked(const sexp p) { return       (MARK        & ((Other*)p)->tags[0]); }
+static inline bool isCons(const sexp p)   { return p && !(OTHER       & ((Other*)p)->tags[0]); }
+static inline bool isOther(const sexp p)  { return p &&  (OTHER       & ((Other*)p)->tags[0]); }
+static inline int  evalType(const sexp p) { return                      ((Other*)p)->tags[1];  }
+static inline int  arity(const sexp p)    { return                      ((Other*)p)->tags[2];  }
+static inline bool isAtom(const sexp p)   { return isOther(p) && ATOM   == evalType(p);        }
+static inline bool isString(const sexp p) { return isOther(p) && STRING == evalType(p);        }
+static inline bool isChunk(const sexp p)  { return isOther(p) && CHUNK  == evalType(p);        }
+static inline bool isFunct(const sexp p)  { return isOther(p) && FUNCT  == evalType(p);        }
+static inline bool isForm(const sexp p)   { return isOther(p) && FORM   == evalType(p);        }
+static inline bool isFixnum(const sexp p) { return isOther(p) && FIXNUM == evalType(p);        }
+static inline bool isFlonum(const sexp p) { return isOther(p) && FLONUM == evalType(p);        }
 
 jmp_buf the_jmpbuf;
 
@@ -166,14 +161,12 @@ void mark(sexp p)
 {
     if (!p || isMarked(p))
         return;
-    if (isAtom(p))
+    if (isCons(p))
+        { mark(p->car); mark(p->cdr); }
+    else if (isAtom(p))
         mark(((Atom*)p)->chunks);
     else if (isString(p))
         mark(((String*)p)->chunks);
-    else if (isCons(p)) {
-        mark(p->car);
-        mark(p->cdr);
-    }
     markCell(p);
 }
 
@@ -235,7 +228,8 @@ sexp atom(sexp chunks)
 {
     save(chunks);
     Atom* p = (Atom*)cell();
-    p->tags[0] = ATOM;
+    p->tags[0] = OTHER;
+    p->tags[1] = ATOM;
     p->chunks = chunks;
     return lose(1, (sexp)p);
 }
@@ -244,7 +238,8 @@ sexp string(sexp chunks)
 {
     save(chunks);
     String* p = (String*)cell();
-    p->tags[0] = STRING;
+    p->tags[0] = OTHER;
+    p->tags[1] = STRING;
     p->chunks = chunks;
     return lose(1, (sexp)p);
 }
@@ -252,7 +247,8 @@ sexp string(sexp chunks)
 sexp fixnum(long number)
 {
     Fixnum* p = (Fixnum*)cell();
-    p->tags[0] = FIXNUM;
+    p->tags[0] = OTHER;
+    p->tags[1] = FIXNUM;
     p->fixnum = number;
     return (sexp)p;
 }
@@ -260,7 +256,8 @@ sexp fixnum(long number)
 sexp flonum(double number)
 {
     Flonum* p = (Flonum*)cell();
-    p->tags[0] = FLONUM;
+    p->tags[0] = OTHER;
+    p->tags[1] = FLONUM;
     p->flonum = number;
     return (sexp)p;
 }
@@ -268,7 +265,8 @@ sexp flonum(double number)
 sexp set_form(sexp name, Formp f)
 {
     Form* p = (Form*)cell();
-    p->tags[0] = FORM;
+    p->tags[0] = OTHER;
+    p->tags[1] = FORM;
     p->formp = f;
     return lose(1, set(name, save((sexp)p)));
 }
@@ -276,8 +274,9 @@ sexp set_form(sexp name, Formp f)
 sexp set_funct(sexp name, int arity, void* f)
 {
     Funct* p = (Funct*)cell();
-    p->tags[0] = FUNCT;
-    p->tags[1] = arity;
+    p->tags[0] = OTHER;
+    p->tags[1] = FUNCT;
+    p->tags[2] = arity;
     p->funcp = f;
     return lose(1, set(name, save((sexp)p)));
 }
@@ -567,23 +566,6 @@ sexp isnot(sexp x)
     return x ? 0 : t;
 }
 
-sexp absfunc(sexp x)
-{
-    if (isFixnum(x))
-    {
-        long r = asFixnum(x);
-        if (r < 0) r = -r;
-        return fixnum(r);
-    }
-    if (isFlonum(x))
-    {
-        long r = asFlonum(x);
-        if (r < 0) r = -r;
-        return flonum(r);
-    }
-    return 0;
-}
-
 sexp complement(sexp x)
 {
     return isFixnum(x) ? fixnum(~asFixnum(x)) : 0;
@@ -660,7 +642,7 @@ sexp load(sexp x)
     }
 
     name[j++] = 0;
-    printf("load: %s\n", name);
+    printf("; load: %s\n", name);
     FILE* fin = fopen(name, "r");
     if (fin)
     {
@@ -702,7 +684,8 @@ sexp chunk(const char *t)
     save(p);
     sexp q = p;
     Chunk* r = (Chunk*) cell();
-    r->tags[0] = CHUNK;
+    r->tags[0] = OTHER;
+    r->tags[1] = CHUNK;
     q->car = (sexp) r;
     int i = 0;
     for (;;)
@@ -716,7 +699,8 @@ sexp chunk(const char *t)
             i = 0;
             q = q->cdr = cell();
             r = (Chunk*) cell();
-            r->tags[0] = CHUNK;
+            r->tags[0] = OTHER;
+            r->tags[1] = CHUNK;
             q->car = (sexp) r;
         }
     }
@@ -1017,9 +1001,7 @@ sexp letform(sexp expr, sexp env)
  */
 sexp eval(sexp p, sexp env)
 {
-    if (!p ||
-        f == p || t == p ||
-        ATOM < cellType(p))
+    if (!p || f == p || t == p || isOther(p) && ATOM != evalType(p))
         return p;
     if (isAtom(p))
         return get(p, env);
@@ -1042,9 +1024,8 @@ sexp eval(sexp p, sexp env)
         if (2 == arity(q) && p->cdr && p->cdr->cdr)
             return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
     }
-    display(stdout, p);
-    putchar('\n');
-    longjmp(the_jmpbuf, (long)"bad form");
+    printf("bad form: "); display(stdout, q); printf(" in "); display(stdout, p); putchar('\n');
+    //longjmp(the_jmpbuf, (long)"bad form");
     return p;
 }
 
@@ -1059,7 +1040,8 @@ sexp readChunks(FILE* fin, const char *ends)
     sexp q = p;
     save(p);
     Chunk* r = (Chunk*) cell();
-    r->tags[0] = CHUNK;
+    r->tags[0] = OTHER;
+    r->tags[1] = CHUNK;
     q->car = (sexp) r;
 
     for (int i = 0; ; )
@@ -1076,7 +1058,8 @@ sexp readChunks(FILE* fin, const char *ends)
         if (i == sizeof(r->text)) {
             q = q->cdr = cell();
             r = (Chunk*) cell();
-            r->tags[0] = CHUNK;
+            r->tags[0] = OTHER;
+            r->tags[1] = CHUNK;
             q->car = (sexp) r;
             i = 0;
         }
@@ -1109,13 +1092,9 @@ sexp scan(FILE* fin)
     char buffer[32];
     char *p = buffer;
     char *pend = buffer + sizeof(buffer);
-#if 0
-    char c = getc(fin);
-    while (strchr(" \t\r\n", c))
-        c = getc(fin);
-#else
+
     char c = whitespace(fin, getc(fin));
-#endif
+
     if (c < 0)
         return 0;
 
@@ -1306,7 +1285,6 @@ int main(int argc, char **argv, char **envp)
     // set up all predefined atoms
 
     endl     = intern_atom_chunk("\n");
-    absa     = intern_atom_chunk("abs");
     adda     = intern_atom_chunk("add");
     ampera   = intern_atom_chunk("&");
     anda     = intern_atom_chunk("and");
@@ -1382,7 +1360,6 @@ int main(int argc, char **argv, char **envp)
     set_form(whilea,  whileform);
 
     // set the definitions (functions)
-    set_funct(absa,     1, (void*)absfunc);
     set_funct(adda,     2, (void*)add);
     set_funct(ampera,   0, (void*)andfunc);
     set_funct(atoma,    1, (void*)atomp);
@@ -1419,6 +1396,8 @@ int main(int argc, char **argv, char **envp)
     set_funct(xora,     0, (void*)xorfunc);
 
     load(string(chunk("init.l")));
+
+    //printf("globals: "); display(stdout, global); putchar('\n');
 
     struct sigaction intr_action;
     intr_action.sa_flags = SA_SIGINFO;

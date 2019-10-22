@@ -72,7 +72,7 @@
 
 (define (cross a b) (if a (cons (pairs (car a) b) (cross (cdr a) b)) a))
 
-(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
+(define (abs x) (if (< x 0) (sub 0 x) x))
 
 (define (maxi x y) (if (< x y) y x))
 
@@ -133,6 +133,8 @@
 (define (/ . l) (quotient l))
 
 (define (% . l) (mod (car l) (cadr l)))
+
+(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 
 (display (mapcar car (globals)) (newline))
 
