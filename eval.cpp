@@ -17,16 +17,12 @@
 #include <libunwind.h>
 #include <cxxabi.h>
 #endif
-#include <assert.h>
-#include <cfloat>
-#include <climits>
 #include <cmath>
 #include <csetjmp>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <unistd.h>
 
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
@@ -423,14 +419,6 @@ sexp gt(sexp x, sexp y)
     return cmple(x, y) ? 0 : t;
 }
 
-sexp allfixnums(sexp args)
-{
-    for (sexp p = args; p; p = p->cdr)
-        if (!isFixnum(p->car))
-            return 0;
-    return t;
-}
-
 sexp add(sexp x, sexp y)
 {
     if (isFixnum(x)) {
@@ -581,6 +569,14 @@ sexp rsh(sexp x, sexp y)
     return isFixnum(x) && isFixnum(y) ? fixnum(asFixnum(x) >> asFixnum(y)) : 0;
 }
 
+sexp allfixnums(sexp args)
+{
+    for (sexp p = args; p; p = p->cdr)
+        if (!isFixnum(p->car))
+            return 0;
+    return t;
+}
+
 sexp andfunc(sexp args)
 {
     save(args);
@@ -726,7 +722,7 @@ void display(FILE* fout, sexp expr)
     else if (isFixnum(expr))
         fprintf(fout, "%ld", ((Fixnum*)expr)->fixnum);
     else if (isFlonum(expr))
-        fprintf(fout, "%#.12f", ((Flonum*)expr)->flonum);
+        fprintf(fout, "%#.15f", ((Flonum*)expr)->flonum);
     else if (isFunct(expr))
         fprintf(fout, "#function%d@%lx", arity(expr), (long)((Funct*)expr)->funcp);
     else if (isForm(expr))
@@ -745,10 +741,10 @@ bool match(sexp p, sexp q)
         Chunk* t = (Chunk*)(q->car);
         for (int i = 0; i < sizeof(s->text); ++i)
         {
-            if (0 == s->text[i] && 0 == t->text[i])
-                return true;
             if (s->text[i] != t->text[i])
                 return false;
+            if (0 == s->text[i])
+                return true;
         }
         p = p->cdr;
         q = q->cdr;
@@ -760,7 +756,7 @@ sexp eqv(sexp x, sexp y)
     if (x == y)
         return t;
     if (isAtom(x) && isAtom(y))
-        return x == y ? t : 0;
+        return 0;
     if (isFixnum(x) && isFixnum(y))
         return asFixnum(x) == asFixnum(y) ? t : 0;
     if (isFlonum(x) && isFlonum(y))
@@ -997,8 +993,8 @@ sexp eval(sexp p, sexp env)
         if (2 == arity(q) && p->cdr && p->cdr->cdr)
             return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
     }
-    printf("bad form: "); display(stdout, q); printf(" in "); display(stdout, p); putchar('\n');
-    //longjmp(the_jmpbuf, (long)"bad form");
+    display(stdout, p);
+    longjmp(the_jmpbuf, (long)"bad form");
     return p;
 }
 
@@ -1009,8 +1005,6 @@ sexp chunk(const char *t)
 {
     if (0 == *t)
         return 0;
-
-    char c = *t++;
 
     sexp p = cell();
     save(p);
@@ -1023,15 +1017,15 @@ sexp chunk(const char *t)
     int i = 0;
     for (;;)
     {
-        r->text[i++] = c;
-
-        c = *t++;
+        char c = *t++;
 
         if (!c) {
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
             return lose(1, p);
         }
+
+        r->text[i++] = c;
 
         if (i == sizeof(r->text))
         {
@@ -1050,8 +1044,6 @@ sexp chunk(const char *t)
  */
 sexp readChunks(FILE* fin, const char *ends)
 {
-    char c = getc(fin);
-
     sexp p = cell();
     sexp q = p;
     save(p);
@@ -1062,9 +1054,7 @@ sexp readChunks(FILE* fin, const char *ends)
 
     for (int i = 0; ; )
     {
-        r->text[i++] = c;
-
-        c = getc(fin);
+        char c = getc(fin);
 
         if (strchr(ends, c))
         {
@@ -1074,13 +1064,15 @@ sexp readChunks(FILE* fin, const char *ends)
             return lose(1, p);
         }
 
+        r->text[i++] = c;
+
         if (i == sizeof(r->text)) {
+            i = 0;
             q = q->cdr = cell();
             r = (Chunk*) cell();
             r->tags[0] = OTHER;
             r->tags[1] = CHUNK;
             q->car = (sexp) r;
-            i = 0;
         }
     }
 }
@@ -1206,9 +1198,9 @@ sexp scan(FILE* fin)
     if ('"' == c)
     {
         c = getc(fin);
-        sexp r = string(readChunks(fin, "\""));
+        sexp r = string(save(readChunks(fin, "\"")));
         (void)getc(fin);  // read the " again
-        return r;
+        return lose(1, r);
     }
 
     return intern(atom(readChunks(fin, "( )\t\r\n")));
