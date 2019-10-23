@@ -79,7 +79,7 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 // these are the built-in atoms
 
 sexp adda, ampera, anda, atoma, atomsa, begin, cara, cdra, cond, consa, cosa;
-sexp define, displaya, diva, dot, elsea, endl, expa, f, gea, gta, eqva;
+sexp define, displaya, diva, dot, elsea, endl, expa, f, fixa, floata, gea, gta, eqva;
 sexp globals, ifa, lambda, loga, lparen, lea, let, loada, lta, lista, minus;
 sexp moda, modulo, mula, newlinea, nil, nota, ora, pipea, plus, powa, qchar, quote;
 sexp reada, rparen, seta, setcara, setcdra, sina, sqrta, suba, t, times, voida, whilea;
@@ -485,7 +485,7 @@ sexp divf(sexp x, sexp y)
         if (isFixnum(y))
             return fixnum(asFixnum(x) / asFixnum(y));
         else if (isFlonum(y))
-            return flonum(asFixnum(x) / asFlonum(y));
+            return flonum((double)asFixnum(x) / asFlonum(y));
         else
             return 0;
     } else if (isFlonum(x)) {
@@ -552,6 +552,16 @@ sexp powfunc(sexp x, sexp y)
 sexp isnot(sexp x)
 {
     return x ? 0 : t;
+}
+
+sexp floatf(sexp x)
+{
+    return isFixnum(x) ? flonum((double)asFixnum(x)) : 0;
+}
+
+sexp fixf(sexp x)
+{
+    return isFlonum(x) ? fixnum((long)asFlonum(x)) : 0;
 }
 
 sexp complement(sexp x)
@@ -1315,6 +1325,8 @@ int main(int argc, char **argv, char **envp)
     eqva     = intern_atom_chunk("eqv?");
     expa     = intern_atom_chunk("exp");
     f        = intern_atom_chunk("#f");
+    fixa     = intern_atom_chunk("fix");
+    floata   = intern_atom_chunk("float");
     gea      = intern_atom_chunk(">=");
     globals  = intern_atom_chunk("globals");
     gta      = intern_atom_chunk(">");
@@ -1383,6 +1395,8 @@ int main(int argc, char **argv, char **envp)
     set_funct(diva,     2, (void*)divf);
     set_funct(eqva,     2, (void*)eqv);
     set_funct(expa,     1, (void*)expfunc);
+    set_funct(fixa,     1, (void*)fixf);
+    set_funct(floata,   1, (void*)floatf);
     set_funct(gea,      2, (void*)ge);
     set_funct(gta,      2, (void*)gt);
     set_funct(lea,      2, (void*)le);

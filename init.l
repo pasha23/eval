@@ -123,9 +123,27 @@
 
 (define (* . l) (product l))
 
-(define (% . l) (mod (car l) (cadr l)))
+(define (quotient l)
+    (if l
+        (if (cdr l)
+            (if (cddr l)
+                (div (car l) (product (cdr l)))
+                (div (car l) (cadr l)))
+            (div 1 (float (car l))))
+        1))
 
-(define (/ . l) (div (car l) (cadr l)))
+(define (/ . l) (quotient l))
+
+(define (remainder l)
+    (if l
+        (if (cdr l)
+            (if (cddr l)
+                (mod (car l) (remainder (cdr l)))
+                (mod (car l) (cadr l)))
+            (mod 1 (car l)))
+        1))
+
+(define (% . l) (remainder l))
 
 (display (mapcar car (globals)) (newline))
 
