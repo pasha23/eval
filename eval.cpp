@@ -732,7 +732,7 @@ void display(FILE* fout, sexp expr)
     else if (isFixnum(expr))
         fprintf(fout, "%ld", ((Fixnum*)expr)->fixnum);
     else if (isFlonum(expr))
-        fprintf(fout, "%#.15f", ((Flonum*)expr)->flonum);
+        fprintf(fout, "%#.15g", ((Flonum*)expr)->flonum);
     else if (isFunct(expr))
         fprintf(fout, "#function%d@%lx", arity(expr), (long)((Funct*)expr)->funcp);
     else if (isForm(expr))
