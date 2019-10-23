@@ -46,7 +46,8 @@ enum Tag1
     FORM   = 3,
     FIXNUM = 4,
     FUNCT  = 5,
-    FLONUM = 6
+    FLOAT  = 6,
+    DOUBLE = 7
 };
 
 typedef struct Cons *sexp;
@@ -58,15 +59,16 @@ typedef sexp (*Twoargp)(sexp, sexp);
 /*
  * setting up union declarations isn't all that fun
  */
-struct Cons   { sexp                cdr; sexp                  car; };
-struct Other  { char                          tags[sizeof(Cons)-0]; };
-struct Chunk  { char tags[2];            char text[sizeof(Cons)-2]; };
-struct Atom   { char tags[sizeof(sexp)]; sexp               chunks; };
-struct String { char tags[sizeof(sexp)]; sexp               chunks; };
-struct Fixnum { char tags[sizeof(sexp)]; long               fixnum; };
-struct Flonum { char tags[sizeof(sexp)]; double             flonum; };
-struct Funct  { char tags[sizeof(sexp)]; void*               funcp; };
-struct Form   { char tags[sizeof(sexp)]; Formp               formp; };
+struct Cons   { sexp                cdr; sexp                     car; };
+struct Other  { char                             tags[sizeof(Cons)-0]; };
+struct Chunk  { char tags[2];            char    text[sizeof(Cons)-2]; };
+struct Atom   { char tags[sizeof(sexp)]; sexp                  chunks; };
+struct String { char tags[sizeof(sexp)]; sexp                  chunks; };
+struct Fixnum { char tags[sizeof(sexp)]; long                  fixnum; };
+struct Float  { char tags[sizeof(Cons)-sizeof(float)];  float  flonum; };
+struct Double { char tags[sizeof(Cons)-sizeof(double)]; double flonum; };
+struct Funct  { char tags[sizeof(sexp)]; void*                 funcp;  };
+struct Form   { char tags[sizeof(sexp)]; Formp                 formp;  };
 
 sexp read(FILE* fin);
 sexp scan(FILE* fin);
@@ -96,7 +98,9 @@ static inline bool isChunk(const sexp p)  { return isOther(p) && CHUNK  == evalT
 static inline bool isFunct(const sexp p)  { return isOther(p) && FUNCT  == evalType(p);        }
 static inline bool isForm(const sexp p)   { return isOther(p) && FORM   == evalType(p);        }
 static inline bool isFixnum(const sexp p) { return isOther(p) && FIXNUM == evalType(p);        }
-static inline bool isFlonum(const sexp p) { return isOther(p) && FLONUM == evalType(p);        }
+static inline bool isFloat(const sexp p)  { return isOther(p) && FLOAT  == evalType(p);        }
+static inline bool isDouble(const sexp p) { return isOther(p) && DOUBLE == evalType(p);        }
+static inline bool isFlonum(const sexp p) { return isFloat(p) || isDouble(p);                  }
 
 jmp_buf the_jmpbuf;
 
@@ -249,13 +253,30 @@ sexp fixnum(long number)
     return (sexp)p;
 }
 
-sexp flonum(double number)
+sexp sglnum(float number)
 {
-    Flonum* p = (Flonum*)cell();
+    Float* p = (Float*)cell();
     p->tags[0] = OTHER;
-    p->tags[1] = FLONUM;
+    p->tags[1] = FLOAT;
     p->flonum = number;
     return (sexp)p;
+}
+
+sexp dblnum(double number)
+{
+    Double* p = (Double*)cell();
+    p->tags[0] = OTHER;
+    p->tags[1] = DOUBLE;
+    p->flonum = number;
+    return (sexp)p;
+}
+
+sexp flonum(double number)
+{
+    if (4 == sizeof(void*))
+        return sglnum(number);
+    else
+        return dblnum(number);
 }
 
 sexp set_form(sexp name, Formp f)
@@ -359,12 +380,16 @@ sexp orform(sexp p, sexp env)
 
 long asFixnum(sexp p)
 {
-    return isFixnum(p) ? ((Fixnum*)p)->fixnum : (long)((Flonum*)p)->flonum;
+    return isFixnum(p) ? ((Fixnum*)p)->fixnum :
+           isDouble(p) ? (long)((Double*)p)->flonum :
+                         (long)((Float*)p)->flonum;
 }
 
 double asFlonum(sexp p)
 {
-    return isFlonum(p) ? ((Flonum*)p)->flonum : (double)((Fixnum*)p)->fixnum;
+    return isDouble(p) ? ((Double*)p)->flonum :
+           isFloat(p)  ? ((Float*)p)->flonum :
+                         (double)((Fixnum*)p)->fixnum;
 }
 
 bool cmplt(sexp x, sexp y)
@@ -556,12 +581,12 @@ sexp isnot(sexp x)
 
 sexp floatf(sexp x)
 {
-    return isFixnum(x) ? flonum((double)asFixnum(x)) : 0;
+    return isFixnum(x) ? flonum((double)asFixnum(x)) : isFlonum(x) ? x : 0;
 }
 
 sexp fixf(sexp x)
 {
-    return isFlonum(x) ? fixnum((long)asFlonum(x)) : 0;
+    return isFlonum(x) ? fixnum((long)asFlonum(x)) : isFixnum(x) ? x : 0;
 }
 
 sexp complement(sexp x)
@@ -731,8 +756,10 @@ void display(FILE* fout, sexp expr)
         displayChunks(fout, ((Atom*)expr)->chunks);
     else if (isFixnum(expr))
         fprintf(fout, "%ld", ((Fixnum*)expr)->fixnum);
-    else if (isFlonum(expr))
-        fprintf(fout, "%#.15g", ((Flonum*)expr)->flonum);
+    else if (isFloat(expr))
+        fprintf(fout, "%#.8g", asFlonum(expr));
+    else if (isDouble(expr))
+        fprintf(fout, "%#.15g", asFlonum(expr));
     else if (isFunct(expr))
         fprintf(fout, "#function%d@%lx", arity(expr), (long)((Funct*)expr)->funcp);
     else if (isForm(expr))
@@ -1009,7 +1036,7 @@ sexp eval(sexp p, sexp env)
 }
 
 /*
- * construct a linked list of chunks of sizeof(void*) characters
+ * construct a linked list of chunks of characters
  */
 sexp chunk(const char *t)
 {
@@ -1354,9 +1381,9 @@ int main(int argc, char **argv, char **envp)
     reada    = intern_atom_chunk("read");
     rparen   = intern_atom_chunk(")");
     rsha     = intern_atom_chunk(">>");
-    seta     = intern_atom_chunk("set");
-    setcara  = intern_atom_chunk("set-car");
-    setcdra  = intern_atom_chunk("set-cdr");
+    seta     = intern_atom_chunk("set!");
+    setcara  = intern_atom_chunk("set-car!");
+    setcdra  = intern_atom_chunk("set-cdr!");
     sina     = intern_atom_chunk("sin");
     sqrta    = intern_atom_chunk("sqrt");
     suba     = intern_atom_chunk("sub");
