@@ -31,42 +31,49 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
-(define (fib x) (if (<= x 0) 1 (+ (fib (- x 2)) (fib (- x 1)))))
+(define (even? x) (eqv? 0 (mod x 2)))
 
-(define (fac x) (if (<= x 0) 1 (* x (fac (- x 1)))))
+(define (negative? x) (< x 0))
+
+(define (odd? x) (eqv? 1 (mod x 2)))
+
+(define (positive? x) (> x 0))
+
+(define (zero? x) (eqv? 0 x))
+
+(define (fib x) (if (<= x 0) 1 (+ (fib (sub x 2)) (fib (sub x 1)))))
+
+(define (fac x) (if (<= x 0) 1 (mul x (fac (sub x 1)))))
 
 (define (ack n m)
         (if (eqv? n 0)
-            (+ m 1)
+            (add m 1)
             (if (eqv? m 0)
-                (ack (- n 1) 1)
-                (ack (- n 1) (ack n (- m 1))))))
+                (ack (sub n 1) 1)
+                (ack (sub n 1) (ack n (sub m 1))))))
 
 (define (tak x y z)
         (if (< y x)
-            (tak (tak (- x 1) y z)
-                 (tak (- y 1) z x)
-                 (tak (- z 1) x y))
+            (tak (tak (sub x 1) y z)
+                 (tak (sub y 1) z x)
+                 (tak (sub z 1) x y))
             z))
 
-(define (expt x n)
-        (if (eqv? 0 n)
-            1
-            (if (odd n)
-                (* x (expt x (- n 1)))
-                (let ((y (expt x (/ n 2)))) (* y y)))))
+(define (expt x n) (if (eqv? 0 n) 1 (if (odd? n) (mul x (expt x (sub n 1))) (let ((y (expt x (div n 2)))) (mul y y)))))
 
-(define (even x) (eqv? 0 (mod x 2)))
+(define (length s) (if s (add 1 (length (cdr s))) 0))
 
-(define (odd x) (not (even x)))
+(define (list . s) s)
+
+(define (list? s) (and (pair? s) (or (null? (cdr s)) (list? (cdr s)))))
 
 (define (gcd x y) (if (eqv? y 0) x (gcd y (mod x y))))
 
-(define (lcm x y) (let ((g (gcd x y))) (* (/ x g) (/ y g))))
+(define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
 
 (define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
 
-(define (iota n) (let ((riot (lambda (n m) (if (> n 0) (cons (- m n) (riot (- n 1) m)) '())))) (riot n n)))
+(define (iota n) (let ((riot (lambda (n m) (if (> n 0) (cons (sub m n) (riot (sub n 1) m)) '())))) (riot n n)))
 
 (define (pairs a b) (if b (cons (cons a (cons (car b) '())) (pairs a (cdr b))) b))
 
@@ -76,74 +83,81 @@
 
 (define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 
-(define (maxi x y) (if (< x y) y x))
+(define (max . l)
+        (let ((maxi
+               (lambda (x y) (if (< x y) y x)))
+              (maxx
+               (lambda (l)
+                       (if (cdr l)
+                            (if (cddr l)
+                                (maxi (car l) (maxx (cdr l)))
+                                (maxi (car l) (cadr l)))
+                            (car l)))))
+             (maxx l)))
 
-(define (maxx l)
-    (if (cdr l)
-        (if (cddr l)
-            (maxi (car l) (maxx (cdr l)))
-            (maxi (car l) (cadr l)))
-        (car l)))
+(define (min . x)
+        (let ((mini
+               (lambda (x y) (if (< x y) x y)))
+              (minx
+               (lambda (l)
+                       (if (cdr l)
+                           (if (cddr l)
+                               (mini (car l) (minx (cdr l)))
+                               (mini (car l) (cadr l)))
+                           (car l)))))
+             (minx l)))
 
-(define (max . l) (maxx l))
+(define (+ . l)
+        (let ((sum
+               (lambda (l)
+                       (if l
+                           (add (car l) (sum (cdr l)))
+                           0))))
+             (sum l)))
 
-(define (mini x y) (if (< x y) x y))
+(define (- . l)
+        (let ((diff
+              (lambda (l)
+                      (if l
+                          (if (cdr l)
+                              (if (cddr l)
+                                  (sub (car l) (sum(cdr l)))
+                                  (sub (car l) (cadr l)))
+                              (sub 0 (car l)))
+                          0))))
+             (diff l)))
 
-(define (minx l)
-    (if (cdr l)
-        (if (cddr l)
-            (mini (car l) (minx (cdr l)))
-            (mini (car l) (cadr l)))
-        (car l)))
+(define (* . l)
+        (let ((product
+              (lambda (l)
+                      (if l
+                          (mul (car l) (product (cdr l)))
+                          1))))
+             (product l)))
 
-(define (min . l) (minx l))
+(define (/ . l)
+        (let ((quotient
+               (lambda (l)
+                       (if l
+                           (if (cdr l)
+                               (if (cddr l)
+                                   (div (car l) (quotient (cdr l)))
+                                   (div (car l) (cadr l)))
+                               (div 1 (exact->inexact (car l))))
+                           1))))
+             (quotient l)))
 
-(define (sum l)
-    (if l
-        (add (car l) (sum (cdr l)))
-        0))
-
-(define (+ . l) (sum l))
-
-(define (diff l)
-    (if l
-        (if (cdr l)
-            (if (cddr l)
-                (sub (car l) (sum(cdr l)))
-                (sub (car l) (cadr l)))
-            (sub 0 (car l)))
-        0))
-
-(define (- . l) (diff l))
-
-(define (product l)
-    (if l
-        (mul (car l) (product (cdr l)))
-        1))
-
-(define (* . l) (product l))
-
-(define (quotient l)
-    (if l
-        (if (cdr l)
-            (if (cddr l)
-                (div (car l) (product (cdr l)))
-                (div (car l) (cadr l)))
-            (div 1 (float (car l))))
-        1))
-
-(define (/ . l) (quotient l))
-
-(define (remainder l)
-    (if l
-        (if (cdr l)
-            (if (cddr l)
-                (mod (car l) (remainder (cdr l)))
-                (mod (car l) (cadr l)))
-            (mod 1 (car l)))
-        1))
-
-(define (% . l) (remainder l))
+(define (% . l)
+        (let ((remainder
+               (lambda (l)
+                       (if l
+                           (if (cdr l)
+                               (if (cddr l)
+                                   (mod (car l) (remainder (cdr l)))
+                                   (mod (car l) (cadr l)))
+                               (mod 1 (car l)))
+                           1))))
+             (remainder l)))
 
 (display (mapcar car (globals)) (newline))
 
