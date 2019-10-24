@@ -41,7 +41,7 @@
 
 (define (zero? x) (eqv? 0 x))
 
-(define (fib x) (if (<= x 0) 1 (+ (fib (sub x 2)) (fib (sub x 1)))))
+(define (fib x) (if (<= x 0) 1 (add (fib (sub x 2)) (fib (sub x 1)))))
 
 (define (fac x) (if (<= x 0) 1 (mul x (fac (sub x 1)))))
 
