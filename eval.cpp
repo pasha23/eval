@@ -11,7 +11,7 @@
  */
 #define PSIZE   16384
 #define MAX     262144
-#undef  BROKEN
+#define BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -928,7 +928,8 @@ sexp condform(sexp exp, sexp env)
  */
 sexp lambdaform(sexp exp, sexp env)
 {
-    return lose(2, cons(closurea, save(cons(save(exp), 0))));
+    env = 0;    // for now closures capture no environment because cycles are unmanageable
+    return lose(3, cons(closurea, save(cons(save(exp), save(cons(save(env), 0))))));
 }
 
 /*
@@ -1056,15 +1057,19 @@ sexp eval(sexp p, sexp env)
 
     if (isCons(q) && closurea == q->car)
     {
+        sexp cenv = q->cdr->cdr->car;
+
+        if (!cenv) cenv = env;  // for now, closures capture no environment
+
         if (isAtom(q->cdr->car->cdr->car->cdr))
             // q->cdr->car = (lambda (f . s) foo)
             return lose(6, eval(q->cdr->car->cdr->cdr->car,
                                 save(cons(save(cons(q->cdr->car->cdr->car->cdr,
-                                                    save(evlis(p->cdr, env)))), env))));
+                                                    save(evlis(p->cdr, env)))), cenv))));
         else
             // q->cdr->car = (lambda (n) (car x))
             return lose(5, eval(q->cdr->car->cdr->cdr->car,
-                                save(assoc(q->cdr->car->cdr->car, save(evlis(p->cdr, env)), env))));
+                                save(assoc(q->cdr->car->cdr->car, save(evlis(p->cdr, env)), cenv))));
     }
 
     if (isForm(q))
@@ -1553,7 +1558,7 @@ int main(int argc, char **argv, char **envp)
     // read evaluate display ...
     while (!feof(stdin))
     {
-        gc(true);
+//      gc(true);
         total = 0;
         collected = 0;
         psp = protect;
