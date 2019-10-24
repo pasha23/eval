@@ -53,8 +53,7 @@ enum Tag1
     FIXNUM = 4,
     FUNCT  = 5,
     FLOAT  = 6,
-    DOUBLE = 7,
-    LAMBDA = 8
+    DOUBLE = 7
 };
 
 typedef struct Cons *sexp;
@@ -75,9 +74,8 @@ struct String { char tags[sizeof(sexp)]; sexp                  chunks; };
 struct Fixnum { char tags[sizeof(sexp)]; long                  fixnum; };
 struct Float  { char tags[sizeof(Cons)-sizeof(float)];  float  flonum; };
 struct Double { char tags[sizeof(Cons)-sizeof(double)]; double flonum; };
-struct Funct  { char tags[sizeof(sexp)]; void*                 funcp;  };
-struct Form   { char tags[sizeof(sexp)]; Formp                 formp;  };
-struct Lambda { char tags[sizeof(sexp)]; sexp                closure;  };
+struct Funct  { char tags[sizeof(sexp)]; void*                  funcp; };
+struct Form   { char tags[sizeof(sexp)]; Formp                  formp; };
 
 sexp read(FILE* fin);
 sexp scan(FILE* fin);
@@ -92,7 +90,7 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 
 sexp acosa, adda, ampera, anda, asina, atana, atompa, atomsa, begin, cara;
 sexp cdra, ceilinga, cond, consa, cosa, definea, displaya, diva, dot, e2ia;
-sexp elsea, endl, eqa, eqva, exactpa, expa, f, floora, gea;
+sexp closurea, elsea, endl, eqa, eqva, exactpa, expa, f, floora, gea;
 sexp globals, gta, i2ea, ifa, inexactpa, integerpa, lambda, lea, let, listpa;
 sexp loada, loga, lparen, lsha, lta, minus, moda, modulo, mula, newlinea, nil;
 sexp nota, nullpa, numberpa, ora, pairpa, pipea, plus, powa, procedurepa, qchar, quote;
@@ -111,7 +109,6 @@ static inline bool isForm(const sexp p)   { return isOther(p) && FORM   == evalT
 static inline bool isFixnum(const sexp p) { return isOther(p) && FIXNUM == evalType(p);        }
 static inline bool isFloat(const sexp p)  { return isOther(p) && FLOAT  == evalType(p);        }
 static inline bool isDouble(const sexp p) { return isOther(p) && DOUBLE == evalType(p);        }
-static inline bool isLambda(const sexp p) { return isOther(p) && LAMBDA == evalType(p);        }
 static inline bool isFlonum(const sexp p) { return isFloat(p) || isDouble(p);                  }
 
 jmp_buf the_jmpbuf;
@@ -173,15 +170,13 @@ void mark(sexp p)
 {
     if (!p || isMarked(p))
         return;
-
-    if (isCons(p))
-        { mark(p->car); mark(p->cdr); }
-    else if (isAtom(p))
+    if (isCons(p)) {
+        mark(p->car);
+        mark(p->cdr);
+    } else if (isAtom(p))
         mark(((Atom*)p)->chunks);
     else if (isString(p))
         mark(((String*)p)->chunks);
-    else if (isLambda(p))
-        mark(((Lambda*)p)->closure);
     markCell(p);
 }
 
@@ -216,6 +211,7 @@ void gc(bool verbose)
         } else 
             unmarkCell(p);
     }
+
     if (verbose)
         printf("gc: allocated: %d protected: %d marked: %d reclaimed: %d collections: %d allocation: %d\n",
                allocated, wereprot, weremark, reclaimed, collected, total);
@@ -586,7 +582,7 @@ sexp listp(sexp x) { return !isCons(x) ? 0 : listp(x->cdr) ? t : 0; }
 sexp pairp(sexp x) { return isCons(x) ? t : 0; }
 sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : 0; }
 sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
-sexp procedurep(sexp p) { return p && (isFunct(p) || isLambda(p)) ? t : 0; }
+sexp procedurep(sexp p) { return p && (isFunct(p) || isCons(p) && closurea == p->car) ? t : 0; }
 
 
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
@@ -752,9 +748,12 @@ void display(FILE* fout, sexp exp)
 {
     if (!exp)
         fprintf(fout, "%s", "#f");
-    else if (isCons(exp))
-        displayList(fout, exp);
-    else if (isString(exp)) {
+    else if (isCons(exp)) {
+        if (closurea == exp->car)
+            fprintf(fout, "#<closure@%p>", (void*)exp);
+        else
+            displayList(fout, exp);
+    } else if (isString(exp)) {
         putc('"', fout);
         displayChunks(fout, ((String*)exp)->chunks);
         putc('"', fout);
@@ -929,27 +928,7 @@ sexp condform(sexp exp, sexp env)
  */
 sexp lambdaform(sexp exp, sexp env)
 {
-#if 0
-    return exp;
-#else
-    save(exp);
-    save(env);
-    Lambda* p = (Lambda*)save(cell());
-    p->tags[0] = OTHER;
-    p->tags[1] = LAMBDA;
-    bool atomic = isAtom(exp->cdr->car->cdr);
-    p->closure = cons(exp->cdr->cdr->car,
-                      (atomic ? cons(cons(exp->cdr->car->cdr,
-                                          evlis(exp->cdr, env)),
-                                     env)
-                              : assoc(exp->cdr->car, save(evlis(exp->cdr, env)), env)));
-    printf("closure: ");
-    display(stdout, exp);
-    putchar(' ');
-    display(stdout, env);
-    putchar('\n');
-    return lose(atomic ? 7 : 6, (sexp)p);
-#endif
+    return lose(2, cons(closurea, save(cons(save(exp), 0))));
 }
 
 /*
@@ -969,26 +948,32 @@ sexp defineform(sexp p, sexp env)
         if (isCons(p->cdr->car->cdr))
         {
             save(env);
+            sexp k = p->cdr->car->car;
             sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, save(p)->cdr->cdr))));
+            // v is the transformed definition (lambda (x) ...)
+            v = lambdaform(v, env);
             for (sexp q = global; q; q = q->cdr)
-                if (p->cdr->car->car == q->car->car)
+                if (k == q->car->car)
                 {
                     q->car->cdr = v;
                     return lose(4, p->cdr->car->car);
                 }
-            global = cons(save(cons(p->cdr->car->car, v)), global);
-            return lose(5, p->cdr->car->car);
+            global = cons(save(cons(p->cdr->car->car, save(v))), global);
+            return lose(6, p->cdr->car->car);
         } else {
             save(env);
-            sexp v = cons(lambda, save(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), save(p)->cdr->cdr)));
+            sexp k = p->cdr->car->car;
+            sexp v = save(cons(lambda, save(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), save(p)->cdr->cdr))));
+            // v is the transformed definition (lambda (mycar . x) ...)
+            v = lambdaform(v, env);
             for (sexp q = global; q; q = q->cdr)
-                if (p->cdr->car->car == q->car->car)
+                if (k == q->car->car)
                 {
                     q->car->cdr = v;
-                    return lose(4, p->cdr->car->car);
+                    return lose(5, p->cdr->car->car);
                 }
             global = cons(save(cons(p->cdr->car->car, v)), global);
-            return lose(5, p->cdr->car->car);
+            return lose(6, p->cdr->car->car);
         }
     } else {
         for (sexp q = global; q; q = q->cdr)
@@ -1069,19 +1054,17 @@ sexp eval(sexp p, sexp env)
 
     sexp q = save(eval(save(p)->car, save(env)));
 
-    if (isCons(q) && lambda == q->car)
+    if (isCons(q) && closurea == q->car)
     {
-        // in the future such a q will evaluate to a Lambda
-        //      where the exp would be q->cdr->cdr->car
-        //      where if atom q->cdr->car->cdr
-        //               the env would be cons(cons(q->cdr->car->cdr, evlis(p->cdr, env)))
-        //            else
-        //               the env would be assoc(q->cdr->car, evlis(p->cdr, env))
-
-        if (isAtom(q->cdr->car->cdr))
-            return lose(6, eval(q->cdr->cdr->car, save(cons(save(cons(q->cdr->car->cdr, save(evlis(p->cdr, env)))), env))));
+        if (isAtom(q->cdr->car->cdr->car->cdr))
+            // q->cdr->car = (lambda (f . s) foo)
+            return lose(6, eval(q->cdr->car->cdr->cdr->car,
+                                save(cons(save(cons(q->cdr->car->cdr->car->cdr,
+                                                    save(evlis(p->cdr, env)))), env))));
         else
-            return lose(5, eval(q->cdr->cdr->car, save(assoc(q->cdr->car, save(evlis(p->cdr, env)), env))));
+            // q->cdr->car = (lambda (n) (car x))
+            return lose(5, eval(q->cdr->car->cdr->cdr->car,
+                                save(assoc(q->cdr->car->cdr->car, save(evlis(p->cdr, env)), env))));
     }
 
     if (isForm(q))
@@ -1095,12 +1078,6 @@ sexp eval(sexp p, sexp env)
             return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
         if (2 == arity(q) && p->cdr && p->cdr->cdr)
             return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
-    }
-
-    if (isLambda(q))
-    {
-        Lambda* l = (Lambda*)q;
-        return lose(4, eval(l->closure->car, l->closure->cdr));
     }
 
     display(stdout, p);
@@ -1418,6 +1395,7 @@ int main(int argc, char **argv, char **envp)
     cara	    = intern_atom_chunk("car");
     cdra	    = intern_atom_chunk("cdr");
     ceilinga    = intern_atom_chunk("ceiling");
+    closurea    = intern_atom_chunk("closure");
     cond        = intern_atom_chunk("cond");
     consa       = intern_atom_chunk("cons");
     cosa        = intern_atom_chunk("cos");
