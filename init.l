@@ -93,7 +93,7 @@
                             (car l)))))
              (maxx l)))
 
-(define (min . x)
+(define (min . l)
         (let ((mini
                (lambda (x y) (if (< x y) x y)))
               (minx
@@ -162,6 +162,17 @@
              (lambda (j) (begin (set! n (add n 1)) n))))
 
 (define counter (make-counter 0))
+
+(define (reverse! s)
+        (let ((p s)
+              (q '())
+              (u '()))
+             (begin (while p
+                           (set! u (cdr p))
+                           (set-cdr! p q)
+                           (set! q p)
+                           (set! p u))
+                    q)))
 
 (define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 

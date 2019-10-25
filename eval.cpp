@@ -28,7 +28,9 @@
 
 #ifdef BROKEN
 #include <assert.h>
-#define longjmp(x, y) assert(0)
+#define error(s) do { printf("%s\n", s); assert(0); } while(0)
+#else
+#define error(s) longjmp(the_jmpbuf, (long)s)
 #endif
 
 /*
@@ -78,12 +80,12 @@ struct Double { char tags[sizeof(Cons)-sizeof(double)]; double flonum; };
 struct Funct  { char tags[sizeof(sexp)]; void*                  funcp; };
 struct Form   { char tags[sizeof(sexp)]; Formp                  formp; };
 
-sexp read(FILE* fin);
 sexp scan(FILE* fin);
 sexp set(sexp p, sexp r);
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp evlis(sexp p, sexp env);
+sexp read(FILE* fin, int level);
 void display(FILE* fout, sexp p);
 void display(FILE* fout, sexp p, std::set<sexp>& seenSet);
 sexp assoc(sexp formals, sexp actuals, sexp env);
@@ -99,11 +101,11 @@ sexp nota, nullpa, numberpa, ora, pairpa, pipea, plus, powa, procedurepa, qchar,
 sexp reada, realpa, reversea, rounda, rparen, rsha, s2sya, seta, setcara, setcdra;
 sexp sina, sqrta, suba, sy2sa, symbolpa, t, tana, tilde, times, voida, whilea, xora;
 
+static inline int  evalType(const sexp p) { return                      ((Other*)p)->tags[1];  }
+static inline int  arity(const sexp p)    { return                      ((Other*)p)->tags[2];  }
 static inline bool isMarked(const sexp p) { return       (MARK        & ((Other*)p)->tags[0]); }
 static inline bool isCons(const sexp p)   { return p && !(OTHER       & ((Other*)p)->tags[0]); }
 static inline bool isOther(const sexp p)  { return p &&  (OTHER       & ((Other*)p)->tags[0]); }
-static inline int  evalType(const sexp p) { return                      ((Other*)p)->tags[1];  }
-static inline int  arity(const sexp p)    { return                      ((Other*)p)->tags[2];  }
 static inline bool isAtom(const sexp p)   { return isOther(p) && ATOM   == evalType(p);        }
 static inline bool isString(const sexp p) { return isOther(p) && STRING == evalType(p);        }
 static inline bool isFunct(const sexp p)  { return isOther(p) && FUNCT  == evalType(p);        }
@@ -134,7 +136,7 @@ sexp save(sexp p)
 {
     *psp++ = p;
     if (psp >= protect+PSIZE)
-        longjmp(the_jmpbuf, (long)"protection stack overflow");
+        error("error: protection stack overflow");
     return p;
 }
 
@@ -144,7 +146,7 @@ sexp save(sexp p)
 sexp lose(int n, sexp p)
 {
     if (psp-n < protect)
-        longjmp(the_jmpbuf, (long)"protection stack underflow");
+        error("error: protection stack underflow");
     for ( ; n > 0; --n)
     {
         sexp p = *--psp;
@@ -248,7 +250,7 @@ void gc(bool verbose)
     total += allocated;
     ++collected;
     if (!freelist)
-        longjmp(the_jmpbuf, (long)"storage exhausted");
+        error("error: storage exhausted");
 }
 
 /*
@@ -353,21 +355,21 @@ sexp cons(sexp car, sexp cdr)
 sexp car(sexp p)
 {
     if (!isCons(p))
-        longjmp(the_jmpbuf, (long)"car: bad argument");
+        error("error: car of non-pair");
     return p->car;
 }
 
 sexp cdr(sexp p)
 {
     if (!isCons(p))
-        longjmp(the_jmpbuf, (long)"cdr: bad argument");
+        error("error: cdr of non-pair");
     return p->cdr;
 }
 
 sexp setcarfunc(sexp p, sexp q)
 {
     if (!isCons(p))
-        longjmp(the_jmpbuf, (long)"set-car! bad argument");
+        error("error: set-car! of non-pair");
     sexp r = p->car;
     p->car = q;
     return r;
@@ -376,7 +378,7 @@ sexp setcarfunc(sexp p, sexp q)
 sexp setcdrfunc(sexp p, sexp q)
 {
     if (!isCons(p))
-        longjmp(the_jmpbuf, (long)"set-cdr! bad argument");
+        error("error: set-cdr! of non-pair");
     sexp r = p->cdr;
     p->cdr = q;
     return r;
@@ -437,7 +439,7 @@ bool cmplt(sexp x, sexp y)
         if (isFlonum(y))
             return (double)asFixnum(x) < asFixnum(y);
     }
-    longjmp(the_jmpbuf, (long)"comparison bad argument");
+    error("error: comparison bad argument");
 }
 
 bool cmple(sexp x, sexp y)
@@ -453,7 +455,7 @@ bool cmple(sexp x, sexp y)
         if (isFlonum(y))
             return (double)asFixnum(x) <= asFixnum(y);
     }
-    longjmp(the_jmpbuf, (long)"comparison bad argument");
+    error("error: comparison bad argument");
 }
 
 sexp lt(sexp x, sexp y)
@@ -705,7 +707,7 @@ sexp load(sexp x)
     {
         while (!feof(fin))
         {
-            sexp input = read(fin);
+            sexp input = read(fin, 0);
             if (!input)
                 break;
             //display(stdout, input); putchar('\n');
@@ -733,35 +735,6 @@ sexp displayfunc(sexp args)
     return voida;
 }
 
-bool contains(std::set<sexp>& seenSet, sexp p)
-{
-    return seenSet.find(p) != seenSet.end();
-}
-
-void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
-{
-    putc('(', fout);
-    while (exp && !contains(seenSet, exp)) {
-        seenSet.insert(exp);
-        display(fout, exp->car, seenSet);
-        if (exp->cdr) {
-            if (isCons(exp->cdr))
-            {
-                if (!contains(seenSet, exp->cdr)) {
-                    putc(' ', fout);
-                    exp = exp->cdr;
-                }
-            } else {
-                fprintf(fout, "%s", " . ");
-                display(fout, exp->cdr, seenSet);
-                exp = 0;
-            }
-        } else
-            exp = exp->cdr;
-    }
-    putc(')', fout);
-}
-
 void displayChunks(FILE* fout, sexp p)
 {
     while (p)
@@ -778,13 +751,51 @@ void displayChunks(FILE* fout, sexp p)
     }
 }
 
+bool isClosure(sexp exp)
+{
+    return closurea == exp->car && exp->cdr && exp->cdr->car &&
+           exp->cdr->cdr && exp->cdr->cdr->car && !exp->cdr->cdr->cdr;
+}
+
+void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
+{
+    if (isClosure(exp))
+        fprintf(fout, "#<closure@%p>", (void*)exp);
+    else {
+        putc('(', fout);
+        while (exp && seenSet.find(exp) == seenSet.end()) {
+            display(fout, exp->car, seenSet);
+            seenSet.insert(exp);
+            if (exp->cdr) {
+                if (isCons(exp->cdr) && !isClosure(exp->cdr))
+                {
+                    if (seenSet.find(exp->cdr) == seenSet.end())
+                    {
+                        putc(' ', fout);
+                        exp = exp->cdr;
+                    }
+                } else {
+                    fprintf(fout, " . ");
+                    if (isClosure(exp->cdr))
+                        fprintf(fout, "#<closure@%p>", (void*)(exp->cdr));
+                    else
+                        display(fout, exp->cdr, seenSet);
+                    exp = 0;
+                }
+            } else
+                exp = exp->cdr;
+        }
+        putc(')', fout);
+    }
+}
+
 void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
 {
     if (!exp)
         fprintf(fout, "%s", "#f");
-    else if (isCons(exp) && !contains(seenSet, exp)) {
+    else if (isCons(exp) && seenSet.find(exp) == seenSet.end())
         displayList(fout, exp, seenSet);
-    } else if (isString(exp)) {
+    else if (isString(exp)) {
         putc('"', fout);
         displayChunks(fout, ((String*)exp)->chunks);
         putc('"', fout);
@@ -802,6 +813,9 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
         fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
 }
 
+/*
+ * display an s-expression, protecting from cycles
+ */
 void display(FILE* fout, sexp exp)
 {
     std::set<sexp> seenSet;
@@ -886,7 +900,7 @@ sexp get(sexp p, sexp env)
         if (q->car && p == q->car->car)
             return q->car->cdr;
     printf("unbound: "); display(stdout, p); putchar('\n');
-    longjmp(the_jmpbuf, (long)"unbound variable is an error");
+    error("error: unbound variable");
 }
 
 sexp set(sexp p, sexp r, sexp env)
@@ -901,7 +915,7 @@ sexp set(sexp p, sexp r, sexp env)
             return s;
         }
     printf("unbound: "); display(stdout, p); putchar('\n');
-    longjmp(the_jmpbuf, (long)"set! unbound variable is an error");
+    error("error: set! unbound variable");
 }
 
 sexp evlis(sexp p, sexp env)
@@ -1043,7 +1057,7 @@ sexp quoteform(sexp exp, sexp env)
 
 sexp readform(sexp exp, sexp env)
 {
-    return read(stdin);
+    return read(stdin, 0);
 }
 
 /*
@@ -1148,7 +1162,7 @@ sexp eval(sexp p, sexp env)
     }
 
     display(stdout, p);
-    longjmp(the_jmpbuf, (long)"bad form");
+    error("error: bad form");
     return p;
 }
 
@@ -1360,28 +1374,30 @@ sexp scan(FILE* fin)
     return intern(atom(readChunks(fin, "( )\t\r\n")));
 }
 
-sexp readTail(FILE* fin)
+sexp readTail(FILE* fin, int level)
 {
-    sexp q = read(fin);
+    sexp q = read(fin, level);
     if (rparen == q)
         return 0;
     save(q);
-    sexp r = save(readTail(fin));
+    sexp r = save(readTail(fin, level));
     return lose(2, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
 }
 
 /*
  * read an s-expression
  */
-sexp read(FILE* fin)
+sexp read(FILE* fin, int level)
 {
     sexp p = scan(fin);
     if (nil == p)
         return 0;
     if (lparen == p)
-        return readTail(fin);
+        return readTail(fin, level+1);
     if (qchar == p)
-        return lose(2, cons(quote, save(cons(save(read(fin)), 0))));
+        return lose(2, cons(quote, save(cons(save(read(fin, level)), 0))));
+    if (level == 0 && rparen == p)
+        error("error: an s-expression cannot begin with ')'");
     return p;
 }
 
@@ -1395,7 +1411,7 @@ void intr_handler(int sig, siginfo_t *si, void *ctx)
     if (killed++)
         exit(0);
     if (SIGINT == sig)
-        longjmp(the_jmpbuf, (long)"SIGINT");
+        error("SIGINT");
 }
 
 void segv_handler(int sig, siginfo_t *si, void *ctx)
@@ -1425,9 +1441,8 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
             name = symbol;
         }
 
-        printf("#%2d 0x%016lx sp=0x%016lx %s + 0x%lx\n", ++n,
-                static_cast<uintptr_t>(ip), static_cast<uintptr_t>(sp),
-                name, static_cast<uintptr_t>(off));
+        printf("#%2d 0x%p sp=0x%p %s + 0x%lx\n", ++n,
+                (void*)(ip), (void*)(sp), name, static_cast<uintptr_t>(off));
 
         if ( name != symbol )
           free(name);
@@ -1612,7 +1627,7 @@ int main(int argc, char **argv, char **envp)
     segv_action.sa_sigaction = segv_handler;
     char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
-        printf(" caught %s!\n", s);
+        printf(" %s!\n", s);
 
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
@@ -1624,7 +1639,7 @@ int main(int argc, char **argv, char **envp)
         total = 0;
         collected = 0;
         psp = protect;
-        sexp e = read(stdin);
+        sexp e = read(stdin, 0);
         killed = 0;
         sexp v = eval(e, global);
         if (voida != v)
