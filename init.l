@@ -81,8 +81,6 @@
 
 (define (abs x) (if (< x 0) (sub 0 x) x))
 
-(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
-
 (define (max . l)
         (let ((maxi
                (lambda (x y) (if (< x y) y x)))
@@ -117,23 +115,23 @@
 
 (define (- . l)
         (let ((diff
-              (lambda (l)
-                      (if l
-                          (if (cdr l)
-                              (if (cddr l)
-                                  (sub (car l) (sum(cdr l)))
-                                  (sub (car l) (cadr l)))
-                              (sub 0 (car l)))
-                          0))))
-             (diff l)))
+               (lambda (l)
+                       (if l
+                           (if (cdr l)
+                               (if (cddr l)
+                                   (sub (car l) (sum(cdr l)))
+                                   (sub (car l) (cadr l)))
+                               (sub 0 (car l)))
+                           0))))
+              (diff l)))
 
 (define (* . l)
         (let ((product
-              (lambda (l)
-                      (if l
-                          (mul (car l) (product (cdr l)))
-                          1))))
-             (product l)))
+               (lambda (l)
+                       (if l
+                           (mul (car l) (product (cdr l)))
+                           1))))
+              (product l)))
 
 (define (/ . l)
         (let ((quotient
@@ -158,6 +156,14 @@
                                (mod 1 (car l)))
                            1))))
              (remainder l)))
+
+(define (make-counter i)
+        (let ((n i))
+             (lambda (j) (begin (set! n (add n 1)) n))))
+
+(define counter (make-counter 0))
+
+(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
 
 (display (mapcar car (globals)) (newline))
 

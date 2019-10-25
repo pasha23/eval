@@ -11,7 +11,7 @@
  */
 #define PSIZE   16384
 #define MAX     262144
-#define BROKEN
+#undef  BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <set>
 
 #ifdef BROKEN
 #include <assert.h>
@@ -84,6 +85,7 @@ sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp evlis(sexp p, sexp env);
 void display(FILE* fout, sexp p);
+void display(FILE* fout, sexp p, std::set<sexp>& seenSet);
 sexp assoc(sexp formals, sexp actuals, sexp env);
 
 // these are the built-in atoms
@@ -163,6 +165,28 @@ static inline void unmarkCell(sexp p)
     --marked;
 }
 
+void mark(sexp p);
+
+void markCons(sexp p, std::set<sexp>& seenSet)
+{
+    if (!p || isMarked(p))
+        return;
+
+    if (seenSet.find(p) != seenSet.end())
+        return;
+
+    seenSet.insert(p);
+    if (isCons(p->car))
+        markCons(p->car, seenSet);
+    else
+        mark(p->car);
+    if (isCons(p->cdr))
+        markCons(p->cdr, seenSet);
+    else
+        mark(p->cdr);
+    markCell(p);
+}
+
 /*
  * visit objects reachable from p, setting their MARK bit
  */
@@ -170,14 +194,18 @@ void mark(sexp p)
 {
     if (!p || isMarked(p))
         return;
+
     if (isCons(p)) {
-        mark(p->car);
-        mark(p->cdr);
-    } else if (isAtom(p))
+        std::set<sexp> seenSet;
+        markCons(p, seenSet);
+    } else if (isAtom(p)) {
         mark(((Atom*)p)->chunks);
-    else if (isString(p))
+        markCell(p);
+    } else if (isString(p)) {
         mark(((String*)p)->chunks);
-    markCell(p);
+        markCell(p);
+    } else
+        markCell(p);
 }
 
 /*
@@ -705,21 +733,27 @@ sexp displayfunc(sexp args)
     return voida;
 }
 
-/*
- * vulnerable to cycles
- */
-void displayList(FILE* fout, sexp exp)
+bool contains(std::set<sexp>& seenSet, sexp p)
+{
+    return seenSet.find(p) != seenSet.end();
+}
+
+void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
 {
     putc('(', fout);
-    while (exp) {
-        display(fout, exp->car);
+    while (exp && !contains(seenSet, exp)) {
+        seenSet.insert(exp);
+        display(fout, exp->car, seenSet);
         if (exp->cdr) {
-            if (isCons(exp->cdr)) {
-                putc(' ', fout);
-                exp = exp->cdr;
+            if (isCons(exp->cdr))
+            {
+                if (!contains(seenSet, exp->cdr)) {
+                    putc(' ', fout);
+                    exp = exp->cdr;
+                }
             } else {
                 fprintf(fout, "%s", " . ");
-                display(fout, exp->cdr);
+                display(fout, exp->cdr, seenSet);
                 exp = 0;
             }
         } else
@@ -744,15 +778,12 @@ void displayChunks(FILE* fout, sexp p)
     }
 }
 
-void display(FILE* fout, sexp exp)
+void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
 {
     if (!exp)
         fprintf(fout, "%s", "#f");
-    else if (isCons(exp)) {
-        if (closurea == exp->car)
-            fprintf(fout, "#<closure@%p>", (void*)exp);
-        else
-            displayList(fout, exp);
+    else if (isCons(exp) && !contains(seenSet, exp)) {
+        displayList(fout, exp, seenSet);
     } else if (isString(exp)) {
         putc('"', fout);
         displayChunks(fout, ((String*)exp)->chunks);
@@ -769,6 +800,12 @@ void display(FILE* fout, sexp exp)
         fprintf(fout, "#<function%d@%p>", arity(exp), (void*)((Funct*)exp)->funcp);
     else if (isForm(exp))
         fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
+}
+
+void display(FILE* fout, sexp exp)
+{
+    std::set<sexp> seenSet;
+    display(fout, exp, seenSet);
 }
 
 bool match(sexp p, sexp q)
@@ -844,6 +881,7 @@ sexp define(sexp p, sexp r)
 
 sexp get(sexp p, sexp env)
 {
+    // printf("get env: "); display(stdout, env); putchar('\n');
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
             return q->car->cdr;
@@ -851,16 +889,18 @@ sexp get(sexp p, sexp env)
     longjmp(the_jmpbuf, (long)"unbound variable is an error");
 }
 
-sexp set(sexp p, sexp r)
+sexp set(sexp p, sexp r, sexp env)
 {
     sexp s = 0;
-    for (sexp q = global; q; q = q->cdr)
+    //printf("set env: "); display(stdout, env); putchar('\n');
+    for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
             s = q->car->cdr;
             q->car->cdr = r;
             return s;
         }
+    printf("unbound: "); display(stdout, p); putchar('\n');
     longjmp(the_jmpbuf, (long)"set! unbound variable is an error");
 }
 
@@ -928,7 +968,6 @@ sexp condform(sexp exp, sexp env)
  */
 sexp lambdaform(sexp exp, sexp env)
 {
-    env = 0;    // for now closures capture no environment because cycles are unmanageable
     return lose(3, cons(closurea, save(cons(save(exp), save(cons(save(env), 0))))));
 }
 
@@ -953,38 +992,42 @@ sexp defineform(sexp p, sexp env)
             sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, save(p)->cdr->cdr))));
             // v is the transformed definition (lambda (x) ...)
             v = lambdaform(v, env);
+            // v is a closure (closure exp env)
             for (sexp q = global; q; q = q->cdr)
                 if (k == q->car->car)
                 {
                     q->car->cdr = v;
-                    return lose(4, p->cdr->car->car);
+                    return lose(4, voida);
                 }
-            global = cons(save(cons(p->cdr->car->car, save(v))), global);
-            return lose(6, p->cdr->car->car);
+            // update the closure definition to include the one we just made
+            global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
+            return lose(6, voida);
         } else {
             save(env);
             sexp k = p->cdr->car->car;
             sexp v = save(cons(lambda, save(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), save(p)->cdr->cdr))));
             // v is the transformed definition (lambda (mycar . x) ...)
             v = lambdaform(v, env);
+            // v is a closure (closure exp env)
             for (sexp q = global; q; q = q->cdr)
                 if (k == q->car->car)
                 {
                     q->car->cdr = v;
-                    return lose(5, p->cdr->car->car);
+                    return lose(5, voida);
                 }
-            global = cons(save(cons(p->cdr->car->car, v)), global);
-            return lose(6, p->cdr->car->car);
+            // update the closure definition to include the one we just made
+            global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, v)), global);
+            return lose(6, voida);
         }
     } else {
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
             {
-                q->car->cdr = p->cdr->cdr->car;
-                return p->cdr->car;
+                q->car->cdr = eval(save(p)->cdr->cdr->car, save(env));
+                return lose(2, voida);
             }
-        global = cons(save(cons(p->cdr->car, save(p)->cdr->cdr->car)), global);
-        return lose(2, p->cdr->car);
+        global = cons(save(cons(p->cdr->car, save(eval(save(p)->cdr->cdr->car, save(env))))), global);
+        return lose(4, voida);
     }
 }
 
@@ -1021,7 +1064,7 @@ sexp ifform(sexp exp, sexp env)
  */
 sexp setform(sexp exp, sexp env)
 {
-    return lose(3, set(exp->cdr->car, save(eval(save(exp)->cdr->cdr->car, save(env)))));
+    return lose(3, set(exp->cdr->car, save(eval(save(exp)->cdr->cdr->car, env)), save(env)));
 }
 
 /*
@@ -1039,7 +1082,18 @@ sexp augment(sexp exp, sexp env)
  */
 sexp letform(sexp exp, sexp env)
 {
-    return lose(3, eval(exp->cdr->cdr->car, save(augment(save(exp)->cdr->car, save(env)))));
+    sexp r;
+    //printf("let org env: "); display(stdout, env); putchar('\n');
+    sexp e = save(augment(save(exp)->cdr->car, save(env)));
+    //printf("let old env: "); display(stdout, e); putchar('\n');
+    for (sexp f = e; f; f = f->cdr)
+        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
+            f->car->cdr->cdr->cdr->car = e;
+    //printf("let fix env: "); display(stdout, e); putchar('\n');
+    for (sexp p = exp->cdr->cdr; p; p = p->cdr)
+        r = eval(p->car, e);
+    //printf("let new env: "); display(stdout, e); putchar('\n');
+    return lose(3, r);
 }
 
 /*
@@ -1059,17 +1113,25 @@ sexp eval(sexp p, sexp env)
     {
         sexp cenv = q->cdr->cdr->car;
 
-        if (!cenv) cenv = env;  // for now, closures capture no environment
-
-        if (isAtom(q->cdr->car->cdr->car->cdr))
+        sexp s = 0;
+        if (!q->cdr->car->cdr->car) {
+            // q->cdr->car = (lambda () foo)
+            for (sexp r = q->cdr->car->cdr->cdr; r; r = r->cdr)
+                s = eval(r->car, cenv ? cenv : env);
+            return lose(3, s);
+        } else if (isAtom(q->cdr->car->cdr->car->cdr)) {
             // q->cdr->car = (lambda (f . s) foo)
-            return lose(6, eval(q->cdr->car->cdr->cdr->car,
-                                save(cons(save(cons(q->cdr->car->cdr->car->cdr,
-                                                    save(evlis(p->cdr, env)))), cenv))));
-        else
+            sexp e = save(cons(save(cons(q->cdr->car->cdr->car->cdr, save(evlis(p->cdr, env)))), cenv ? cenv : env));
+            for (sexp r = q->cdr->car->cdr->cdr; r; r = r->cdr)
+                s = eval(r->car, e);
+            return lose(6, s);
+        } else {
             // q->cdr->car = (lambda (n) (car x))
-            return lose(5, eval(q->cdr->car->cdr->cdr->car,
-                                save(assoc(q->cdr->car->cdr->car, save(evlis(p->cdr, env)), cenv))));
+            sexp e = save(assoc(q->cdr->car->cdr->car, save(evlis(p->cdr, env)), cenv ? cenv : env));
+            for (sexp r = q->cdr->car->cdr->cdr; r; r = r->cdr)
+                s = eval(r->car, e);
+            return lose(5, s);
+        }
     }
 
     if (isForm(q))
@@ -1558,7 +1620,7 @@ int main(int argc, char **argv, char **envp)
     // read evaluate display ...
     while (!feof(stdin))
     {
-//      gc(true);
+        gc(true);
         total = 0;
         collected = 0;
         psp = protect;
