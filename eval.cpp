@@ -33,6 +33,8 @@
 #define error(s) longjmp(the_jmpbuf, (long)s)
 #endif
 
+char errorBuffer[256];
+
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
  *
@@ -66,8 +68,7 @@ typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 
 /*
- * setting up union declarations isn't all that fun but casts are ugly
- * and error-prone.
+ * setting up union declarations isn't all that fun but casts are ugly and error-prone.
  */
 struct Cons   { sexp                cdr; sexp                     car; };
 struct Other  { char                             tags[sizeof(Cons)-0]; };
@@ -82,6 +83,7 @@ struct Form   { char tags[sizeof(sexp)]; Formp                  formp; };
 
 sexp scan(FILE* fin);
 sexp set(sexp p, sexp r);
+bool cyclic(sexp p);
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp evlis(sexp p, sexp env);
@@ -93,13 +95,16 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 // these are the built-in atoms
 
 sexp acosa, adda, ampera, anda, asina, atana, atompa, atomsa, begin, cara;
-sexp cdra, ceilinga, cond, consa, cosa, definea, displaya, diva, dot, e2ia;
-sexp closurea, elsea, endl, eqa, eqva, exactpa, expa, f, floora, gea;
-sexp globals, gta, i2ea, ifa, inexactpa, integerpa, lambda, lea, let, listpa;
-sexp loada, loga, lparen, lsha, lta, minus, moda, modulo, mula, newlinea, nil;
-sexp nota, nullpa, numberpa, ora, pairpa, pipea, plus, powa, procedurepa, qchar, quote;
-sexp reada, realpa, reversea, rounda, rparen, rsha, s2sya, seta, setcara, setcdra;
-sexp sina, sqrta, suba, sy2sa, symbolpa, t, tana, tilde, times, voida, whilea, xora;
+sexp cdra, ceilinga, closurea, cond, consa, cosa, cyclicpa, definea, delaya;
+sexp displaya, diva, dot, e2ia, elsea, endl, eofa, eofobjp, eqa, eqna, eqva;
+sexp intenva, nulenva, exactpa, expa;
+sexp f, floora, forcea, forcedpa, gea, gta, i2ea, ifa, inexactpa;
+sexp integerpa, lambda, lea, let, listpa, loada, loga, lparen, lsha, lta;
+sexp minus, moda, modulo, mula, newlinea, nil, nota, nullpa, numberpa, ora;
+sexp pairpa, pipea, plus, powa, procedurepa, promisea, promisepa, promiseva;
+sexp qchar, quote, reada, realpa, reversea, rounda, rparen, rsha, s2sya;
+sexp seta, setcara, setcdra, sina, sqrta, stringpa, suba, sy2sa, symbolpa;
+sexp rationala, t, tana, tilde, times, voida, whilea, xora;
 
 static inline int  evalType(const sexp p) { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)    { return                      ((Other*)p)->tags[2];  }
@@ -174,10 +179,13 @@ void markCons(sexp p, std::set<sexp>& seenSet)
     if (!p || isMarked(p))
         return;
 
+    // there are a few of these, this is a kluge
+    // they seem to have been introduced with closures
     if (seenSet.find(p) != seenSet.end())
         return;
 
     seenSet.insert(p);
+
     if (isCons(p->car))
         markCons(p->car, seenSet);
     else
@@ -297,30 +305,21 @@ sexp fixnum(long number)
     return (sexp)p;
 }
 
-sexp sglnum(float number)
-{
-    Float* p = (Float*)cell();
-    p->tags[0] = OTHER;
-    p->tags[1] = FLOAT;
-    p->flonum = number;
-    return (sexp)p;
-}
-
-sexp dblnum(double number)
-{
-    Double* p = (Double*)cell();
-    p->tags[0] = OTHER;
-    p->tags[1] = DOUBLE;
-    p->flonum = number;
-    return (sexp)p;
-}
-
 sexp flonum(double number)
 {
-    if (4 == sizeof(void*))
-        return sglnum(number);
-    else
-        return dblnum(number);
+    if (sizeof(double) > sizeof(void*)) {
+        Float* p = (Float*)cell();
+        p->tags[0] = OTHER;
+        p->tags[1] = FLOAT;
+        p->flonum = number;
+        return (sexp)p;
+    } else {
+        Double* p = (Double*)cell();
+        p->tags[0] = OTHER;
+        p->tags[1] = DOUBLE;
+        p->flonum = number;
+        return (sexp)p;
+    }
 }
 
 sexp define_form(sexp name, Formp f)
@@ -366,7 +365,7 @@ sexp cdr(sexp p)
     return p->cdr;
 }
 
-sexp setcarfunc(sexp p, sexp q)
+sexp setcarf(sexp p, sexp q)
 {
     if (!isCons(p))
         error("error: set-car! of non-pair");
@@ -375,7 +374,7 @@ sexp setcarfunc(sexp p, sexp q)
     return r;
 }
 
-sexp setcdrfunc(sexp p, sexp q)
+sexp setcdrf(sexp p, sexp q)
 {
     if (!isCons(p))
         error("error: set-cdr! of non-pair");
@@ -478,7 +477,7 @@ sexp gt(sexp x, sexp y)
     return cmple(x, y) ? 0 : t;
 }
 
-sexp add(sexp x, sexp y)
+sexp addf(sexp x, sexp y)
 {
     if (isFixnum(x)) {
         if (isFixnum(y))
@@ -498,7 +497,7 @@ sexp add(sexp x, sexp y)
         return 0;
 }
 
-sexp sub(sexp x, sexp y)
+sexp subf(sexp x, sexp y)
 {
     if (isFixnum(x)) {
         if (isFixnum(y))
@@ -518,7 +517,7 @@ sexp sub(sexp x, sexp y)
         return 0;
 }
 
-sexp mul(sexp x, sexp y)
+sexp mulf(sexp x, sexp y)
 {
     if (isFixnum(x)) {
         if (isFixnum(y))
@@ -558,7 +557,7 @@ sexp divf(sexp x, sexp y)
         return 0;
 }
 
-sexp mod(sexp x, sexp y)
+sexp modfn(sexp x, sexp y)
 {
     if (isFixnum(x)) {
         if (isFixnum(y))
@@ -578,6 +577,16 @@ sexp mod(sexp x, sexp y)
         return 0;
 }
 
+/*
+ * a rational is really just a list (rational numerator denominator)
+ */
+bool isRational(sexp exp)
+{
+    return isCons(exp) &&
+           rationala == exp->car && exp->cdr && exp->cdr->car &&
+           exp->cdr->cdr && exp->cdr->cdr->car && !exp->cdr->cdr->cdr;
+}
+
 // functions on real numbers
 sexp sinff(sexp x) { return isFlonum(x) ? flonum(sin(asFlonum(x))) : 0; }
 sexp cosff(sexp x) { return isFlonum(x) ? flonum(cos(asFlonum(x))) : 0; }
@@ -591,7 +600,7 @@ sexp ceilingff(sexp x) { return isFlonum(x) ? flonum(ceil(asFlonum(x))) : 0; }
 sexp floorff(sexp x) { return isFlonum(x) ? flonum(floor(asFlonum(x))) : 0; }
 sexp roundff(sexp x) { return isFlonum(x) ? flonum(round(asFlonum(x))) : 0; }
 sexp sqrtff(sexp x) { return isFlonum(x) ? flonum(sqrt(asFlonum(x))) : 0; }
-sexp powfunc(sexp x, sexp y) { return isFlonum(x) && isFlonum(y) ? flonum(pow(asFlonum(x), asFlonum(y))) : 0; }
+sexp powff(sexp x, sexp y) { return isFlonum(x) && isFlonum(y) ? flonum(pow(asFlonum(x), asFlonum(y))) : 0; }
 
 // exact, inexact
 sexp exactp(sexp x) { return isFixnum(x) ? t : 0; }
@@ -608,21 +617,21 @@ sexp rsh(sexp x, sexp y) { return isFixnum(x) && isFixnum(y) ? fixnum(asFixnum(x
 // list structure predicates
 sexp isnot(sexp x) { return x ? 0 : t; }
 sexp nullp(sexp x) { return x ? 0 : t; }
+sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
 sexp listp(sexp x) { return !isCons(x) ? 0 : listp(x->cdr) ? t : 0; }
 sexp pairp(sexp x) { return isCons(x) ? t : 0; }
 sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : 0; }
+sexp stringp(sexp x) { return isString(x) ? t : 0; }
 sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
 sexp procedurep(sexp p) { return p && (isFunct(p) || isCons(p) && closurea == p->car) ? t : 0; }
 
-
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
-// symbol->string
-sexp sy2s(sexp x) { return isAtom(x) ? string(((Atom*)x)->chunks) : 0; }
+sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
 
 // numeric equality =
-sexp eqp(sexp x, sexp y) { return isFixnum(x) && isFixnum(y) && asFixnum(x) == asFixnum(y) ? t :
-                                  isFlonum(x) && isFlonum(y) && asFlonum(x) == asFlonum(y) ? t : 0; }
+sexp eqnp(sexp x, sexp y) { return isFixnum(x) && isFixnum(y) && asFixnum(x) == asFixnum(y) ? t :
+                                   isFlonum(x) && isFlonum(y) && asFlonum(x) == asFlonum(y) ? t : 0; }
 
 // ~ fixnum
 sexp complement(sexp x) { return isFixnum(x) ? fixnum(~asFixnum(x)) : 0; }
@@ -637,7 +646,7 @@ sexp allfixnums(sexp args)
 
 // boolean operators
 
-sexp andfunc(sexp args)
+sexp andf(sexp args)
 {
     save(args);
     if (allfixnums(args)) {
@@ -649,7 +658,7 @@ sexp andfunc(sexp args)
         return lose(1, 0);
 }
 
-sexp orfunc(sexp args)
+sexp orf(sexp args)
 {
     save(args);
     if (allfixnums(args)) {
@@ -661,7 +670,7 @@ sexp orfunc(sexp args)
         return lose(1, 0);
 }
 
-sexp xorfunc(sexp args)
+sexp xorf(sexp args)
 {
     save(args);
     if (allfixnums(args)) {
@@ -674,6 +683,89 @@ sexp xorfunc(sexp args)
 }
 
 /*
+ * (promise forced value exp env)
+ */
+sexp delayform(sexp exp, sexp env)
+{
+    return lose(4, cons(promisea,
+                        save(cons(0,
+                        save(cons(0,
+                        save(cons(exp->cdr->car,
+                        save(cons(env, 0))))))))));
+}
+
+bool isPromise(sexp p)
+{
+    return isCons(p) &&
+           promisea == p->car &&
+           p->cdr &&                   // car has forced flag
+           p->cdr->cdr &&              // car has value
+           p->cdr->cdr->cdr &&         // car has exp
+           p->cdr->cdr->cdr->cdr &&    // car has env
+          !p->cdr->cdr->cdr->cdr->cdr; // correct length
+}
+
+sexp promisep(sexp p)
+{
+    return isPromise(p) ? t : 0;
+}
+
+sexp force(sexp p)
+{
+    if (!isPromise(p))
+        error("force: not a promise");
+    if (!p->cdr->car)
+    {
+        p->cdr->car = t;
+        p->cdr->cdr->car = eval(p->cdr->cdr->cdr->car,
+                                p->cdr->cdr->cdr->cdr->car);
+    }
+    return p->cdr->cdr->car;
+}
+
+sexp forcedp(sexp p)
+{
+    if (!isPromise(p))
+        error("promise-forced?: not a promise");
+    return p->cdr->car;
+}
+
+sexp promisev(sexp p)
+{
+    if (!isPromise(p))
+        error("promise-value: not a promise");
+    if (p->cdr->car)
+        return p->cdr->cdr->car;
+    else
+        error("promise not forced yet");
+}
+
+int renderedLength(sexp s)
+{
+    int length = 0;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        int i = 0;
+        Chunk* t = (Chunk*)(p->car);
+        while (i < sizeof(t->text) && t->text[i])
+            ++i;
+        length += i;
+    }
+    return length;
+}
+
+void renderedContent(char* buffer, sexp s)
+{
+    int j = 0;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; buffer[j++] = t->text[i++]) {}
+    }
+    buffer[j++] = 0;
+}
+
+/*
  * open a file and process its contents
  */
 sexp load(sexp x)
@@ -682,26 +774,10 @@ sexp load(sexp x)
     if (!isString(x))
         return r;
 
-    int length = 0;
-    for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-    {
-        int i = 0;
-        Chunk* t = (Chunk*)(p->car);
-        while (i < sizeof(t->text) && t->text[i])
-            ++i;
-        length += i;
-    }
-
-    int j = 0;
-    char *name = (char*) alloca(length+1);
-    for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; name[j++] = t->text[i++]) {}
-    }
-
-    name[j++] = 0;
+    char *name = (char*) alloca(renderedLength(x));
+    renderedContent(name, x);
     printf("; load: %s\n", name);
+
     FILE* fin = fopen(name, "r");
     if (fin)
     {
@@ -719,12 +795,17 @@ sexp load(sexp x)
     return r;
 }
 
-sexp newlinefunc(sexp args)
+sexp newlinef(sexp args)
 {
     return endl;
 }
 
-sexp displayfunc(sexp args)
+sexp eofp(sexp a)
+{
+    return eofa == a ? t : 0;
+}
+
+sexp displayf(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
     {
@@ -751,35 +832,87 @@ void displayChunks(FILE* fout, sexp p)
     }
 }
 
+/*
+ * a closure is really just a list (closure exp env)
+ */
 bool isClosure(sexp exp)
 {
-    return closurea == exp->car && exp->cdr && exp->cdr->car &&
+    return isCons(exp) &&
+           closurea == exp->car && exp->cdr && exp->cdr->car &&
            exp->cdr->cdr && exp->cdr->cdr->car && !exp->cdr->cdr->cdr;
+}
+
+bool cyclic(std::set<sexp>& seenSet, sexp exp)
+{
+    if (!exp || !isCons(exp) || isClosure(exp) || isPromise(exp))
+        return false;
+    if (seenSet.find(exp) == seenSet.end()) {
+        seenSet.insert(exp);
+        return cyclic(seenSet, exp->car) || cyclic(seenSet, exp->cdr);
+    } else
+        return true;
+}
+
+/*
+ * test for cyclic data structures
+ */
+bool cyclic(sexp exp)
+{
+    std::set<sexp> seenSet;
+    return cyclic(seenSet, exp);
+}
+
+/*
+ * display an s-expression
+ * attempts to deal with cyclic structures are purely defensive
+ */
+void display(FILE* fout, sexp exp)
+{
+    std::set<sexp> seenSet;
+    // ideally: #0=(#1=(b) #1# #1# #1# #1# . #0#)
+    if (cyclic(exp))
+        printf("; cyclic!\n{");
+    display(fout, exp, seenSet);
+}
+
+bool safe(std::set<sexp>& seenSet, sexp exp)
+{
+    return seenSet.find(exp) == seenSet.end();
+}
+
+void insert(std::set<sexp>& seenSet, sexp exp)
+{
+    seenSet.insert(exp);
 }
 
 void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
 {
     if (isClosure(exp))
         fprintf(fout, "#<closure@%p>", (void*)exp);
+    else if (isPromise(exp))
+        fprintf(fout, "#<promise@%p>", (void*)exp);
     else {
         putc('(', fout);
-        while (exp && seenSet.find(exp) == seenSet.end()) {
+        while (exp && safe(seenSet, exp)) {
             display(fout, exp->car, seenSet);
-            seenSet.insert(exp);
+            insert(seenSet, exp);
             if (exp->cdr) {
-                if (isCons(exp->cdr) && !isClosure(exp->cdr))
+                if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
                 {
-                    if (seenSet.find(exp->cdr) == seenSet.end())
+                    if (safe(seenSet, exp->cdr))
                     {
                         putc(' ', fout);
                         exp = exp->cdr;
                     }
                 } else {
                     fprintf(fout, " . ");
-                    if (isClosure(exp->cdr))
-                        fprintf(fout, "#<closure@%p>", (void*)(exp->cdr));
+                    exp = exp->cdr;
+                    if (isClosure(exp))
+                        fprintf(fout, "#<closure@%p>", (void*)exp);
+                    else if (isPromise(exp))
+                        fprintf(fout, "#<promise@%p>", (void*)exp);
                     else
-                        display(fout, exp->cdr, seenSet);
+                        display(fout, exp, seenSet);
                     exp = 0;
                 }
             } else
@@ -793,7 +926,7 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
 {
     if (!exp)
         fprintf(fout, "%s", "#f");
-    else if (isCons(exp) && seenSet.find(exp) == seenSet.end())
+    else if (isCons(exp) && safe(seenSet, exp))
         displayList(fout, exp, seenSet);
     else if (isString(exp)) {
         putc('"', fout);
@@ -814,14 +947,10 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
 }
 
 /*
- * display an s-expression, protecting from cycles
+ * atoms and strings have lists of chunks
+ *
+ * this is how we compare them for equality
  */
-void display(FILE* fout, sexp exp)
-{
-    std::set<sexp> seenSet;
-    display(fout, exp, seenSet);
-}
-
 bool match(sexp p, sexp q)
 {
     for (;;)
@@ -844,6 +973,9 @@ bool match(sexp p, sexp q)
     }
 }
 
+/*
+ * every atom must be unique and saved in the atoms list
+ */
 sexp intern(sexp p)
 {
     for (sexp q = atoms; q; q = q->cdr)
@@ -859,24 +991,36 @@ sexp intern(sexp p)
 // string->symbol
 sexp s2sy(sexp x) { return isString(x) ? intern(atom(((String*)x)->chunks)) : 0; }
 
+// symbol->string
+sexp sy2s(sexp x) { return isAtom(x) ? string(((Atom*)x)->chunks) : 0; }
+
 /*
- * vulnerable to cycles
+ * vulnerable to cycles, unreasonable to fix
  */
-sexp eqv(sexp x, sexp y)
+bool eqvb(sexp x, sexp y)
 {
     if (x == y)
-        return t;
-    if (isAtom(x) && isAtom(y))
-        return 0;
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) == asFixnum(y) ? t : 0;
-    if (isFlonum(x) && isFlonum(y))
-        return asFlonum(x) == asFlonum(y) ? t : 0;
-    if (isCons(x) && isCons(y))
-        return eqv(x->car, y->car) && eqv(x->cdr, y->cdr) ? t : 0;
-    if (isString(x) && isString(y))
-        return match(((String*)x)->chunks, ((String*)y)->chunks) ? t : 0;
-    return 0;
+        return true;
+    if (isAtom(x) || isAtom(y))
+        return false;
+    if (evalType(x) != evalType(y))
+        return false;
+    if (isCons(x))
+        return eqvb(x->car, y->car) && eqvb(x->cdr, y->cdr);
+    switch (evalType(x)) 
+    {
+    case CHUNK : return match(x, y);
+    case STRING: return match(((String*)x)->chunks, ((String*)y)->chunks);
+    case FIXNUM: return asFixnum(x) == asFixnum(y);
+    case FLOAT :
+    case DOUBLE: return asFlonum(x) == asFlonum(y);
+    default:     return 0;
+    }
+}
+
+sexp eqv(sexp x, sexp y)
+{
+    return eqvb(x, y) ? t : 0;
 }
 
 sexp define(sexp p, sexp r)
@@ -899,8 +1043,15 @@ sexp get(sexp p, sexp env)
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
             return q->car->cdr;
-    printf("unbound: "); display(stdout, p); putchar('\n');
-    error("error: unbound variable");
+
+    char msg[] = "error: get unbound";
+    int  len = renderedLength(p);
+    char *name = (char *) alloca(renderedLength(p)+1);
+    renderedContent(name, p);
+    char *buff = (char*) alloca(sizeof(msg)+1+len);
+    sprintf(buff, "%s %s", msg, name);
+    strncpy(errorBuffer, buff, sizeof(errorBuffer));
+    error(errorBuffer);
 }
 
 sexp set(sexp p, sexp r, sexp env)
@@ -914,8 +1065,15 @@ sexp set(sexp p, sexp r, sexp env)
             q->car->cdr = r;
             return s;
         }
-    printf("unbound: "); display(stdout, p); putchar('\n');
-    error("error: set! unbound variable");
+
+    char msg[] = "error: set! unbound";
+    int  len = renderedLength(p);
+    char *name = (char*) alloca(renderedLength(p)+1);
+    renderedContent(name, p);
+    char *buff = (char*) alloca(sizeof(msg)+1+len);
+    sprintf(buff, "%s %s", msg, name);
+    strncpy(errorBuffer, buff, sizeof(errorBuffer));
+    error(errorBuffer);
 }
 
 sexp evlis(sexp p, sexp env)
@@ -932,7 +1090,12 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
     return lose(5, cons(save(cons(formals->car, actuals->car)), save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
 }
 
-sexp globalform(sexp exp, sexp env)
+sexp nulenvform(sexp exp, sexp env)
+{
+    return global;
+}
+
+sexp intenvform(sexp exp, sexp env)
 {
     return env;
 }
@@ -1045,7 +1208,7 @@ sexp defineform(sexp p, sexp env)
     }
 }
 
-sexp atomsfunc(sexp args)
+sexp atomsf(sexp args)
 {
     return atoms;
 }
@@ -1121,44 +1284,44 @@ sexp eval(sexp p, sexp env)
     if (isAtom(p))
         return get(p, env);
 
-    sexp q = save(eval(save(p)->car, save(env)));
+    sexp fun = save(eval(save(p)->car, save(env)));
 
-    if (isCons(q) && closurea == q->car)
+    if (isClosure(fun))
     {
-        sexp cenv = q->cdr->cdr->car;
+        sexp cenv = fun->cdr->cdr->car;
 
         sexp s = 0;
-        if (!q->cdr->car->cdr->car) {
-            // q->cdr->car = (lambda () foo)
-            for (sexp r = q->cdr->car->cdr->cdr; r; r = r->cdr)
+        if (!fun->cdr->car->cdr->car) {
+            // fun->cdr->car = (lambda () foo)
+            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, cenv ? cenv : env);
             return lose(3, s);
-        } else if (isAtom(q->cdr->car->cdr->car->cdr)) {
-            // q->cdr->car = (lambda (f . s) foo)
-            sexp e = save(cons(save(cons(q->cdr->car->cdr->car->cdr, save(evlis(p->cdr, env)))), cenv ? cenv : env));
-            for (sexp r = q->cdr->car->cdr->cdr; r; r = r->cdr)
+        } else if (isAtom(fun->cdr->car->cdr->car->cdr)) {
+            // fun->cdr->car = (lambda (f . s) foo)
+            sexp e = save(cons(save(cons(fun->cdr->car->cdr->car->cdr, save(evlis(p->cdr, env)))), cenv ? cenv : env));
+            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, e);
             return lose(6, s);
         } else {
-            // q->cdr->car = (lambda (n) (car x))
-            sexp e = save(assoc(q->cdr->car->cdr->car, save(evlis(p->cdr, env)), cenv ? cenv : env));
-            for (sexp r = q->cdr->car->cdr->cdr; r; r = r->cdr)
+            // fun->cdr->car = (lambda (n) (car x))
+            sexp e = save(assoc(fun->cdr->car->cdr->car, save(evlis(p->cdr, env)), cenv ? cenv : env));
+            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, e);
             return lose(5, s);
         }
     }
 
-    if (isForm(q))
-        return lose(3, (*((Form*)q)->formp)(p, env));
+    if (isForm(fun))
+        return lose(3, (*((Form*)fun)->formp)(p, env));
 
-    if (isFunct(q))
+    if (isFunct(fun))
     {
-        if (0 == arity(q))
-            return lose(4, (*(Varargp)((Funct*)q)->funcp)(save(evlis(p->cdr, env))));
-        if (1 == arity(q) && p->cdr)
-            return lose(4, (*(Oneargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env))));
-        if (2 == arity(q) && p->cdr && p->cdr->cdr)
-            return lose(5, (*(Twoargp)((Funct*)q)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
+        if (0 == arity(fun))
+            return lose(4, (*(Varargp)((Funct*)fun)->funcp)(save(evlis(p->cdr, env))));
+        if (1 == arity(fun) && p->cdr)
+            return lose(4, (*(Oneargp)((Funct*)fun)->funcp)(save(eval(p->cdr->car, env))));
+        if (2 == arity(fun) && p->cdr && p->cdr->cdr)
+            return lose(5, (*(Twoargp)((Funct*)fun)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
     }
 
     display(stdout, p);
@@ -1464,158 +1627,183 @@ int main(int argc, char **argv, char **envp)
 
     // set up all predefined atoms
 
-    endl        = intern_atom_chunk("\n");
-    acosa       = intern_atom_chunk("acos");
-    adda        = intern_atom_chunk("add");
-    ampera      = intern_atom_chunk("&");
-    anda        = intern_atom_chunk("and");
-    asina       = intern_atom_chunk("asin");
-    atana       = intern_atom_chunk("atan");
-    atompa      = intern_atom_chunk("atom?");
-    atomsa      = intern_atom_chunk("atoms");
-    begin       = intern_atom_chunk("begin");
-    cara	    = intern_atom_chunk("car");
-    cdra	    = intern_atom_chunk("cdr");
-    ceilinga    = intern_atom_chunk("ceiling");
-    closurea    = intern_atom_chunk("closure");
-    cond        = intern_atom_chunk("cond");
-    consa       = intern_atom_chunk("cons");
-    cosa        = intern_atom_chunk("cos");
-    definea     = intern_atom_chunk("define");
-    displaya    = intern_atom_chunk("display");
-    diva        = intern_atom_chunk("div");
-    dot         = intern_atom_chunk(".");
-    e2ia        = intern_atom_chunk("exact->inexact");
-    elsea       = intern_atom_chunk("else");
-    eqa         = intern_atom_chunk("=");
-    eqva        = intern_atom_chunk("eqv?");
-    exactpa     = intern_atom_chunk("exact?");
-    expa        = intern_atom_chunk("exp");
-    f           = intern_atom_chunk("#f");
-    floora      = intern_atom_chunk("floor");
-    gea         = intern_atom_chunk(">=");
-    globals     = intern_atom_chunk("globals");
-    gta         = intern_atom_chunk(">");
-    i2ea        = intern_atom_chunk("inexact->exact");
-    ifa         = intern_atom_chunk("if");
-    inexactpa   = intern_atom_chunk("inexact?");
-    integerpa   = intern_atom_chunk("integer?");
-    lambda      = intern_atom_chunk("lambda");
-    lea         = intern_atom_chunk("<=");
-    let         = intern_atom_chunk("let");
-    listpa      = intern_atom_chunk("list?");
-    loada       = intern_atom_chunk("load");
-    loga        = intern_atom_chunk("log");
-    lparen      = intern_atom_chunk("(");
-    lsha        = intern_atom_chunk("<<");
-    lta         = intern_atom_chunk("<");
-    minus       = intern_atom_chunk("-");
-    moda        = intern_atom_chunk("mod");
-    mula        = intern_atom_chunk("mul");
-    newlinea    = intern_atom_chunk("newline");
-    nil         = intern_atom_chunk("#f");
-    nota        = intern_atom_chunk("not");
-    nullpa      = intern_atom_chunk("null?");
-    numberpa    = intern_atom_chunk("number?");
-    ora         = intern_atom_chunk("or");
-    pairpa      = intern_atom_chunk("pair?");
-    pipea       = intern_atom_chunk("|");
-    powa        = intern_atom_chunk("pow");
-    procedurepa = intern_atom_chunk("procedure?");
-    qchar       = intern_atom_chunk("'");
-    quote       = intern_atom_chunk("quote");
-    reada       = intern_atom_chunk("read");
-    realpa      = intern_atom_chunk("real?");
-    reversea    = intern_atom_chunk("reverse");
-    rounda      = intern_atom_chunk("round");
-    rparen      = intern_atom_chunk(")");
-    rsha        = intern_atom_chunk(">>");
-    s2sya       = intern_atom_chunk("string->symbol");
-    seta        = intern_atom_chunk("set!");
-    setcara     = intern_atom_chunk("set-car!");
-    setcdra     = intern_atom_chunk("set-cdr!");
-    sina        = intern_atom_chunk("sin");
-    sqrta       = intern_atom_chunk("sqrt");
-    suba        = intern_atom_chunk("sub");
-    sy2sa       = intern_atom_chunk("symbol->string");
-    symbolpa    = intern_atom_chunk("symbol?");
-    tana        = intern_atom_chunk("tan");
-    tilde       = intern_atom_chunk("~");
-    t           = intern_atom_chunk("#t");
-    voida       = intern_atom_chunk("");
-    whilea      = intern_atom_chunk("while");
-    xora        = intern_atom_chunk("^");
+    endl         = intern_atom_chunk("\n");
+    acosa        = intern_atom_chunk("acos");
+    adda         = intern_atom_chunk("add");
+    ampera       = intern_atom_chunk("&");
+    anda         = intern_atom_chunk("and");
+    asina        = intern_atom_chunk("asin");
+    atana        = intern_atom_chunk("atan");
+    atompa       = intern_atom_chunk("atom?");
+    atomsa       = intern_atom_chunk("atoms");
+    begin        = intern_atom_chunk("begin");
+    cara	     = intern_atom_chunk("car");
+    cdra	     = intern_atom_chunk("cdr");
+    ceilinga     = intern_atom_chunk("ceiling");
+    closurea     = intern_atom_chunk("closure");
+    cond         = intern_atom_chunk("cond");
+    consa        = intern_atom_chunk("cons");
+    cosa         = intern_atom_chunk("cos");
+    cyclicpa     = intern_atom_chunk("cyclic?");
+    definea      = intern_atom_chunk("define");
+    delaya       = intern_atom_chunk("delay");
+    displaya     = intern_atom_chunk("display");
+    diva         = intern_atom_chunk("div");
+    dot          = intern_atom_chunk(".");
+    e2ia         = intern_atom_chunk("exact->inexact");
+    elsea        = intern_atom_chunk("else");
+    intenva      = intern_atom_chunk("interaction-environment");
+    nulenva      = intern_atom_chunk("null-environment");
+    eofa         = intern_atom_chunk("");
+    eofobjp      = intern_atom_chunk("eof-object?");
+    eqa          = intern_atom_chunk("eq?");
+    eqna         = intern_atom_chunk("=");
+    eqva         = intern_atom_chunk("eqv?");
+    exactpa      = intern_atom_chunk("exact?");
+    expa         = intern_atom_chunk("exp");
+    f            = intern_atom_chunk("#f");
+    floora       = intern_atom_chunk("floor");
+    forcea       = intern_atom_chunk("force");
+    forcedpa     = intern_atom_chunk("promise-forced?");
+    gea          = intern_atom_chunk(">=");
+    gta          = intern_atom_chunk(">");
+    i2ea         = intern_atom_chunk("inexact->exact");
+    ifa          = intern_atom_chunk("if");
+    inexactpa    = intern_atom_chunk("inexact?");
+    integerpa    = intern_atom_chunk("integer?");
+    lambda       = intern_atom_chunk("lambda");
+    lea          = intern_atom_chunk("<=");
+    let          = intern_atom_chunk("let");
+    listpa       = intern_atom_chunk("list?");
+    loada        = intern_atom_chunk("load");
+    loga         = intern_atom_chunk("log");
+    lparen       = intern_atom_chunk("(");
+    lsha         = intern_atom_chunk("<<");
+    lta          = intern_atom_chunk("<");
+    minus        = intern_atom_chunk("-");
+    moda         = intern_atom_chunk("mod");
+    mula         = intern_atom_chunk("mul");
+    newlinea     = intern_atom_chunk("newline");
+    nil          = intern_atom_chunk("#f");
+    nota         = intern_atom_chunk("not");
+    nullpa       = intern_atom_chunk("null?");
+    numberpa     = intern_atom_chunk("number?");
+    ora          = intern_atom_chunk("or");
+    pairpa       = intern_atom_chunk("pair?");
+    pipea        = intern_atom_chunk("|");
+    powa         = intern_atom_chunk("pow");
+    procedurepa  = intern_atom_chunk("procedure?");
+    promisea     = intern_atom_chunk("promise");
+    promisepa    = intern_atom_chunk("promise?");
+    promiseva    = intern_atom_chunk("promise-value");
+    qchar        = intern_atom_chunk("'");
+    quote        = intern_atom_chunk("quote");
+    rationala    = intern_atom_chunk("rational");
+    reada        = intern_atom_chunk("read");
+    realpa       = intern_atom_chunk("real?");
+    reversea     = intern_atom_chunk("reverse");
+    rounda       = intern_atom_chunk("round");
+    rparen       = intern_atom_chunk(")");
+    rsha         = intern_atom_chunk(">>");
+    s2sya        = intern_atom_chunk("string->symbol");
+    seta         = intern_atom_chunk("set!");
+    setcara      = intern_atom_chunk("set-car!");
+    setcdra      = intern_atom_chunk("set-cdr!");
+    sina         = intern_atom_chunk("sin");
+    sqrta        = intern_atom_chunk("sqrt");
+    stringpa     = intern_atom_chunk("string?");
+    suba         = intern_atom_chunk("sub");
+    sy2sa        = intern_atom_chunk("symbol->string");
+    symbolpa     = intern_atom_chunk("symbol?");
+    tana         = intern_atom_chunk("tan");
+    tilde        = intern_atom_chunk("~");
+    t            = intern_atom_chunk("#t");
+    voida        = intern_atom_chunk("");
+    whilea       = intern_atom_chunk("while");
+    xora         = intern_atom_chunk("^");
+
 
     // set the definitions (special forms)
-    define_form(anda,    andform);
-    define_form(begin,   beginform);
-    define_form(cond,    condform);
-    define_form(definea, defineform);
-    define_form(globals, globalform);
-    define_form(ifa,     ifform);
-    define_form(lambda,  lambdaform);
-    define_form(let,     letform);
-    define_form(ora,     orform);
-    define_form(quote,   quoteform);
-    define_form(reada,   readform);
-    define_form(seta,    setform);
-    define_form(whilea,  whileform);
+
+    define_form(anda,         andform);
+    define_form(begin,        beginform);
+    define_form(cond,         condform);
+    define_form(definea,      defineform);
+    define_form(delaya,       delayform);
+    define_form(intenva,      intenvform);
+    define_form(nulenva,      nulenvform);
+    define_form(ifa,          ifform);
+    define_form(lambda,       lambdaform);
+    define_form(let,          letform);
+    define_form(ora,          orform);
+    define_form(quote,        quoteform);
+    define_form(reada,        readform);
+    define_form(seta,         setform);
+    define_form(whilea,       whileform);
 
     // set the definitions (functions)
-    define_funct(acosa,       1, (void*)acosff);
-    define_funct(adda,        2, (void*)add);
-    define_funct(ampera,      0, (void*)andfunc);
-    define_funct(asina,       1, (void*)asinff);
-    define_funct(atana,       1, (void*)atanff);
-    define_funct(atomsa,      0, (void*)atomsfunc);
-    define_funct(cara,        1, (void*)car);
-    define_funct(cdra,        1, (void*)cdr);
-    define_funct(ceilinga,    1, (void*)ceilingff);
-    define_funct(consa,       2, (void*)cons);
-    define_funct(cosa,        1, (void*)cosff);
-    define_funct(displaya,    0, (void*)displayfunc);
-    define_funct(diva,        2, (void*)divf);
-    define_funct(e2ia,        1, (void*)e2if);
-    define_funct(eqa,         1, (void*)eqp);
-    define_funct(eqva,        2, (void*)eqv);
-    define_funct(exactpa,     1, (void*)exactp);
-    define_funct(expa,        1, (void*)expff);
-    define_funct(floora,      1, (void*)floorff);
-    define_funct(gea,         2, (void*)ge);
-    define_funct(gta,         2, (void*)gt);
-    define_funct(i2ea,        1, (void*)i2ef);
-    define_funct(inexactpa,   1, (void*)inexactp);
-    define_funct(integerpa,   1, (void*)integerp);
-    define_funct(lea,         2, (void*)le);
-    define_funct(listpa,      1, (void*)listp);
-    define_funct(loada,       1, (void*)load);
-    define_funct(loga,        1, (void*)logff);
-    define_funct(lsha,        2, (void*)lsh);
-    define_funct(lta,         2, (void*)lt);
-    define_funct(moda,        2, (void*)mod);
-    define_funct(mula,        2, (void*)mul);
-    define_funct(newlinea,    0, (void*)newlinefunc);
-    define_funct(nota,        1, (void*)isnot);
-    define_funct(nullpa,      1, (void*)nullp);
-    define_funct(numberpa,    1, (void*)numberp);
-    define_funct(pairpa,      1, (void*)pairp);
-    define_funct(pipea,       0, (void*)orfunc);
-    define_funct(powa,        2, (void*)powfunc);
-    define_funct(procedurepa, 1, (void*)procedurep);
-    define_funct(realpa,      1, (void*)realp);
-    define_funct(reversea,    1, (void*)reverse);
-    define_funct(rounda,      1, (void*)roundff);
-    define_funct(rsha,        2, (void*)rsh);
-    define_funct(setcara,     2, (void*)setcarfunc);
-    define_funct(setcdra,     2, (void*)setcdrfunc);
-    define_funct(sina,        1, (void*)sinff);
-    define_funct(sqrta,       1, (void*)sqrtff);
-    define_funct(suba,        2, (void*)sub);
-    define_funct(sy2sa,       1, (void*)sy2s);
-    define_funct(symbolpa,    1, (void*)symbolp);
-    define_funct(tana,        1, (void*)tanff);
-    define_funct(tilde,       1, (void*)complement);
-    define_funct(xora,        0, (void*)xorfunc);
+    define_funct(acosa,        1, (void*)acosff);
+    define_funct(adda,         2, (void*)addf);
+    define_funct(ampera,       0, (void*)andf);
+    define_funct(asina,        1, (void*)asinff);
+    define_funct(atana,        1, (void*)atanff);
+    define_funct(atomsa,       0, (void*)atomsf);
+    define_funct(cara,         1, (void*)car);
+    define_funct(cdra,         1, (void*)cdr);
+    define_funct(ceilinga,     1, (void*)ceilingff);
+    define_funct(consa,        2, (void*)cons);
+    define_funct(cosa,         1, (void*)cosff);
+    define_funct(cyclicpa,     1, (void*)cyclicp);
+    define_funct(displaya,     0, (void*)displayf);
+    define_funct(diva,         2, (void*)divf);
+    define_funct(e2ia,         1, (void*)e2if);
+    define_funct(eofobjp,      1, (void*)eofp);
+    define_funct(eqa,          2, (void*)eqp);
+    define_funct(eqna,         1, (void*)eqnp);
+    define_funct(eqva,         2, (void*)eqv);
+    define_funct(exactpa,      1, (void*)exactp);
+    define_funct(expa,         1, (void*)expff);
+    define_funct(floora,       1, (void*)floorff);
+    define_funct(forcea,       1, (void*)force);
+    define_funct(forcedpa,     1, (void*)forcedp);
+    define_funct(gea,          2, (void*)ge);
+    define_funct(gta,          2, (void*)gt);
+    define_funct(i2ea,         1, (void*)i2ef);
+    define_funct(inexactpa,    1, (void*)inexactp);
+    define_funct(integerpa,    1, (void*)integerp);
+    define_funct(lea,          2, (void*)le);
+    define_funct(listpa,       1, (void*)listp);
+    define_funct(loada,        1, (void*)load);
+    define_funct(loga,         1, (void*)logff);
+    define_funct(lsha,         2, (void*)lsh);
+    define_funct(lta,          2, (void*)lt);
+    define_funct(moda,         2, (void*)modfn);
+    define_funct(mula,         2, (void*)mulf);
+    define_funct(newlinea,     0, (void*)newlinef);
+    define_funct(nota,         1, (void*)isnot);
+    define_funct(nullpa,       1, (void*)nullp);
+    define_funct(numberpa,     1, (void*)numberp);
+    define_funct(pairpa,       1, (void*)pairp);
+    define_funct(pipea,        0, (void*)orf);
+    define_funct(powa,         2, (void*)powff);
+    define_funct(procedurepa,  1, (void*)procedurep);
+    define_funct(promisepa,    1, (void*)promisep);
+    define_funct(promiseva,    1, (void*)promisev);
+    define_funct(realpa,       1, (void*)realp);
+    define_funct(reversea,     1, (void*)reverse);
+    define_funct(rounda,       1, (void*)roundff);
+    define_funct(rsha,         2, (void*)rsh);
+    define_funct(setcara,      2, (void*)setcarf);
+    define_funct(setcdra,      2, (void*)setcdrf);
+    define_funct(sina,         1, (void*)sinff);
+    define_funct(sqrta,        1, (void*)sqrtff);
+    define_funct(stringpa,     1, (void*)stringp);
+    define_funct(suba,         2, (void*)subf);
+    define_funct(sy2sa,        1, (void*)sy2s);
+    define_funct(symbolpa,     1, (void*)symbolp);
+    define_funct(tana,         1, (void*)tanff);
+    define_funct(tilde,        1, (void*)complement);
+    define_funct(xora,         0, (void*)xorf);
 
     load(string(chunk("init.l")));
 
@@ -1627,19 +1815,21 @@ int main(int argc, char **argv, char **envp)
     segv_action.sa_sigaction = segv_handler;
     char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
-        printf(" %s!\n", s);
+        printf("%s\n", s);
 
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
 
     // read evaluate display ...
-    while (!feof(stdin))
+    for (;;)
     {
         gc(true);
         total = 0;
         collected = 0;
         psp = protect;
-        sexp e = read(stdin, 0);
+        sexp e = feof(stdin) ? eofa : read(stdin, 0);
+        if (eofa == e)
+            break;
         killed = 0;
         sexp v = eval(e, global);
         if (voida != v)

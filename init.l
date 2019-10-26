@@ -31,6 +31,8 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
+(define (boolean? x) (or (eqv? x #t) (eqv? x #f)))
+
 (define (even? x) (eqv? 0 (mod x 2)))
 
 (define (negative? x) (< x 0))
@@ -40,6 +42,93 @@
 (define (positive? x) (> x 0))
 
 (define (zero? x) (eqv? 0 x))
+
+(define (truncate x) #f)            ;; not done
+(define (angle z) #f)               ;; not done
+(define (make-polar r theta) #f)    ;; not done
+
+(define (rational? r)
+        (and (eq? 'rational (car r))
+             (integer? (cadr r))
+             (integer? (caddr r))
+             (null? (cdddr r))))
+
+(define (rationalize real)
+        (let ((t 0)
+              (maxden 268435456)
+              (x real)
+              (m00 1)
+              (m11 1)
+              (m01 0)
+              (m10 0)
+              (ai (inexact->exact real)))
+             (while (<= (add (mul m10 ai) m11) maxden)
+                    (set! t (add (mul m00 ai) m01))
+                    (set! m01 m00)
+                    (set! m00 t)
+                    (set! t (add (mul m10 ai) m11))
+                    (set! m11 m10)
+                    (set! m10 t)
+                    (set! x (div 1.0 (sub x (exact->inexact ai))))
+                    (set! ai (inexact->exact x)))
+             (cons 'rational (cons m00 (cons m10 #f)))))
+
+(define (numerator r)   (if (rational? r) (cadr r) #f))
+(define (denominator r) (if (rational? r) (caddr r) #f))
+
+(define (rational-add x y)
+        (if (and (rational? x)
+                 (rational? y))
+            (let ((d (lcm (denominator x) (denominator y))))
+                  (let ((xn (mul (numerator x) (div d (denominator x))))
+                        (yn (mul (numerator y) (div d (denominator y)))))
+                       (cons 'rational (cons (add xn yn) (cons d #f)))))
+            #f))
+
+(define (rational-sub x y)
+        (if (and (rational? x)
+                 (rational? y))
+            (let ((d (lcm (denominator x) (denominator y))))
+                  (let ((xn (mul (numerator x) (div d (denominator x))))
+                        (yn (mul (numerator y) (div d (denominator y)))))
+                       (cons 'rational (cons (sub xn yn) (cons d #f)))))
+            #f))
+
+(define (rational-mul x y)
+        (if (and (rational? x)
+                 (rational? y))
+            (let ((g (gcd (denominator x) (denominator y))))
+                 (cons 'rational
+                 (cons (div (mul (numerator x) (numerator y)) g)
+                 (cons (div (mul (denominator x) (denominator y)) g)
+                       #f))))
+            #f))
+
+(define (rational-div x y)
+        (if (and (rational? x)
+                 (rational? y))
+            (let ((g (gcd (denominator x) (numerator y))))
+                 (cons 'rational
+                 (cons (div (mul (numerator x) (denominator y)) g)
+                 (cons (div (mul (denominator x) (numerator y)) g)
+                       #f))))
+            #f))
+
+(define (complex? z)
+        (and (eq? 'complex (car z))
+             (real? (cadr z))
+             (real? (caddr z))
+             (null? cdddr z)))
+
+(define (real-part z) (if (complex? z) (caddr z) #f))
+(define (imag-part z) (if (complex? z) (cadr z) #f))
+
+(define (magnitude z)
+        (if (complex? z)
+            (sqrt (add (square (real-part z)) (square (imag-part z))))
+            #f))
+
+(define (make-rectangular x y) (cons 'complex (cons x (cons y #f))))
 
 (define (fib x) (if (<= x 0) 1 (add (fib (sub x 2)) (fib (sub x 1)))))
 
@@ -59,7 +148,13 @@
                  (tak (sub z 1) x y))
             z))
 
-(define (expt x n) (if (eqv? 0 n) 1 (if (odd? n) (mul x (expt x (sub n 1))) (let ((y (expt x (div n 2)))) (mul y y)))))
+(define (expt x n)
+        (if (eqv? 0 n)
+            1
+            (if (odd? n)
+                (mul x (expt x (sub n 1)))
+                (let ((y (expt x (div n 2))))
+                     (mul y y)))))
 
 (define (length s) (if s (add 1 (length (cdr s))) 0))
 
@@ -67,17 +162,105 @@
 
 (define (list? s) (and (pair? s) (or (null? (cdr s)) (list? (cdr s)))))
 
+(define (alist? s)
+        {and (pair? s)
+             (pair? (car s))
+             (or (null? (cdr s))
+                 (alist? (cdr s))))
+
+(define (assq a e)
+        (if (null? e)
+            #f
+            (if (eq? a (caar e))
+                (car e)
+                (assq a (cdr e)))))
+
+(define (del-assq a e)
+        (if (null? e)
+            e
+            (if (eq? a (caar e))
+                (cdr e)
+                (cons (car e)
+                      (del-assq a (cdr e))))))
+
+(define (assv a e)
+        (if (null? e)
+            #f
+            (if (eqv? a (caar e))
+                (cdar e)
+                (assv a (cdr e)))))
+
+(define (del-assv a e)
+        (if (null? e)
+            e
+            (if (eqv? a (caar e))
+                (cdr e)
+                (cons (car e)
+                      (del-assq a (cdr e))))))
+
+(define (assoc a e)
+        (if (null? e)
+            #f
+            (if (equal? a (caar e))
+                (car e)
+                (assoc a (cdr e)))))
+
+(define (del-assoc a e)
+        (if (null? e)
+            e
+            (if (equal? a (caar e))
+                (cdr e)
+                (cons (car e) (del-asoc a (cdr e))))))
+
+(define (memq a e)
+        (if (null? e)
+            e
+            (if (eq? a (caar e))
+                (car e)
+                (memq a (cdr e)))))
+
+(define (memv a e)
+        (if (null? e)
+            e
+            (if (eqv? a (caar e))
+                (car e)
+                (memv a (cdr e)))))
+
+(define (member a e)
+        (if (null? e)
+            e
+            (if (equal? a (caar e))
+                (car e)
+                (memv a (cdr e)))))
+
 (define (gcd x y) (if (eqv? y 0) x (gcd y (mod x y))))
 
 (define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
 
 (define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
 
-(define (iota n) (let ((riot (lambda (n m) (if (> n 0) (cons (sub m n) (riot (sub n 1) m)) '())))) (riot n n)))
+(define (iota n)
+        (let ((riot
+               (lambda (n m)
+                       (if (> n 0)
+                           (cons (sub m n) (riot (sub n 1) m))
+                           #f))))
+              (riot n n)))
 
-(define (pairs a b) (if b (cons (cons a (cons (car b) '())) (pairs a (cdr b))) b))
+(define (pairs a b)
+        (if b
+            (cons (cons a (cons (car b) '())) (pairs a (cdr b)))
+            b))
 
-(define (cross a b) (if a (cons (pairs (car a) b) (cross (cdr a) b)) a))
+(define (cross a b)
+        (if a
+            (cons (pairs (car a) b)
+                  (cross (cdr a) b)) a))
+
+(define (append l m)
+        (if l
+            (cons (car l) (append (cdr l) m))
+            m))
 
 (define (abs x) (if (< x 0) (sub 0 x) x))
 
@@ -174,7 +357,11 @@
                            (set! p u))
                     q)))
 
-(define (mapcar f s) (if s (cons (f (car s)) (mapcar f (cdr s))) s))
+(define (map* i f s) (if s (cons (f (car s)) (map* i f (cdr s)))  i))
 
-(display (mapcar car (globals)) (newline))
+(define (for-each f s) (while s (f (car s)) (set! s (cdr s))))
+
+(define (map f s) (if s (cons (f (car s)) (map f (cdr s))) s))
+
+(display (map car (interaction-environment)) (newline))
 
