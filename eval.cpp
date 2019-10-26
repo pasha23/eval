@@ -97,7 +97,7 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 sexp acosa, adda, ampera, anda, asina, atana, atompa, atomsa, begin, cara;
 sexp cdra, ceilinga, closurea, cond, consa, cosa, cyclicpa, definea, delaya;
 sexp displaya, diva, dot, e2ia, elsea, endl, eofa, eofobjp, eqa, eqna, eqva;
-sexp intenva, nulenva, exactpa, expa;
+sexp applya, intenva, nulenva, evala, exactpa, expa;
 sexp f, floora, forcea, forcedpa, gea, gta, i2ea, ifa, inexactpa;
 sexp integerpa, lambda, lea, let, listpa, loada, loga, lparen, lsha, lta;
 sexp minus, moda, modulo, mula, newlinea, nil, nota, nullpa, numberpa, ora;
@@ -1273,6 +1273,51 @@ sexp letform(sexp exp, sexp env)
     return lose(3, r);
 }
 
+sexp apply(sexp fun, sexp args)
+{
+    save(fun);
+    save(args);
+
+    if (isFunct(fun))
+    {
+        if (0 == arity(fun))
+            return lose(2, (*(Varargp)((Funct*)fun)->funcp)(args));
+        if (1 == arity(fun) && args)
+            return lose(2, (*(Oneargp)((Funct*)fun)->funcp)(args->car));
+        if (2 == arity(fun) && args->cdr)
+            return lose(2, (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car));
+    }
+
+    if (isClosure(fun))
+    {
+        sexp cenv = fun->cdr->cdr->car;
+
+        sexp s = 0;
+        if (!fun->cdr->car->cdr->car) {
+            // fun->cdr->car = (lambda () foo)
+            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
+                s = eval(r->car, cenv);
+            return lose(2, s);
+        } else if (isAtom(fun->cdr->car->cdr->car->cdr)) {
+            // fun->cdr->car = (lambda (f . s) foo)
+            sexp e = save(cons(save(cons(fun->cdr->car->cdr->car->cdr, args)), cenv));
+            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
+                s = eval(r->car, e);
+            return lose(4, s);
+        } else {
+            // fun->cdr->car = (lambda (n) (car x))
+            sexp e = save(assoc(fun->cdr->car->cdr->car, args, cenv));
+            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
+                s = eval(r->car, e);
+            return lose(3, s);
+        }
+    }
+
+    error("apply bad function");
+
+    return 0;
+}
+
 /*
  * malformed constructs will fail without grace
  */
@@ -1286,47 +1331,12 @@ sexp eval(sexp p, sexp env)
 
     sexp fun = save(eval(save(p)->car, save(env)));
 
-    if (isClosure(fun))
-    {
-        sexp cenv = fun->cdr->cdr->car;
-
-        sexp s = 0;
-        if (!fun->cdr->car->cdr->car) {
-            // fun->cdr->car = (lambda () foo)
-            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
-                s = eval(r->car, cenv ? cenv : env);
-            return lose(3, s);
-        } else if (isAtom(fun->cdr->car->cdr->car->cdr)) {
-            // fun->cdr->car = (lambda (f . s) foo)
-            sexp e = save(cons(save(cons(fun->cdr->car->cdr->car->cdr, save(evlis(p->cdr, env)))), cenv ? cenv : env));
-            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
-                s = eval(r->car, e);
-            return lose(6, s);
-        } else {
-            // fun->cdr->car = (lambda (n) (car x))
-            sexp e = save(assoc(fun->cdr->car->cdr->car, save(evlis(p->cdr, env)), cenv ? cenv : env));
-            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
-                s = eval(r->car, e);
-            return lose(5, s);
-        }
-    }
-
     if (isForm(fun))
         return lose(3, (*((Form*)fun)->formp)(p, env));
 
-    if (isFunct(fun))
-    {
-        if (0 == arity(fun))
-            return lose(4, (*(Varargp)((Funct*)fun)->funcp)(save(evlis(p->cdr, env))));
-        if (1 == arity(fun) && p->cdr)
-            return lose(4, (*(Oneargp)((Funct*)fun)->funcp)(save(eval(p->cdr->car, env))));
-        if (2 == arity(fun) && p->cdr && p->cdr->cdr)
-            return lose(5, (*(Twoargp)((Funct*)fun)->funcp)(save(eval(p->cdr->car, env)), save(eval(p->cdr->cdr->car, env))));
-    }
+    sexp args = save(evlis(p->cdr, env));
 
-    display(stdout, p);
-    error("error: bad form");
-    return p;
+    return lose(4, apply(fun, args));
 }
 
 /*
@@ -1632,6 +1642,7 @@ int main(int argc, char **argv, char **envp)
     adda         = intern_atom_chunk("add");
     ampera       = intern_atom_chunk("&");
     anda         = intern_atom_chunk("and");
+    applya       = intern_atom_chunk("apply");
     asina        = intern_atom_chunk("asin");
     atana        = intern_atom_chunk("atan");
     atompa       = intern_atom_chunk("atom?");
@@ -1659,6 +1670,7 @@ int main(int argc, char **argv, char **envp)
     eqa          = intern_atom_chunk("eq?");
     eqna         = intern_atom_chunk("=");
     eqva         = intern_atom_chunk("eqv?");
+    evala        = intern_atom_chunk("eval");
     exactpa      = intern_atom_chunk("exact?");
     expa         = intern_atom_chunk("exp");
     f            = intern_atom_chunk("#f");
@@ -1745,6 +1757,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(acosa,        1, (void*)acosff);
     define_funct(adda,         2, (void*)addf);
     define_funct(ampera,       0, (void*)andf);
+    define_funct(applya,       2, (void*)apply);
     define_funct(asina,        1, (void*)asinff);
     define_funct(atana,        1, (void*)atanff);
     define_funct(atomsa,       0, (void*)atomsf);
@@ -1761,6 +1774,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(eqa,          2, (void*)eqp);
     define_funct(eqna,         1, (void*)eqnp);
     define_funct(eqva,         2, (void*)eqv);
+    define_funct(evala,        2, (void*)eval);
     define_funct(exactpa,      1, (void*)exactp);
     define_funct(expa,         1, (void*)expff);
     define_funct(floora,       1, (void*)floorff);
