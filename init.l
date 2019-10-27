@@ -110,10 +110,12 @@
         (and (eq? 'complex (car z))
              (real? (cadr z))
              (real? (caddr z))
-             (null? cdddr z)))
+             (null? (cdddr z))))
 
-(define (real-part z) (if (complex? z) (caddr z) #f))
-(define (imag-part z) (if (complex? z) (cadr z) #f))
+(define (real-part z) (if (complex? z) (cadr z) #f))
+(define (imag-part z) (if (complex? z) (caddr z) #f))
+
+(define (square x) (mul x x))
 
 (define (magnitude z)
         (if (complex? z)

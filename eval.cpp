@@ -695,8 +695,7 @@ sexp chunk(const char *t)
     if (0 == *t)
         return 0;
 
-    sexp p = cell();
-    save(p);
+    sexp p = save(cell());
     sexp q = p;
     Chunk* r = (Chunk*) cell();
     r->tags[0] = OTHER;
@@ -768,7 +767,7 @@ sexp stringcopyf(sexp s)
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
     }
     *q++ = 0;
-    return string(save(chunk(b)));
+    return lose(1, string(save(chunk(b))));
 }
 
 sexp stringappend(sexp p, sexp q)
@@ -789,7 +788,7 @@ sexp stringappend(sexp p, sexp q)
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *s++ = t->text[i++]) {}
     }
     *s++ = 0;
-    return string(save(chunk(b)));
+    return lose(1, string(save(chunk(b))));
 }
 
 void assertChar(sexp c)
@@ -1359,10 +1358,10 @@ bool eqvb(sexp x, sexp y)
         return false;
     if (isAtom(x) || isAtom(y))
         return false;
+    if (isCons(x) && isCons(y))
+        return eqvb(x->car, y->car) && eqvb(x->cdr, y->cdr);
     if (evalType(x) != evalType(y))
         return false;
-    if (isCons(x))
-        return eqvb(x->car, y->car) && eqvb(x->cdr, y->cdr);
     switch (evalType(x)) 
     {
     case CHUNK : return 0 == scmp(x, y);
@@ -1506,7 +1505,7 @@ sexp condform(sexp exp, sexp env)
  */
 sexp lambdaform(sexp exp, sexp env)
 {
-    return lose(3, cons(closurea, save(cons(save(exp), save(cons(save(env), 0))))));
+    return lose(4, cons(closurea, save(cons(save(exp), save(cons(save(env), 0))))));
 }
 
 /*
@@ -1705,9 +1704,8 @@ sexp eval(sexp p, sexp env)
  */
 sexp readChunks(FILE* fin, const char *ends)
 {
-    sexp p = cell();
+    sexp p = save(cell());
     sexp q = p;
-    save(p);
     Chunk* r = (Chunk*) cell();
     r->tags[0] = OTHER;
     r->tags[1] = CHUNK;
@@ -1871,7 +1869,7 @@ sexp scan(FILE* fin)
         return lose(1, r);
     }
 
-    return intern(atom(readChunks(fin, "( )\t\r\n")));
+    return lose(1, intern(atom(save(readChunks(fin, "( )\t\r\n")))));
 }
 
 sexp readTail(FILE* fin, int level)
@@ -1903,7 +1901,7 @@ sexp read(FILE* fin, int level)
 
 sexp intern_atom_chunk(const char *s)
 {
-    return intern(atom(chunk(s)));
+    return lose(2, intern(save(atom(save(chunk(s))))));
 }
 
 void intr_handler(int sig, siginfo_t *si, void *ctx)
@@ -2147,17 +2145,17 @@ int main(int argc, char **argv, char **envp)
     define_funct(chargta,       2, (void*)chargt);
     define_funct(charlea,       2, (void*)charle);
     define_funct(charlta,       2, (void*)charlt);
-    define_funct(charpa ,       1, (void*)charpa );
+    define_funct(charpa,        1, (void*)charp);
     define_funct(consa,         2, (void*)cons);
     define_funct(cosa,          1, (void*)cosff);
     define_funct(cyclicpa,      1, (void*)cyclicp);
     define_funct(displaya,      0, (void*)displayf);
     define_funct(diva,          2, (void*)divf);
-    define_funct(downcasea,     2, (void*)downcase);
+    define_funct(downcasea,     1, (void*)downcase);
     define_funct(e2ia,          1, (void*)e2if);
     define_funct(eofobjp,       1, (void*)eofp);
     define_funct(eqa,           2, (void*)eqp);
-    define_funct(eqna,          1, (void*)eqnp);
+    define_funct(eqna,          2, (void*)eqnp);
     define_funct(eqva,          2, (void*)eqv);
     define_funct(equalpa,       2, (void*)equalp);
     define_funct(evala,         2, (void*)eval);
