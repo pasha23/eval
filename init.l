@@ -68,13 +68,17 @@
 (define (numerator r)   (if (rational? r) (cadr r) #f))
 (define (denominator r) (if (rational? r) (caddr r) #f))
 
+(define (rational-reduce x)
+        (let ((g (gcd (numerator x) (denominator x))))
+             (cons 'rational (cons (div (numerator x) g) (cons (div (denominator x) g) #f)))))
+
 (define (rational-add x y)
         (if (and (rational? x)
                  (rational? y))
             (let ((d (lcm (denominator x) (denominator y))))
                   (let ((xn (mul (numerator x) (div d (denominator x))))
                         (yn (mul (numerator y) (div d (denominator y)))))
-                       (cons 'rational (cons (add xn yn) (cons d #f)))))
+                       (rational-reduce (cons 'rational (cons (add xn yn) (cons d #f))))))
             #f))
 
 (define (rational-sub x y)
@@ -83,27 +87,27 @@
             (let ((d (lcm (denominator x) (denominator y))))
                   (let ((xn (mul (numerator x) (div d (denominator x))))
                         (yn (mul (numerator y) (div d (denominator y)))))
-                       (cons 'rational (cons (sub xn yn) (cons d #f)))))
+                       (rational-reduce (cons 'rational (cons (sub xn yn) (cons d #f))))))
             #f))
 
 (define (rational-mul x y)
         (if (and (rational? x)
                  (rational? y))
             (let ((g (gcd (denominator x) (denominator y))))
-                 (cons 'rational
-                 (cons (div (mul (numerator x) (numerator y)) g)
-                 (cons (div (mul (denominator x) (denominator y)) g)
-                       #f))))
+                 (rational-reduce (cons 'rational
+                                  (cons (div (mul (numerator x) (numerator y)) g)
+                                  (cons (div (mul (denominator x) (denominator y)) g)
+                       #f)))))
             #f))
 
 (define (rational-div x y)
         (if (and (rational? x)
                  (rational? y))
             (let ((g (gcd (denominator x) (numerator y))))
-                 (cons 'rational
-                 (cons (div (mul (numerator x) (denominator y)) g)
-                 (cons (div (mul (denominator x) (numerator y)) g)
-                       #f))))
+                 (rational-reduce (cons 'rational
+                                  (cons (div (mul (numerator x) (denominator y)) g)
+                                  (cons (div (mul (denominator x) (numerator y)) g)
+                       #f)))))
             #f))
 
 (define (complex? z)
