@@ -11,7 +11,7 @@
  */
 #define PSIZE   16384
 #define MAX     262144
-#undef  BROKEN
+#define BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -650,7 +650,8 @@ void assertString(sexp s)
 
 int slen(sexp s)
 {
-    assertString(s);
+    if (!isString(s) && !isAtom(s))
+        error("length of non-string, non-atom");
 
     int length = 0;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)

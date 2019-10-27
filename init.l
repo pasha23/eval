@@ -280,57 +280,50 @@
                            (car l)))))
              (minx l)))
 
-(define (+ . l)
-        (let ((sum
-               (lambda (l)
-                       (if l
-                           (add (car l) (sum (cdr l)))
-                           0))))
-             (sum l)))
+(define (sum l)
+        (if l (add (car l) (sum (cdr l))) 0))
 
-(define (- . l)
-        (let ((diff
-               (lambda (l)
-                       (if l
-                           (if (cdr l)
-                               (if (cddr l)
-                                   (sub (car l) (sum(cdr l)))
-                                   (sub (car l) (cadr l)))
-                               (sub 0 (car l)))
-                           0))))
-              (diff l)))
+(define (diff l)
+        (if l
+            (if (cdr l)
+                (if (cddr l)
+                    (sub (car l) (sum(cdr l)))
+                    (sub (car l) (cadr l)))
+                (sub 0 (car l)))
+            0))
 
-(define (* . l)
-        (let ((product
-               (lambda (l)
-                       (if l
-                           (mul (car l) (product (cdr l)))
-                           1))))
-              (product l)))
+(define (product l)
+        (if l
+            (mul (car l) (product (cdr l)))
+            1))
 
-(define (/ . l)
-        (let ((quotient
-               (lambda (l)
-                       (if l
-                           (if (cdr l)
-                               (if (cddr l)
-                                   (div (car l) (quotient (cdr l)))
-                                   (div (car l) (cadr l)))
-                               (div 1 (exact->inexact (car l))))
-                           1))))
-             (quotient l)))
+(define (quotient l)
+        (if l
+            (if (cdr l)
+                (if (cddr l)
+                    (div (car l) (quotient (cdr l)))
+                    (div (car l) (cadr l)))
+                (div 1 (exact->inexact (car l))))
+            1))
 
-(define (% . l)
-        (let ((remainder
-               (lambda (l)
-                       (if l
-                           (if (cdr l)
-                               (if (cddr l)
-                                   (mod (car l) (remainder (cdr l)))
-                                   (mod (car l) (cadr l)))
-                               (mod 1 (car l)))
-                           1))))
-             (remainder l)))
+(define (remainder l)
+        (if l
+            (if (cdr l)
+                (if (cddr l)
+                    (mod (car l) (remainder (cdr l)))
+                    (mod (car l) (cadr l)))
+                (mod 1 (car l)))
+            1))
+
+(define (+ . l) (sum l))
+
+(define (- . l) (diff l))
+
+(define (* . l) (product l))
+
+(define (/ . l) (quotient l))
+
+(define (% . l) (remainder l))
 
 (define (make-counter i)
         (let ((n i))
