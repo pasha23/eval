@@ -169,7 +169,7 @@
     (rational? '(rational 5 6))
     (eqv? '(rational 5 6) (rational-add '(rational 1 2) '(rational 1 3)))
     (eqv? '(rational 3 2) (rational-div '(rational 3 4) '(rational 1 2)))
-    (= (rationalize 3.14159265358979) '(rational 789453460 251290841))
+    (eqv? (rationalize 3.14159265358979) '(rational 789453460 251290841))
     (eqv? '(rational 1 1) (rational-mul '(rational 2 3) '(rational 3 2)))
     (eqv? '(rational 1 6) (rational-sub '(rational 1 2) '(rational 1 3)))
     ;; read
@@ -180,8 +180,8 @@
     (eqv? '(3 2 1) (reverse! '(1 2 3)))
     (= 3.0 (round 3.1))
     ;; set!
-    (eqv? '(a b) (set-car! '(b b) 'a))
-    (eqv? '(a b) (set-cdr! '(a a) '(b)))
+    (eqv? '(a b) (begin (let ((s '(b b))) (set-car! s 'a) s)))
+    (eqv? '(a b) (begin (let ((s '(a a))) (set-cdr! s '(b)) s )))
     (= (sin (asin 1.0)) 1.0)
     (= 3.0 (sqrt 9.0))
     (string<=? "abc" "abd")
