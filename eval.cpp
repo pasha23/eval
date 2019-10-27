@@ -11,7 +11,7 @@
  */
 #define PSIZE   16384
 #define MAX     262144
-#define BROKEN
+#undef  BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -112,7 +112,7 @@ sexp seta, setcara, setcdra, sina, sqrta, stringappenda, stringcieq, stringcige;
 sexp stringcigt, stringcile, stringcilt, stringcopy, stringeq, stringfill, stringge;
 sexp stringgt, stringle, stringlength, stringlt, stringpa, stringref, stringset;
 sexp suba, substringa, sy2sa, symbolpa, t, tana, tilde, times, upcasea, uppercasepa;
-sexp voida, whilea, whitespacepa, writea, writechara, xora;
+sexp voida, whilea, whitespacepa, writea, writechara, xora, equalpa;
 
 static inline int  evalType(const sexp p) { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)    { return                      ((Other*)p)->tags[2];  }
@@ -1152,7 +1152,7 @@ sexp load(sexp x)
             sexp input = read(fin, 0);
             if (!input)
                 break;
-            //display(stdout, input); putchar('\n');
+            //display(stdout, input, true); putchar('\n');
             save(input);
             r = lose(1, eval(input, global));
         }
@@ -1355,6 +1355,8 @@ bool eqvb(sexp x, sexp y)
 {
     if (x == y)
         return true;
+    if (!x || !y)
+        return false;
     if (isAtom(x) || isAtom(y))
         return false;
     if (evalType(x) != evalType(y))
@@ -1373,6 +1375,11 @@ bool eqvb(sexp x, sexp y)
 }
 
 sexp eqv(sexp x, sexp y)
+{
+    return eqvb(x, y) ? t : 0;
+}
+
+sexp equalp(sexp x, sexp y)
 {
     return eqvb(x, y) ? t : 0;
 }
@@ -2001,6 +2008,7 @@ int main(int argc, char **argv, char **envp)
     eofobjp      = intern_atom_chunk("eof-object?");
     eqa          = intern_atom_chunk("eq?");
     eqna         = intern_atom_chunk("=");
+    equalpa      = intern_atom_chunk("equal?");
     eqva         = intern_atom_chunk("eqv?");
     evala        = intern_atom_chunk("eval");
     exactpa      = intern_atom_chunk("exact?");
@@ -2151,6 +2159,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(eqa,           2, (void*)eqp);
     define_funct(eqna,          1, (void*)eqnp);
     define_funct(eqva,          2, (void*)eqv);
+    define_funct(equalpa,       2, (void*)equalp);
     define_funct(evala,         2, (void*)eval);
     define_funct(exactpa,       1, (void*)exactp);
     define_funct(expa,          1, (void*)expff);

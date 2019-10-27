@@ -155,10 +155,10 @@
 (define (list? s) (and (pair? s) (or (null? (cdr s)) (list? (cdr s)))))
 
 (define (alist? s)
-        {and (pair? s)
+        (and (pair? s)
              (pair? (car s))
              (or (null? (cdr s))
-                 (alist? (cdr s))))
+                 (alist? (cdr s)))))
 
 (define (assq a e)
         (if (null? e)
