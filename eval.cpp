@@ -25,6 +25,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <set>
+#include <ctype.h>
 
 #ifdef BROKEN
 #include <assert.h>
@@ -58,7 +59,8 @@ enum Tag1
     FIXNUM = 4,
     FUNCT  = 5,
     FLOAT  = 6,
-    DOUBLE = 7
+    DOUBLE = 7,
+    CHAR   = 8
 };
 
 typedef struct Cons *sexp;
@@ -80,6 +82,7 @@ struct Float  { char tags[sizeof(Cons)-sizeof(float)];  float  flonum; };
 struct Double { char tags[sizeof(Cons)-sizeof(double)]; double flonum; };
 struct Funct  { char tags[sizeof(sexp)]; void*                  funcp; };
 struct Form   { char tags[sizeof(sexp)]; Formp                  formp; };
+struct Char   { char tags[2];            char    text[sizeof(Cons)-2]; };
 
 sexp scan(FILE* fin);
 sexp set(sexp p, sexp r);
@@ -88,23 +91,28 @@ sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp evlis(sexp p, sexp env);
 sexp read(FILE* fin, int level);
-void display(FILE* fout, sexp p);
-void display(FILE* fout, sexp p, std::set<sexp>& seenSet);
+void display(FILE* fout, sexp p, bool write);
+void display(FILE* fout, sexp p, std::set<sexp>& seenSet, bool write);
 sexp assoc(sexp formals, sexp actuals, sexp env);
 
 // these are the built-in atoms
 
-sexp acosa, adda, ampera, anda, asina, atana, atompa, atomsa, begin, cara;
-sexp cdra, ceilinga, closurea, cond, consa, cosa, cyclicpa, definea, delaya;
-sexp displaya, diva, dot, e2ia, elsea, endl, eofa, eofobjp, eqa, eqna, eqva;
-sexp applya, intenva, nulenva, evala, exactpa, expa;
-sexp f, floora, forcea, forcedpa, gea, gta, i2ea, ifa, inexactpa;
-sexp integerpa, lambda, lea, let, listpa, loada, loga, lparen, lsha, lta;
-sexp minus, moda, modulo, mula, newlinea, nil, nota, nullpa, numberpa, ora;
-sexp pairpa, pipea, plus, powa, procedurepa, promisea, promisepa, promiseva;
-sexp qchar, quote, reada, realpa, reversea, rounda, rparen, rsha, s2sya;
-sexp seta, setcara, setcdra, sina, sqrta, stringpa, suba, sy2sa, symbolpa;
-sexp rationala, t, tana, tilde, times, voida, whilea, xora;
+sexp acosa, adda, alphapa, ampera, anda, applya, asina, atana, atompa, atomsa, begin;
+sexp cara, cdra, ceilinga, char2ia, char2inta, charcieqa, charcigea, charcigta;
+sexp charcilea, charcilta, chareqa, chargea, chargta, charlea, charlta, charpa;
+sexp closurea, cond, consa, cosa, cyclicpa, definea, delaya, displaya, diva, dot;
+sexp downcasea, e2ia, elsea, endl, eofa, eofobjp, eqa, eqna, eqva, evala, exactpa;
+sexp expa, f, floora, forcea, forcedpa, gea, gta, i2ea, ifa, inexactpa, int2chara;
+sexp integerpa, intenva, lambda, lea, let, listpa, loada, loga, lowercasepa, lparen;
+sexp lsha, lta, makestringa, minus, moda, modulo, mula, newlinea, nil, nota, nulenva;
+sexp nullpa, num2stringa, numberpa, numericpa, ora, pairpa, peekchara, pipea, plus;
+sexp powa, procedurepa, promisea, promisepa, promiseva, qchar, quote, rationala;
+sexp reada, readchara, readypa, realpa, reversea, rounda, rparen, rsha, s2sya;
+sexp seta, setcara, setcdra, sina, sqrta, stringappenda, stringcieq, stringcige;
+sexp stringcigt, stringcile, stringcilt, stringcopy, stringeq, stringfill, stringge;
+sexp stringgt, stringle, stringlength, stringlt, stringpa, stringref, stringset;
+sexp suba, substringa, sy2sa, symbolpa, t, tana, tilde, times, upcasea, uppercasepa;
+sexp voida, whilea, whitespacepa, writea, writechara, xora;
 
 static inline int  evalType(const sexp p) { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)    { return                      ((Other*)p)->tags[2];  }
@@ -118,6 +126,7 @@ static inline bool isForm(const sexp p)   { return isOther(p) && FORM   == evalT
 static inline bool isFixnum(const sexp p) { return isOther(p) && FIXNUM == evalType(p);        }
 static inline bool isFloat(const sexp p)  { return isOther(p) && FLOAT  == evalType(p);        }
 static inline bool isDouble(const sexp p) { return isOther(p) && DOUBLE == evalType(p);        }
+static inline bool isChar(const sexp p)   { return isOther(p) && CHAR   == evalType(p);        }
 static inline bool isFlonum(const sexp p) { return isFloat(p) || isDouble(p);                  }
 
 jmp_buf the_jmpbuf;
@@ -179,8 +188,7 @@ void markCons(sexp p, std::set<sexp>& seenSet)
     if (!p || isMarked(p))
         return;
 
-    // there are a few of these, this is a kluge
-    // they seem to have been introduced with closures
+    // this ought be unnecessary...
     if (seenSet.find(p) != seenSet.end())
         return;
 
@@ -302,6 +310,15 @@ sexp fixnum(long number)
     p->tags[0] = OTHER;
     p->tags[1] = FIXNUM;
     p->fixnum = number;
+    return (sexp)p;
+}
+
+sexp character(char c)
+{
+    Char* p = (Char*)cell();
+    p->tags[0] = OTHER;
+    p->tags[1] = CHAR;
+    p->text[0] = c;
     return (sexp)p;
 }
 
@@ -625,6 +642,368 @@ sexp stringp(sexp x) { return isString(x) ? t : 0; }
 sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
 sexp procedurep(sexp p) { return p && (isFunct(p) || isCons(p) && closurea == p->car) ? t : 0; }
 
+void assertString(sexp s)
+{
+    if (!isString(s))
+        error("not a string");
+}
+
+int slen(sexp s)
+{
+    assertString(s);
+
+    int length = 0;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        int i = 0;
+        Chunk* t = (Chunk*)(p->car);
+        while (i < sizeof(t->text) && t->text[i])
+            ++i;
+        length += i;
+    }
+    return length;
+}
+
+sexp stringlengthf(sexp s)
+{
+    assertString(s);
+    return fixnum(slen(s));
+}
+
+char* sref(sexp s, int i)
+{
+    assertString(s);
+
+    int j = 0;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        Chunk* t = (Chunk*)(p->car);
+        if (j <= i && i < j+sizeof(t->text))
+            return t->text + (i - j);
+        j += sizeof(t->text);
+    }
+
+    return 0;
+}
+
+/*
+ * construct a linked list of chunks of characters
+ */
+sexp chunk(const char *t)
+{
+    if (0 == *t)
+        return 0;
+
+    sexp p = cell();
+    save(p);
+    sexp q = p;
+    Chunk* r = (Chunk*) cell();
+    r->tags[0] = OTHER;
+    r->tags[1] = CHUNK;
+    q->car = (sexp) r;
+
+    int i = 0;
+    for (;;)
+    {
+        char c = *t++;
+
+        if (!c)
+        {
+            while (i < sizeof(r->text))
+                r->text[i++] = 0;
+            return lose(1, p);
+        }
+
+        r->text[i++] = c;
+
+        if (i == sizeof(r->text))
+        {
+            i = 0;
+            q = q->cdr = cell();
+            r = (Chunk*) cell();
+            r->tags[0] = OTHER;
+            r->tags[1] = CHUNK;
+            q->car = (sexp) r;
+        }
+    }
+}
+
+sexp num2string(sexp num)
+{
+    char b[32];
+    if (isFixnum(num))
+        sprintf(b, "%ld", ((Fixnum*)num)->fixnum);
+    else if (isFloat(num))
+        sprintf(b, "%#.8g", asFlonum(num));
+    else if (isDouble(num))
+        sprintf(b, "%#.15g", asFlonum(num));
+    return lose(1, string(save(chunk(b))));
+}
+
+sexp makestring(sexp args)
+{
+    if (!args || !isFixnum(args->car))
+        error("make-string: args missing");
+
+    int l = asFixnum(args->car);
+    char *b = (char*) alloca(l+1);
+    char *q = b;
+    char c = args->cdr && isChar(args->cdr->car) ? ((Char*)(args->cdr->car))->text[0] : ' ';
+    for (int i = 0; i < l; ++i)
+        *q++ = c;
+    *q++ = 0;
+    return lose(1, string(save(chunk(b))));
+}
+
+sexp stringcopyf(sexp s)
+{
+    assertString(s);
+
+    char *b = (char*) alloca(slen(s)+1);
+    char *q = b;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
+    }
+    *q++ = 0;
+    return string(save(chunk(b)));
+}
+
+sexp stringappend(sexp p, sexp q)
+{
+    assertString(p);
+    assertString(q);
+
+    char *b = (char*) alloca(slen(p)+slen(q)+1);
+    char *s = b;
+    for (sexp r = ((String*)p)->chunks; r; r = r->cdr)
+    {
+        Chunk* t = (Chunk*)(r->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; *s++ = t->text[i++]) {}
+    }
+    for (sexp r = ((String*)q)->chunks; r; r = r->cdr)
+    {
+        Chunk* t = (Chunk*)(r->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; *s++ = t->text[i++]) {}
+    }
+    *s++ = 0;
+    return string(save(chunk(b)));
+}
+
+void assertChar(sexp c)
+{
+    if (!isChar(c))
+        error("not a character");
+}
+
+void assertFixnum(sexp i)
+{
+    if (!isFixnum(i))
+        error("not an integer");
+}
+
+sexp stringfillf(sexp s, sexp c)
+{
+    assertString(s);
+    assertChar(c);
+
+    char k = ((Char*)c)->text[0];
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; t->text[i++] = k) {}
+    }
+    return s;
+}
+
+/*
+ * compare chunks
+ */
+int scmp(sexp p, sexp q)
+{
+    for (;;)
+    {
+        if (p == q)
+            return  0;
+        if (!q)
+            return  1;
+        if (!p)
+            return -1;
+        Chunk* s = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(q->car);
+        for (int i = 0; i < sizeof(s->text); ++i)
+        {
+            int r = s->text[i] - t->text[i];
+            if (r)
+                return r;
+            if (0 == s->text[i])
+                return 0;
+        }
+        p = p->cdr;
+        q = q->cdr;
+    }
+}
+
+/*
+ * compare chunks, case insensitive
+ */
+int scmpi(sexp p, sexp q)
+{
+    for (;;)
+    {
+        if (p == q)
+            return  0;
+        if (!q)
+            return  1;
+        if (!p)
+            return -1;
+        Chunk* s = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(q->car);
+        for (int i = 0; i < sizeof(s->text); ++i)
+        {
+            int r = tolower(s->text[i]) - tolower(t->text[i]);
+            if (r)
+                return r;
+            if (0 == s->text[i])
+                return 0;
+        }
+        p = p->cdr;
+        q = q->cdr;
+    }
+}
+
+sexp alphap(sexp c) { return isChar(c) && isalpha(((Char*)c)->text[0]) ? t : 0; }
+sexp char2int(sexp c) { assertChar(c); return  fixnum(((Char*)c)->text[0]); }
+sexp charcieq(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) == tolower(((Char*)q)->text[0]) ? t : 0; }
+sexp charcige(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) >= tolower(((Char*)q)->text[0]) ? t : 0; }
+sexp charcigt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) >  tolower(((Char*)q)->text[0]) ? t : 0; }
+sexp charcile(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) <= tolower(((Char*)q)->text[0]) ? t : 0; }
+sexp charcilt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) <  tolower(((Char*)q)->text[0]) ? t : 0; }
+sexp chareq(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] == ((Char*)q)->text[0] ? t : 0; }
+sexp charge(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] >= ((Char*)q)->text[0] ? t : 0; }
+sexp chargt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] >  ((Char*)q)->text[0] ? t : 0; }
+sexp charle(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] <= ((Char*)q)->text[0] ? t : 0; }
+sexp charlt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] <  ((Char*)q)->text[0] ? t : 0; }
+sexp charp(sexp c) { return isChar(c) ? t : 0; }
+sexp downcase(sexp c) { assertChar(c); return character(tolower(((Char*)c)->text[0])); }
+sexp int2char(sexp c) { assertFixnum(c); return character(asFixnum(c)); }
+sexp lowercasep(sexp c) { return isChar(c) && islower(((Char*)c)->text[0]) ? t : 0; }
+sexp numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->text[0]) ? t : 0; }
+sexp readyp(sexp c) { return 0; }
+sexp upcase(sexp c) { assertChar(c); return character(toupper(((Char*)c)->text[0])); }
+sexp uppercasep(sexp c) { return isChar(c) && isupper(((Char*)c)->text[0]) ? t : 0; }
+sexp whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->text[0]) ? t : 0; }
+
+sexp peekchar(sexp args)
+{
+    if (args)
+        error("ports not implemented");
+    char c = getc(stdin);
+    ungetc(c, stdin);
+    return character(c);
+}
+
+sexp readchar(sexp args)
+{
+    if (args)
+        error("ports not implemented");
+    char c = getc(stdin);
+    return character(c);
+}
+
+sexp writechar(sexp args)
+{
+    if (args)
+    {
+        assertChar(args->car);
+        if (args->cdr)
+            error("ports not implemented");
+    }
+    fprintf(stdout, "#\\%c", ((Char*)(args->car))->text[0]);
+    return args->car;
+}
+
+sexp achunk(sexp s)
+{
+    assertString(s);
+    return ((String*)s)->chunks;
+}
+
+sexp stringlef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <= 0 ? t : 0; }
+sexp stringltf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <  0 ? t : 0; }
+sexp stringeqf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) == 0 ? t : 0; }
+sexp stringgef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >= 0 ? t : 0; }
+sexp stringgtf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >  0 ? t : 0; }
+
+sexp stringcilef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <= 0 ? t : 0; }
+sexp stringciltf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <  0 ? t : 0; }
+sexp stringcieqf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) == 0 ? t : 0; }
+sexp stringcigef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >= 0 ? t : 0; }
+sexp stringcigtf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >  0 ? t : 0; }
+
+sexp stringreff(sexp s, sexp i)
+{
+    assertString(s);
+    assertFixnum(i);
+
+    char* p = sref(s, asFixnum(i));
+    if (!p)
+        return 0;
+
+    return character(*p);
+}
+
+sexp stringsetf(sexp s, sexp k, sexp c)
+{
+    assertString(s);
+    assertFixnum(k);
+    assertChar(c);
+
+    char* p = sref(s, asFixnum(k));
+    if (!p)
+        return 0;
+
+    *p = ((Char*)c)->text[0];
+
+    return s;
+}
+
+sexp substringf(sexp s, sexp i, sexp j)
+{
+    if (!isString(s) || !isFixnum(i) || !isFixnum(j))
+        return 0;
+
+    int ii = asFixnum(i);
+    int jj = asFixnum(j);
+
+    if (ii < 0 || jj <= ii)
+        return 0;
+
+    char* b = (char*)alloca(jj-ii+1);
+
+    int k = 0;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        Chunk* t = (Chunk*)(p->car);
+        if (k <= ii && ii < k+sizeof(t->text))
+        {
+            for (int m = 0; m < sizeof(t->text); ++m)
+            {
+                int n = k+m;
+                if (n == jj) {
+                    b[n-ii] = 0;
+                    return lose(1, string(save(chunk(b))));
+                } else if (ii <= n && n < jj)
+                    b[n-ii] = t->text[m];
+            }
+        }
+        k += sizeof(t->text);
+    }
+
+    return 0;
+}
+
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
 sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
@@ -740,20 +1119,6 @@ sexp promisev(sexp p)
         error("promise not forced yet");
 }
 
-int renderedLength(sexp s)
-{
-    int length = 0;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
-    {
-        int i = 0;
-        Chunk* t = (Chunk*)(p->car);
-        while (i < sizeof(t->text) && t->text[i])
-            ++i;
-        length += i;
-    }
-    return length;
-}
-
 void renderedContent(char* buffer, sexp s)
 {
     int j = 0;
@@ -774,7 +1139,7 @@ sexp load(sexp x)
     if (!isString(x))
         return r;
 
-    char *name = (char*) alloca(renderedLength(x));
+    char *name = (char*) alloca(slen(x));
     renderedContent(name, x);
     printf("; load: %s\n", name);
 
@@ -809,15 +1174,28 @@ sexp displayf(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
     {
-        display(stdout, p->car);
+        display(stdout, p->car, false);
         if (p->cdr)
             putchar(' ');
     }
     return voida;
 }
 
-void displayChunks(FILE* fout, sexp p)
+sexp write(sexp args)
 {
+    for (sexp p = args; p; p = p->cdr)
+    {
+        display(stdout, p->car, true);
+        if (p->cdr)
+            putchar(' ');
+    }
+    return voida;
+}
+
+void displayChunks(FILE* fout, sexp p, bool write)
+{
+    if (write)
+        fputc('"', fout);
     while (p)
     {
         Chunk* t = (Chunk*)(p->car);
@@ -830,6 +1208,8 @@ void displayChunks(FILE* fout, sexp p)
         }
         p = p->cdr;
     }
+    if (write)
+        fputc('"', fout);
 }
 
 /*
@@ -866,13 +1246,13 @@ bool cyclic(sexp exp)
  * display an s-expression
  * attempts to deal with cyclic structures are purely defensive
  */
-void display(FILE* fout, sexp exp)
+void display(FILE* fout, sexp exp, bool write)
 {
     std::set<sexp> seenSet;
     // ideally: #0=(#1=(b) #1# #1# #1# #1# . #0#)
     if (cyclic(exp))
         printf("; cyclic!\n{");
-    display(fout, exp, seenSet);
+    display(fout, exp, seenSet, write);
 }
 
 bool safe(std::set<sexp>& seenSet, sexp exp)
@@ -885,7 +1265,7 @@ void insert(std::set<sexp>& seenSet, sexp exp)
     seenSet.insert(exp);
 }
 
-void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
+void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
 {
     if (isClosure(exp))
         fprintf(fout, "#<closure@%p>", (void*)exp);
@@ -894,7 +1274,7 @@ void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
     else {
         putc('(', fout);
         while (exp && safe(seenSet, exp)) {
-            display(fout, exp->car, seenSet);
+            display(fout, exp->car, seenSet, write);
             insert(seenSet, exp);
             if (exp->cdr) {
                 if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
@@ -912,7 +1292,7 @@ void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
                     else if (isPromise(exp))
                         fprintf(fout, "#<promise@%p>", (void*)exp);
                     else
-                        display(fout, exp, seenSet);
+                        display(fout, exp, seenSet, write);
                     exp = 0;
                 }
             } else
@@ -922,18 +1302,16 @@ void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet)
     }
 }
 
-void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
+void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
 {
     if (!exp)
         fprintf(fout, "%s", "#f");
     else if (isCons(exp) && safe(seenSet, exp))
-        displayList(fout, exp, seenSet);
+        displayList(fout, exp, seenSet, write);
     else if (isString(exp)) {
-        putc('"', fout);
-        displayChunks(fout, ((String*)exp)->chunks);
-        putc('"', fout);
+        displayChunks(fout, ((String*)exp)->chunks, write);
     } else if (isAtom(exp))
-        displayChunks(fout, ((Atom*)exp)->chunks);
+        displayChunks(fout, ((Atom*)exp)->chunks, false);
     else if (isFixnum(exp))
         fprintf(fout, "%ld", ((Fixnum*)exp)->fixnum);
     else if (isFloat(exp))
@@ -944,33 +1322,8 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet)
         fprintf(fout, "#<function%d@%p>", arity(exp), (void*)((Funct*)exp)->funcp);
     else if (isForm(exp))
         fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
-}
-
-/*
- * atoms and strings have lists of chunks
- *
- * this is how we compare them for equality
- */
-bool match(sexp p, sexp q)
-{
-    for (;;)
-    {
-        if (p == q)
-            return true;
-        if (!p || !q)
-            return false;
-        Chunk* s = (Chunk*)(p->car);
-        Chunk* t = (Chunk*)(q->car);
-        for (int i = 0; i < sizeof(s->text); ++i)
-        {
-            if (s->text[i] != t->text[i])
-                return false;
-            if (0 == s->text[i])
-                return true;
-        }
-        p = p->cdr;
-        q = q->cdr;
-    }
+    else if (isChar(exp))
+        fprintf(fout, write ? "#\\%c" : "%c", ((Char*)exp)->text[0]);
 }
 
 /*
@@ -981,7 +1334,7 @@ sexp intern(sexp p)
     for (sexp q = atoms; q; q = q->cdr)
     {
         sexp r = q->car;
-        if (match(((Atom*)p)->chunks, ((Atom*)r)->chunks))
+        if (0 == scmp(((Atom*)p)->chunks, ((Atom*)r)->chunks))
             return r;
     }
     atoms = cons(p, atoms);
@@ -1009,8 +1362,8 @@ bool eqvb(sexp x, sexp y)
         return eqvb(x->car, y->car) && eqvb(x->cdr, y->cdr);
     switch (evalType(x)) 
     {
-    case CHUNK : return match(x, y);
-    case STRING: return match(((String*)x)->chunks, ((String*)y)->chunks);
+    case CHUNK : return 0 == scmp(x, y);
+    case STRING: return 0 == scmp(((String*)x)->chunks, ((String*)y)->chunks);
     case FIXNUM: return asFixnum(x) == asFixnum(y);
     case FLOAT :
     case DOUBLE: return asFlonum(x) == asFlonum(y);
@@ -1045,8 +1398,8 @@ sexp get(sexp p, sexp env)
             return q->car->cdr;
 
     char msg[] = "error: get unbound";
-    int  len = renderedLength(p);
-    char *name = (char *) alloca(renderedLength(p)+1);
+    int  len = slen(p);
+    char *name = (char *) alloca(slen(p)+1);
     renderedContent(name, p);
     char *buff = (char*) alloca(sizeof(msg)+1+len);
     sprintf(buff, "%s %s", msg, name);
@@ -1067,8 +1420,8 @@ sexp set(sexp p, sexp r, sexp env)
         }
 
     char msg[] = "error: set! unbound";
-    int  len = renderedLength(p);
-    char *name = (char*) alloca(renderedLength(p)+1);
+    int  len = slen(p);
+    char *name = (char*) alloca(slen(p)+1);
     renderedContent(name, p);
     char *buff = (char*) alloca(sizeof(msg)+1+len);
     sprintf(buff, "%s %s", msg, name);
@@ -1340,48 +1693,6 @@ sexp eval(sexp p, sexp env)
 }
 
 /*
- * construct a linked list of chunks of characters
- */
-sexp chunk(const char *t)
-{
-    if (0 == *t)
-        return 0;
-
-    sexp p = cell();
-    save(p);
-    sexp q = p;
-    Chunk* r = (Chunk*) cell();
-    r->tags[0] = OTHER;
-    r->tags[1] = CHUNK;
-    q->car = (sexp) r;
-
-    int i = 0;
-    for (;;)
-    {
-        char c = *t++;
-
-        if (!c)
-        {
-            while (i < sizeof(r->text))
-                r->text[i++] = 0;
-            return lose(1, p);
-        }
-
-        r->text[i++] = c;
-
-        if (i == sizeof(r->text))
-        {
-            i = 0;
-            q = q->cdr = cell();
-            r = (Chunk*) cell();
-            r->tags[0] = OTHER;
-            r->tags[1] = CHUNK;
-            q->car = (sexp) r;
-        }
-    }
-}
-
-/*
  * read Chunks terminated by some character
  */
 sexp readChunks(FILE* fin, const char *ends)
@@ -1460,9 +1771,17 @@ sexp scan(FILE* fin)
         return rparen;
     else if ('\'' == c)
         return qchar;
-    else if ('-' == c) {
+    else if ('#' == c) {
         c = getc(fin);
-        if ('.' == c || '0' <= c && c <= '9')
+        if ('f' == c)
+            return 0;
+        if ('t' == c)
+            return t;
+        if ('\\' == c)
+            return character(getc(fin));
+    } else if ('-' == c) {
+        c = getc(fin);
+        if ('.' == c || isdigit(c))
             *p++ = '-';
         else
             { ungetc(c, fin); return minus; } 
@@ -1475,7 +1794,7 @@ sexp scan(FILE* fin)
         while (' ' == c || '\t' == c || '\n' == c)
             c = getc(fin);
 
-        while (p < pend && '0' <= c && c <= '9')
+        while (p < pend && isdigit(c))
         {
             rc = INT_NUMERIC;
             *p++ = c;
@@ -1489,7 +1808,7 @@ sexp scan(FILE* fin)
             c = getc(fin);
         }
 
-        while (p < pend && '0' <= c && c <= '9')
+        while (p < pend && isdigit(c))
         {
             *p++ = c;
             c = getc(fin);
@@ -1507,7 +1826,7 @@ sexp scan(FILE* fin)
                 *p++ = c;
                 c = getc(fin);
             }
-            while (p < pend && '0' <= c && c <= '9')
+            while (p < pend && isdigit(c))
             {
                 rc = FLO_NUMERIC;
                 *p++ = c;
@@ -1640,6 +1959,7 @@ int main(int argc, char **argv, char **envp)
     endl         = intern_atom_chunk("\n");
     acosa        = intern_atom_chunk("acos");
     adda         = intern_atom_chunk("add");
+    alphapa      = intern_atom_chunk("char-alphabetic?");
     ampera       = intern_atom_chunk("&");
     anda         = intern_atom_chunk("and");
     applya       = intern_atom_chunk("apply");
@@ -1651,6 +1971,18 @@ int main(int argc, char **argv, char **envp)
     cara	     = intern_atom_chunk("car");
     cdra	     = intern_atom_chunk("cdr");
     ceilinga     = intern_atom_chunk("ceiling");
+    char2ia      = intern_atom_chunk("char->integer");
+    charcieqa    = intern_atom_chunk("char-ci=?");
+    charcigea    = intern_atom_chunk("char-ci>=?");
+    charcigta    = intern_atom_chunk("char-ci>?");
+    charcilea    = intern_atom_chunk("char-ci<=?");
+    charcilta    = intern_atom_chunk("char-ci<?");
+    chareqa      = intern_atom_chunk("char=?");
+    chargea      = intern_atom_chunk("char>=?");
+    chargta      = intern_atom_chunk("char>?");
+    charlea      = intern_atom_chunk("char<=?");
+    charlta      = intern_atom_chunk("char<?");
+    charpa       = intern_atom_chunk("char?");
     closurea     = intern_atom_chunk("closure");
     cond         = intern_atom_chunk("cond");
     consa        = intern_atom_chunk("cons");
@@ -1661,10 +1993,9 @@ int main(int argc, char **argv, char **envp)
     displaya     = intern_atom_chunk("display");
     diva         = intern_atom_chunk("div");
     dot          = intern_atom_chunk(".");
+    downcasea    = intern_atom_chunk("char-downcase");
     e2ia         = intern_atom_chunk("exact->inexact");
     elsea        = intern_atom_chunk("else");
-    intenva      = intern_atom_chunk("interaction-environment");
-    nulenva      = intern_atom_chunk("null-environment");
     eofa         = intern_atom_chunk("");
     eofobjp      = intern_atom_chunk("eof-object?");
     eqa          = intern_atom_chunk("eq?");
@@ -1682,26 +2013,34 @@ int main(int argc, char **argv, char **envp)
     i2ea         = intern_atom_chunk("inexact->exact");
     ifa          = intern_atom_chunk("if");
     inexactpa    = intern_atom_chunk("inexact?");
+    int2chara    = intern_atom_chunk("integer->char");
     integerpa    = intern_atom_chunk("integer?");
+    intenva      = intern_atom_chunk("interaction-environment");
     lambda       = intern_atom_chunk("lambda");
     lea          = intern_atom_chunk("<=");
     let          = intern_atom_chunk("let");
     listpa       = intern_atom_chunk("list?");
     loada        = intern_atom_chunk("load");
     loga         = intern_atom_chunk("log");
+    lowercasepa  = intern_atom_chunk("char-lower-case?");
     lparen       = intern_atom_chunk("(");
     lsha         = intern_atom_chunk("<<");
     lta          = intern_atom_chunk("<");
+    makestringa  = intern_atom_chunk("make-string");
     minus        = intern_atom_chunk("-");
     moda         = intern_atom_chunk("mod");
     mula         = intern_atom_chunk("mul");
     newlinea     = intern_atom_chunk("newline");
     nil          = intern_atom_chunk("#f");
     nota         = intern_atom_chunk("not");
+    num2stringa  = intern_atom_chunk("number->string");
+    nulenva      = intern_atom_chunk("null-environment");
     nullpa       = intern_atom_chunk("null?");
     numberpa     = intern_atom_chunk("number?");
+    numericpa    = intern_atom_chunk("char-numeric?");
     ora          = intern_atom_chunk("or");
     pairpa       = intern_atom_chunk("pair?");
+    peekchara    = intern_atom_chunk("peek-char");
     pipea        = intern_atom_chunk("|");
     powa         = intern_atom_chunk("pow");
     procedurepa  = intern_atom_chunk("procedure?");
@@ -1712,6 +2051,8 @@ int main(int argc, char **argv, char **envp)
     quote        = intern_atom_chunk("quote");
     rationala    = intern_atom_chunk("rational");
     reada        = intern_atom_chunk("read");
+    readchara    = intern_atom_chunk("read-char");
+    readypa      = intern_atom_chunk("char-ready?");
     realpa       = intern_atom_chunk("real?");
     reversea     = intern_atom_chunk("reverse");
     rounda       = intern_atom_chunk("round");
@@ -1723,15 +2064,36 @@ int main(int argc, char **argv, char **envp)
     setcdra      = intern_atom_chunk("set-cdr!");
     sina         = intern_atom_chunk("sin");
     sqrta        = intern_atom_chunk("sqrt");
+    stringcieq   = intern_atom_chunk("string-ci=?");
+    stringcige   = intern_atom_chunk("string-ci>=?");
+    stringcigt   = intern_atom_chunk("string-ci>?");
+    stringcile   = intern_atom_chunk("string-ci<=?");
+    stringcilt   = intern_atom_chunk("string-ci<?");
+    stringcopy   = intern_atom_chunk("string-copy");
+    stringeq     = intern_atom_chunk("string=?");
+    stringfill   = intern_atom_chunk("string-fill!");
+    stringge     = intern_atom_chunk("string>=?");
+    stringgt     = intern_atom_chunk("string>?");
+    stringle     = intern_atom_chunk("string<=?");
+    stringlength = intern_atom_chunk("string-length");
+    stringlt     = intern_atom_chunk("string<?");
     stringpa     = intern_atom_chunk("string?");
+    stringref    = intern_atom_chunk("string-ref");
+    stringset    = intern_atom_chunk("string-set!");
     suba         = intern_atom_chunk("sub");
+    substringa   = intern_atom_chunk("substring");
     sy2sa        = intern_atom_chunk("symbol->string");
     symbolpa     = intern_atom_chunk("symbol?");
     tana         = intern_atom_chunk("tan");
     tilde        = intern_atom_chunk("~");
     t            = intern_atom_chunk("#t");
+    upcasea      = intern_atom_chunk("char-upcase");
+    uppercasepa  = intern_atom_chunk("char-upper-case?");
     voida        = intern_atom_chunk("");
     whilea       = intern_atom_chunk("while");
+    whitespacepa = intern_atom_chunk("char-whitespace?");
+    writea       = intern_atom_chunk("write");
+    writechara   = intern_atom_chunk("write-char");
     xora         = intern_atom_chunk("^");
 
 
@@ -1754,70 +2116,114 @@ int main(int argc, char **argv, char **envp)
     define_form(whilea,       whileform);
 
     // set the definitions (functions)
-    define_funct(acosa,        1, (void*)acosff);
-    define_funct(adda,         2, (void*)addf);
-    define_funct(ampera,       0, (void*)andf);
-    define_funct(applya,       2, (void*)apply);
-    define_funct(asina,        1, (void*)asinff);
-    define_funct(atana,        1, (void*)atanff);
-    define_funct(atomsa,       0, (void*)atomsf);
-    define_funct(cara,         1, (void*)car);
-    define_funct(cdra,         1, (void*)cdr);
-    define_funct(ceilinga,     1, (void*)ceilingff);
-    define_funct(consa,        2, (void*)cons);
-    define_funct(cosa,         1, (void*)cosff);
-    define_funct(cyclicpa,     1, (void*)cyclicp);
-    define_funct(displaya,     0, (void*)displayf);
-    define_funct(diva,         2, (void*)divf);
-    define_funct(e2ia,         1, (void*)e2if);
-    define_funct(eofobjp,      1, (void*)eofp);
-    define_funct(eqa,          2, (void*)eqp);
-    define_funct(eqna,         1, (void*)eqnp);
-    define_funct(eqva,         2, (void*)eqv);
-    define_funct(evala,        2, (void*)eval);
-    define_funct(exactpa,      1, (void*)exactp);
-    define_funct(expa,         1, (void*)expff);
-    define_funct(floora,       1, (void*)floorff);
-    define_funct(forcea,       1, (void*)force);
-    define_funct(forcedpa,     1, (void*)forcedp);
-    define_funct(gea,          2, (void*)ge);
-    define_funct(gta,          2, (void*)gt);
-    define_funct(i2ea,         1, (void*)i2ef);
-    define_funct(inexactpa,    1, (void*)inexactp);
-    define_funct(integerpa,    1, (void*)integerp);
-    define_funct(lea,          2, (void*)le);
-    define_funct(listpa,       1, (void*)listp);
-    define_funct(loada,        1, (void*)load);
-    define_funct(loga,         1, (void*)logff);
-    define_funct(lsha,         2, (void*)lsh);
-    define_funct(lta,          2, (void*)lt);
-    define_funct(moda,         2, (void*)modfn);
-    define_funct(mula,         2, (void*)mulf);
-    define_funct(newlinea,     0, (void*)newlinef);
-    define_funct(nota,         1, (void*)isnot);
-    define_funct(nullpa,       1, (void*)nullp);
-    define_funct(numberpa,     1, (void*)numberp);
-    define_funct(pairpa,       1, (void*)pairp);
-    define_funct(pipea,        0, (void*)orf);
-    define_funct(powa,         2, (void*)powff);
-    define_funct(procedurepa,  1, (void*)procedurep);
-    define_funct(promisepa,    1, (void*)promisep);
-    define_funct(promiseva,    1, (void*)promisev);
-    define_funct(realpa,       1, (void*)realp);
-    define_funct(reversea,     1, (void*)reverse);
-    define_funct(rounda,       1, (void*)roundff);
-    define_funct(rsha,         2, (void*)rsh);
-    define_funct(setcara,      2, (void*)setcarf);
-    define_funct(setcdra,      2, (void*)setcdrf);
-    define_funct(sina,         1, (void*)sinff);
-    define_funct(sqrta,        1, (void*)sqrtff);
-    define_funct(stringpa,     1, (void*)stringp);
-    define_funct(suba,         2, (void*)subf);
-    define_funct(sy2sa,        1, (void*)sy2s);
-    define_funct(symbolpa,     1, (void*)symbolp);
-    define_funct(tana,         1, (void*)tanff);
-    define_funct(tilde,        1, (void*)complement);
-    define_funct(xora,         0, (void*)xorf);
+    define_funct(acosa,         1, (void*)acosff);
+    define_funct(adda,          2, (void*)addf);
+    define_funct(alphapa,       1, (void*)alphap);
+    define_funct(ampera,        0, (void*)andf);
+    define_funct(applya,        2, (void*)apply);
+    define_funct(asina,         1, (void*)asinff);
+    define_funct(atana,         1, (void*)atanff);
+    define_funct(atomsa,        0, (void*)atomsf);
+    define_funct(cara,          1, (void*)car);
+    define_funct(cdra,          1, (void*)cdr);
+    define_funct(ceilinga,      1, (void*)ceilingff);
+    define_funct(char2ia,       1, (void*)char2int);
+    define_funct(charcieqa,     2, (void*)charcieq);
+    define_funct(charcigea,     2, (void*)charcige);
+    define_funct(charcigta,     2, (void*)charcigt);
+    define_funct(charcilea,     2, (void*)charcile);
+    define_funct(charcilta,     2, (void*)charcilt);
+    define_funct(chareqa,       2, (void*)chareq);
+    define_funct(chargea,       2, (void*)charge);
+    define_funct(chargta,       2, (void*)chargt);
+    define_funct(charlea,       2, (void*)charle);
+    define_funct(charlta,       2, (void*)charlt);
+    define_funct(charpa ,       1, (void*)charpa );
+    define_funct(consa,         2, (void*)cons);
+    define_funct(cosa,          1, (void*)cosff);
+    define_funct(cyclicpa,      1, (void*)cyclicp);
+    define_funct(displaya,      0, (void*)displayf);
+    define_funct(diva,          2, (void*)divf);
+    define_funct(downcasea,     2, (void*)downcase);
+    define_funct(e2ia,          1, (void*)e2if);
+    define_funct(eofobjp,       1, (void*)eofp);
+    define_funct(eqa,           2, (void*)eqp);
+    define_funct(eqna,          1, (void*)eqnp);
+    define_funct(eqva,          2, (void*)eqv);
+    define_funct(evala,         2, (void*)eval);
+    define_funct(exactpa,       1, (void*)exactp);
+    define_funct(expa,          1, (void*)expff);
+    define_funct(floora,        1, (void*)floorff);
+    define_funct(forcea,        1, (void*)force);
+    define_funct(forcedpa,      1, (void*)forcedp);
+    define_funct(gea,           2, (void*)ge);
+    define_funct(gta,           2, (void*)gt);
+    define_funct(i2ea,          1, (void*)i2ef);
+    define_funct(inexactpa,     1, (void*)inexactp);
+    define_funct(int2chara,     1, (void*)int2char);
+    define_funct(integerpa,     1, (void*)integerp);
+    define_funct(lea,           2, (void*)le);
+    define_funct(listpa,        1, (void*)listp);
+    define_funct(loada,         1, (void*)load);
+    define_funct(loga,          1, (void*)logff);
+    define_funct(lowercasepa,   1, (void*)lowercasep);
+    define_funct(lsha,          2, (void*)lsh);
+    define_funct(lta,           2, (void*)lt);
+    define_funct(makestringa,   0, (void*)makestring);
+    define_funct(moda,          2, (void*)modfn);
+    define_funct(mula,          2, (void*)mulf);
+    define_funct(newlinea,      0, (void*)newlinef);
+    define_funct(nota,          1, (void*)isnot);
+    define_funct(nullpa,        1, (void*)nullp);
+    define_funct(numberpa,      1, (void*)numberp);
+    define_funct(numericpa,     1, (void*)numericp);
+    define_funct(num2stringa,   1, (void*)num2string);
+    define_funct(pairpa,        1, (void*)pairp);
+    define_funct(peekchara,     0, (void*)peekchar);
+    define_funct(pipea,         0, (void*)orf);
+    define_funct(powa,          2, (void*)powff);
+    define_funct(procedurepa,   1, (void*)procedurep);
+    define_funct(promisepa,     1, (void*)promisep);
+    define_funct(promiseva,     1, (void*)promisev);
+    define_funct(readypa,       0, (void*)readyp);
+    define_funct(readchara,     0, (void*)readchar);
+    define_funct(realpa,        1, (void*)realp);
+    define_funct(reversea,      1, (void*)reverse);
+    define_funct(rounda,        1, (void*)roundff);
+    define_funct(rsha,          2, (void*)rsh);
+    define_funct(setcara,       2, (void*)setcarf);
+    define_funct(setcdra,       2, (void*)setcdrf);
+    define_funct(sina,          1, (void*)sinff);
+    define_funct(sqrta,         1, (void*)sqrtff);
+    define_funct(stringappenda, 2, (void*)stringappend);
+    define_funct(stringcieq,    2, (void*)stringcieqf);
+    define_funct(stringcige,    2, (void*)stringcigef);
+    define_funct(stringcigt,    2, (void*)stringcigtf);
+    define_funct(stringcile,    2, (void*)stringcilef);
+    define_funct(stringcilt,    2, (void*)stringciltf);
+    define_funct(stringcopy,    2, (void*)stringcopyf);
+    define_funct(stringeq,      2, (void*)stringeqf);
+    define_funct(stringfill,    2, (void*)stringfillf);
+    define_funct(stringge,      2, (void*)stringgef);
+    define_funct(stringgt,      2, (void*)stringgtf);
+    define_funct(stringle,      2, (void*)stringlef);
+    define_funct(stringlength,  1, (void*)stringlengthf);
+    define_funct(stringlt,      2, (void*)stringltf);
+    define_funct(stringpa,      1, (void*)stringp);
+    define_funct(stringref,     2, (void*)stringreff);
+    define_funct(stringset,     3, (void*)stringsetf);
+    define_funct(suba,          2, (void*)subf);
+    define_funct(substringa,    3, (void*)substringf);
+    define_funct(sy2sa,         1, (void*)sy2s);
+    define_funct(symbolpa,      1, (void*)symbolp);
+    define_funct(tana,          1, (void*)tanff);
+    define_funct(tilde,         1, (void*)complement);
+    define_funct(upcasea,       1, (void*)upcase);
+    define_funct(uppercasepa,   1, (void*)uppercasep);
+    define_funct(whitespacepa,  1, (void*)whitespacep);
+    define_funct(writea,        1, (void*)write);
+    define_funct(writechara,    0, (void*)writechar);
+    define_funct(xora,          0, (void*)xorf);
 
     load(string(chunk("init.l")));
 
@@ -1848,7 +2254,7 @@ int main(int argc, char **argv, char **envp)
         sexp v = eval(e, global);
         if (voida != v)
         {
-            display(stdout, v);
+            display(stdout, v, false);
             putchar('\n');
         }
     }
