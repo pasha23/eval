@@ -2229,7 +2229,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(upcasea,       1, (void*)upcase);
     define_funct(uppercasepa,   1, (void*)uppercasep);
     define_funct(whitespacepa,  1, (void*)whitespacep);
-    define_funct(writea,        1, (void*)write);
+    define_funct(writea,        0, (void*)write);
     define_funct(writechara,    0, (void*)writechar);
     define_funct(xora,          0, (void*)xorf);
 
