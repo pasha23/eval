@@ -361,5 +361,5 @@
 
 (define (map f s) (if s (cons (f (car s)) (map f (cdr s))) s))
 
-(display (map car (interaction-environment)) (newline))
+(display (map car (interaction-environment))) (newline)
 

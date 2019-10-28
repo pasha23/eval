@@ -82,7 +82,7 @@
     ;; char-ready?
     (char=? #\A (char-upcase #\a))
     (char-upper-case? #\A)
-    (char-whitespace? (space))
+    (char-whitespace? #\space)
     (complex? '(complex 3.0 4.0))
     ;; cond
     (eqv? '(a b c) (cons 'a '(b c)))
@@ -221,7 +221,7 @@
 (let ((t tests))
      (while t
             (if (eqv? #t (eval (car t) (interaction-environment)))
-                (display (car t) " " 'pass (newline))
-                (display (car t) " " 'fail (newline)))
+                (begin (display (car t)) (space) (display 'pass) (newline))
+                (begin (display (car t)) (space) (display 'fail) (newline)))
             (set! t (cdr t))))
 
