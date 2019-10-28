@@ -43,8 +43,6 @@
 
 (define (zero? x) (eqv? 0 x))
 
-(define (truncate x) #f)            ;; not done
-(define (angle z) #f)               ;; not done
 (define (make-polar r theta) #f)    ;; not done
 
 (define (rational? r)
@@ -347,6 +345,15 @@
                            (set! q p)
                            (set! p u))
                     q)))
+
+(define (list-tail s i)
+        (if (null? s)
+            #f
+            (if (= i 0)
+                s
+                (list-tail (cdr s) (sub i 1)))))
+
+(define (list-ref s i) (car (list-tail s i)))
 
 (define (map* i f s) (if s (cons (f (car s)) (map* i f (cdr s)))  i))
 
