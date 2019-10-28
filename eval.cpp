@@ -120,7 +120,7 @@ sexp t, tana, tilde, times, upcasea, uppercasepa, voida, whilea, whitespacepa;
 sexp writea, writechara, xora, equalpa, spacea, anglea, complexa, truncatea;
 sexp s2numa, s2lista, list2sa, tick, comma, quasiquote, unquote, callwithina;
 sexp callwithouta, clinporta, cloutporta, curinporta, curoutporta, inportpa;
-sexp openina, openouta, outportpa, withina, withouta;
+sexp openina, openouta, outportpa, withina, withouta, appenda;
 
 static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
@@ -1140,6 +1140,13 @@ sexp substringf(sexp s, sexp i, sexp j)
     return 0;
 }
 
+// (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
+
+sexp append(sexp p, sexp q)
+{
+    return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q;
+}
+
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
 sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
@@ -1276,7 +1283,7 @@ sexp load(sexp x)
             sexp input = read(fin, 0);
             if (!input || eofa == input)
                 break;
-            //display(stdout, input, true); putchar('\n');
+            //display(stdout, input, true); putchar('\n'); fflush(stdout);
             save(input);
             r = lose(1, eval(input, global));
         }
@@ -2255,6 +2262,7 @@ int main(int argc, char **argv, char **envp)
     ampera       = intern_atom_chunk("&");
     anda         = intern_atom_chunk("and");
     anglea       = intern_atom_chunk("angle");
+    appenda      = intern_atom_chunk("append");
     applya       = intern_atom_chunk("apply");
     asina        = intern_atom_chunk("asin");
     atana        = intern_atom_chunk("atan");
@@ -2437,6 +2445,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(alphapa,       1, (void*)alphap);
     define_funct(ampera,        0, (void*)andf);
     define_funct(anglea,        1, (void*)angle);
+    define_funct(appenda,       2, (void*)append);
     define_funct(applya,        2, (void*)apply);
     define_funct(asina,         1, (void*)asinff);
     define_funct(atana,         1, (void*)atanff);

@@ -253,11 +253,6 @@
             (cons (pairs (car a) b)
                   (cross (cdr a) b)) a))
 
-(define (append l m)
-        (if l
-            (cons (car l) (append (cdr l) m))
-            m))
-
 (define (abs x) (if (< x 0) (sub 0 x) x))
 
 (define (max . l)
