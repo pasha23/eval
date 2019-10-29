@@ -89,7 +89,7 @@
     ;; (eqv? 1 (counter))
     ;; (eqv? 2 (counter))
     ;; cross
-    ;; cyclic?
+    (let ((b 'b)) (let ((a (list b b b b b))) (set-cdr! (cddddr a) a) (cyclic? a)))
     ;; define
     ;; del-assoc
     ;; del-assq
@@ -126,7 +126,9 @@
     ;; lambda
     (= 30 (lcm 12 10))
     (= 3 (length '(a b c)))
-    ;; let
+    (eqv? '(0 1 2) (let ((a 0) (b 1) (c 2)) (list a b c)))
+    ;; (eqv? '(b c a) (letrec ((a b) (b c) (c a)) (list a b c)))
+    (eqv? '(0 1 2) (let* ((a 0) (b (add a 1)) (c (add b 1))) (list a b c)))
     (eqv? '(1 2 3) (list 1 2 3))
     (list? '(1 2 3))
     (eqv? '(c d e) (list-tail '(a b c d e) 2))

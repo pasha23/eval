@@ -98,6 +98,7 @@ void display(FILE* fout, sexp p, bool write);
 void display(FILE* fout, sexp p, std::set<sexp>& seenSet, bool write);
 sexp assoc(sexp formals, sexp actuals, sexp env);
 void debug(const char *label, sexp exp);
+void envto(const char *label, sexp e0, sexp e1);
 
 // these are the built-in atoms
 
@@ -121,7 +122,7 @@ sexp stringcilt, stringcopy, stringeq, stringfill, stringge, stringgt, stringle;
 sexp stringlength, stringlt, stringpa, stringref, stringset, suba, substringa;
 sexp sy2sa, symbolpa, t, tana, tick, tilde, times, truncatea, unquote;
 sexp unquotesplicing, upcasea, uppercasepa, voida, whilea, whitespacepa, withina;
-sexp withouta, writea, writechara, xora; 
+sexp withouta, writea, writechara, xora, letstar, letrec; 
 
 static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
@@ -191,8 +192,8 @@ int  marked = 0;        // how many cells were marked during gc
 int  allocated = 0;     // how many cells have been allocated
 int  total = 0;         // total allocation across gc's
 int  collected = 0;     // how many gc's
-sexp protect[PSIZE];    // protection stack
-sexp *psp = protect;    // protection stack pointer
+sexp *protect = 0;      // protection stack
+sexp *psp = 0;          // protection stack pointer
 
 /*
  * save the argument on the protection stack, return it
@@ -1449,6 +1450,14 @@ void debug(const char *label, sexp exp)
     putchar('\n');
 }
 
+void envto(const char *label, sexp e0, sexp e1)
+{
+    printf("%s: ", label);
+    for (sexp e = e1; e && e != e0; e = e->cdr)
+        display(stdout, e->car, true);
+    putchar('\n');
+}
+
 /*
  * every atom must be unique and saved in the atoms list
  */
@@ -1834,33 +1843,60 @@ sexp setform(sexp exp, sexp env)
     return lose(3, set(exp->cdr->car, save(eval(save(exp)->cdr->cdr->car, env)), save(env)));
 }
 
-/*
- * associate variables with values, used by letform
- */
-sexp augment(sexp exp, sexp env)
-{
-    if (!exp)
-        return env;
-    return lose(5, cons(save(cons(exp->car->car, save(eval(exp->car->cdr->car, env)))), save(augment(save(exp)->cdr, save(env)))));
-}
-
-/*
- * (let ((var value) ..) exp)
- */
 sexp letform(sexp exp, sexp env)
 {
     sexp r;
-    //debug("let org env", env);
-    sexp e = save(augment(save(exp)->cdr->car, save(env)));
-    //debug("let old env", e);
+    sexp e = env;
+    sexp* mark = psp;
+    save(env); save(exp);
+    //debug("letform", exp);
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
+    // this next line is suspect, altering too many bindings
     for (sexp f = e; f; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
-    //debug("let fix env", e);
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = eval(p->car, e);
-    //debug("let new env", e);
-    return lose(3, r);
+        r = save(eval(p->car, e));
+    return lose(psp-mark, r);
+}
+
+sexp letstarform(sexp exp, sexp env)
+{
+    sexp r;
+    sexp e = env;
+    sexp* mark = psp;
+    save(env); save(exp);
+    //debug("letstarform", exp);
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
+    // this next line is suspect, altering too many bindings
+    for (sexp f = e; f; f = f->cdr)
+        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
+            f->car->cdr->cdr->cdr->car = e;
+    for (sexp p = exp->cdr->cdr; p; p = p->cdr)
+        r = save(eval(p->car, e));
+    return lose(psp-mark, r);
+}
+
+sexp letrecform(sexp exp, sexp env)
+{
+    sexp r;
+    sexp e = env;
+    sexp* mark = psp;
+    save(env); save(exp);
+    //debug("letrecform", exp);
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        set(v->car->car, eval(v->car->cdr->car, e), e);
+    // this next line is suspect, altering too many bindings
+    for (sexp f = e; f; f = f->cdr)
+        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
+            f->car->cdr->cdr->cdr->car = e;
+    for (sexp p = exp->cdr->cdr; p; p = p->cdr)
+        r = save(eval(p->car, e));
+    return lose(psp-mark, r);
 }
 
 sexp apply(sexp fun, sexp args)
@@ -2219,6 +2255,9 @@ int main(int argc, char **argv, char **envp)
         freelist = block+i;
     }
 
+    // allocate the protection stack
+    psp = protect = (sexp*)malloc(PSIZE*sizeof(sexp));
+
     InPort* p = (InPort*)newcell();
     p->tags[0] = OTHER;
     p->tags[1] = INPORT;
@@ -2308,6 +2347,8 @@ int main(int argc, char **argv, char **envp)
     lambda          = atomize("lambda");
     lea             = atomize("<=");
     let             = atomize("let");
+    letstar         = atomize("let*");
+    letrec          = atomize("letrec");
     list2sa         = atomize("list->string");
     listpa          = atomize("list?");
     loada           = atomize("load");
@@ -2411,6 +2452,8 @@ int main(int argc, char **argv, char **envp)
     define_form(ifa,          ifform);
     define_form(lambda,       lambdaform);
     define_form(let,          letform);
+    define_form(letstar,      letstarform);
+    define_form(letrec,       letrecform);
     define_form(ora,          orform);
     define_form(quasiquote,   quasiquoteform);
     define_form(quote,        quoteform);
