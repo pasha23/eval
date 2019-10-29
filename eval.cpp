@@ -2271,8 +2271,8 @@ int main(int argc, char **argv, char **envp)
     begin        = intern_atom_chunk("begin");
     callwithina  = intern_atom_chunk("call-with-input-file");
     callwithouta = intern_atom_chunk("call-with-output-file");
-    cara	     = intern_atom_chunk("car");
-    cdra	     = intern_atom_chunk("cdr");
+    cara         = intern_atom_chunk("car");
+    cdra         = intern_atom_chunk("cdr");
     ceilinga     = intern_atom_chunk("ceiling");
     char2ia      = intern_atom_chunk("char->integer");
     charcieqa    = intern_atom_chunk("char-ci=?");
