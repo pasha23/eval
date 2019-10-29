@@ -100,27 +100,27 @@ sexp assoc(sexp formals, sexp actuals, sexp env);
 
 // these are the built-in atoms
 
-sexp acosa, adda, alphapa, ampera, anda, applya, asina, atana, atompa, atomsa;
-sexp begin, cara, cdra, ceilinga, char2ia, char2inta, charcieqa, charcigea;
-sexp charcigta, charcilea, charcilta, chareqa, chargea, chargta, charlea;
-sexp charlta, charpa, closurea, cond, consa, cosa, cyclicpa, definea, delaya;
-sexp displaya, diva, dot, downcasea, e2ia, elsea, eofa, eofobjp, eqa, eqna;
-sexp eqva, evala, exactpa, expa, f, floora, forcea, forcedpa, gca, gea, gta;
-sexp i2ea, ifa, inexactpa, int2chara, integerpa, intenva, lambda, lea, let;
-sexp listpa, loada, loga, lowercasepa, lparen, lsha, lta, makestringa, minus;
-sexp moda, modulo, mula, newlinea, nil, nota, nulenva, nullpa, num2stringa;
-sexp numberpa, numericpa, ora, pairpa, peekchara, pipea, plus, powa;
-sexp procedurepa, promisea, promisepa, promiseva, qchar, quote, rationala;
-sexp reada, readchara, readypa, realpa, reversea, rounda, rparen, rsha, s2sya;
-sexp seta, setcara, setcdra, sina, sqrta, stringappenda, stringcieq;
-sexp stringcige, stringcigt, stringcile, stringcilt, stringcopy, stringeq;
-sexp stringfill, stringge, stringgt, stringle, stringlength, stringlt;
-sexp stringpa, stringref, stringset, suba, substringa, sy2sa, symbolpa;
-sexp t, tana, tilde, times, upcasea, uppercasepa, voida, whilea, whitespacepa;
-sexp writea, writechara, xora, equalpa, spacea, anglea, complexa, truncatea;
-sexp s2numa, s2lista, list2sa, tick, comma, quasiquote, unquote, callwithina;
-sexp callwithouta, clinporta, cloutporta, curinporta, curoutporta, inportpa;
-sexp openina, openouta, outportpa, withina, withouta, appenda;
+sexp acosa, adda, alphapa, ampera, anda, anglea, appenda, applya, asina, atana;
+sexp atompa, atomsa, begin, callwithina, callwithouta, cara, cdra, ceilinga;
+sexp char2ia, char2inta, charcieqa, charcigea, charcigta, charcilea, charcilta;
+sexp chareqa, chargea, chargta, charlea, charlta, charpa, clinporta, closurea;
+sexp cloutporta, comma, commaat, complexa, cond, consa, cosa, curinporta;
+sexp curoutporta, cyclicpa, definea, delaya, displaya, diva, dot, downcasea;
+sexp e2ia, elsea, eofa, eofobjp, eqa, eqna, equalpa, eqva, evala, exactpa;
+sexp expa, f, floora, forcea, forcedpa, gca, gea, gta, i2ea, ifa, inexactpa;
+sexp inportpa, int2chara, integerpa, intenva, lambda, lea, let, list2sa, listpa;
+sexp loada, loga, lowercasepa, lparen, lsha, lta, makestringa, minus, moda;
+sexp modulo, mula, newlinea, nil, nota, nulenva, nullpa, num2stringa, numberpa;
+sexp numericpa, openina, openouta, ora, outportpa, pairpa, peekchara, pipea;
+sexp plus, powa, procedurepa, promisea, promisepa, promiseva, qchar, quasiquote;
+sexp quote, rationala, reada, readchara, readypa, realpa, reversea, rounda;
+sexp rparen, rsha, s2lista, s2numa, s2sya, seta, setcara, setcdra, sina, spacea;
+sexp sqrta, stringappenda, stringcieq, stringcige, stringcigt, stringcile;
+sexp stringcilt, stringcopy, stringeq, stringfill, stringge, stringgt, stringle;
+sexp stringlength, stringlt, stringpa, stringref, stringset, suba, substringa;
+sexp sy2sa, symbolpa, t, tana, tick, tilde, times, truncatea, unquote;
+sexp unquotesplicing, upcasea, uppercasepa, voida, whilea, whitespacepa, withina;
+sexp withouta, writea, writechara, xora; 
 
 static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
