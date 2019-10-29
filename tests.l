@@ -169,6 +169,8 @@
     ;; promise-value
     (= '3 (add 2 1))
     (eqv? `(a ,(add 3 4) b) '(a 7 b))
+    ;;(eqv? `(a ,@(list 1 2 3) b c) '(a 1 2 3 b c))
+    (eqv? `(a (unquote-splicing (list 1 2 3)) b c) '(a 1 2 3 b c))
     (rational? '(rational 5 6))
     (eqv? '(rational 5 6) (rational-add '(rational 1 2) '(rational 1 3)))
     (eqv? '(rational 3 2) (rational-div '(rational 3 4) '(rational 1 2)))
