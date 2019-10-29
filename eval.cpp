@@ -220,6 +220,12 @@ sexp lose(int n, sexp p)
     return p;
 }
 
+sexp lose(sexp* mark, sexp p)
+{
+    psp = mark;
+    return p;
+}
+
 static inline void markCell(sexp p)
 {
     ((Other*)p)->tags[0] |=  MARK;
@@ -1733,6 +1739,7 @@ sexp lambdaform(sexp exp, sexp env)
  */
 sexp defineform(sexp p, sexp env)
 {
+    sexp* mark = psp;
     if (isCons(p->cdr->car))
     {
         if (isCons(p->cdr->car->cdr))
@@ -1747,11 +1754,11 @@ sexp defineform(sexp p, sexp env)
                 if (k == q->car->car)
                 {
                     q->car->cdr = v;
-                    return lose(5, voida);
+                    return lose(mark, voida);
                 }
             // update the closure definition to include the one we just made
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
-            return lose(7, voida);
+            return lose(mark, voida);
         } else {
             save(env);
             sexp k = p->cdr->car->car;
@@ -1763,21 +1770,21 @@ sexp defineform(sexp p, sexp env)
                 if (k == q->car->car)
                 {
                     q->car->cdr = v;
-                    return lose(6, voida);
+                    return lose(mark, voida);
                 }
             // update the closure definition to include the one we just made
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, v)), global);
-            return lose(7, voida);
+            return lose(mark, voida);
         }
     } else {
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
             {
                 q->car->cdr = eval(save(p)->cdr->cdr->car, save(env));
-                return lose(2, voida);
+                return lose(mark, voida);
             }
         global = cons(save(cons(p->cdr->car, save(eval(save(p)->cdr->cdr->car, save(env))))), global);
-        return lose(4, voida);
+        return lose(mark, voida);
     }
 }
 
@@ -1793,18 +1800,19 @@ sexp quoteform(sexp exp, sexp env)
 
 sexp unquoteform(sexp exp, sexp env)
 {
+    sexp* mark = psp;
     if (!exp || !isCons(exp))
         return exp;
     else if (unquote == exp->car && isCons(exp->cdr))
-        return lose(2, eval(save(exp)->cdr->car, save(env)));
+        return lose(mark, eval(save(exp)->cdr->car, save(env)));
     else if (exp->car && unquotesplicing == exp->car->car) {
         save(exp); save(env);
-        return lose(5, save(append(save(eval(exp->car->cdr->car, env)),
+        return lose(mark, save(append(save(eval(exp->car->cdr->car, env)),
                                    save(unquoteform(exp->cdr, env)))));
     } else {
         save(exp); save(env);
-        return lose(4, cons(save(unquoteform(exp->car, env)),
-                            save(unquoteform(exp->cdr, env))));
+        return lose(mark, cons(save(unquoteform(exp->car, env)),
+                               save(unquoteform(exp->cdr, env))));
     }
 }
 
@@ -1901,19 +1909,21 @@ sexp letrecform(sexp exp, sexp env)
 
 sexp apply(sexp fun, sexp args)
 {
+    sexp* mark = psp;
+
     save(fun);
     save(args);
 
     if (isFunct(fun))
     {
         if (0 == arity(fun))
-            return lose(2, (*(Varargp)((Funct*)fun)->funcp)(args));
+            return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
         if (1 == arity(fun) && args)
-            return lose(2, (*(Oneargp)((Funct*)fun)->funcp)(args->car));
+            return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(args->car));
         if (2 == arity(fun) && args->cdr)
-            return lose(2, (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car));
+            return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car));
         if (3 == arity(fun) && args->cdr && args->cdr->cdr)
-            return lose(2, (*(Threeargp)((Funct*)fun)->funcp)(args->car, args->cdr->car, args->cdr->cdr->car));
+            return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(args->car, args->cdr->car, args->cdr->cdr->car));
     }
 
     if (isClosure(fun))
@@ -1925,19 +1935,19 @@ sexp apply(sexp fun, sexp args)
             // fun->cdr->car = (lambda () foo)
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, cenv);
-            return lose(2, s);
+            return lose(mark, s);
         } else if (isAtom(fun->cdr->car->cdr->car->cdr)) {
             // fun->cdr->car = (lambda (f . s) foo)
             sexp e = save(cons(save(cons(fun->cdr->car->cdr->car->cdr, args)), cenv));
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, e);
-            return lose(4, s);
+            return lose(mark, s);
         } else {
             // fun->cdr->car = (lambda (n) (car x))
             sexp e = save(assoc(fun->cdr->car->cdr->car, args, cenv));
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, e);
-            return lose(3, s);
+            return lose(mark, s);
         }
     }
 
@@ -1957,14 +1967,16 @@ sexp eval(sexp p, sexp env)
     if (isAtom(p))
         return get(p, env);
 
+    sexp* mark = psp;
+
     sexp fun = save(eval(save(p)->car, save(env)));
 
     if (isForm(fun))
-        return lose(3, (*((Form*)fun)->formp)(p, env));
+        return lose(mark, (*((Form*)fun)->formp)(p, env));
 
     sexp args = save(evlis(p->cdr, env));
 
-    return lose(4, apply(fun, args));
+    return lose(mark, apply(fun, args));
 }
 
 /*
