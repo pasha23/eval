@@ -97,6 +97,7 @@ sexp read(FILE* fin, int level);
 void display(FILE* fout, sexp p, bool write);
 void display(FILE* fout, sexp p, std::set<sexp>& seenSet, bool write);
 sexp assoc(sexp formals, sexp actuals, sexp env);
+void debug(const char *label, sexp exp);
 
 // these are the built-in atoms
 
@@ -138,6 +139,44 @@ static inline bool isChar(const sexp p)    { return isOther(p) && CHAR    == eva
 static inline bool isInPort(const sexp p)  { return isOther(p) && INPORT  == evalType(p);       }
 static inline bool isOutPort(const sexp p) { return isOther(p) && OUTPORT == evalType(p);       }
 static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);                  }
+
+bool isClosure(sexp p)
+{
+    return isCons(p) &&
+           closurea == p->car &&      // (closure
+           (p = p->cdr) && p->car &&  //  exp
+           (p = p->cdr) && p->car &&  //  env)
+           !p->cdr;
+}
+
+bool isComplex(sexp p)
+{
+    return isCons(p) &&
+           complexa == p->car &&       // (complex
+           (p = p->cdr) && p->car &&   //  real
+           (p = p->cdr) && p->car &&   //  imaginary)
+           !p->cdr;
+}
+
+bool isPromise(sexp p)
+{
+    return isCons(p) &&
+           promisea == p->car &&       // (promise
+           (p = p->cdr) &&             // forced
+           (p = p->cdr) &&             // value
+           (p = p->cdr) &&             // exp
+           (p = p->cdr) &&             // env)
+          !p->cdr;
+}
+
+bool isRational(sexp exp)
+{
+    return isCons(exp) &&
+           rationala == exp->car &&             // (rational
+           (exp = exp->cdr) && exp->car &&      //  real
+           (exp = exp->cdr) && exp->car &&      //  imag)
+           !exp->cdr;
+}
 
 jmp_buf the_jmpbuf;
 
@@ -291,6 +330,14 @@ sexp gcf(sexp l)
     gc(!!l);
     return 0;
 }
+
+void assertAtom(sexp s)    { if (!isAtom(s)) error("not symbol"); }
+void assertChar(sexp c)    { if (!isChar(c)) error("not a character"); }
+void assertComplex(sexp s) { if (!isComplex(s)) error("not complex"); }
+void assertFixnum(sexp i)  { if (!isFixnum(i)) error("not an integer"); }
+void assertInPort(sexp s)  { if (!isInPort(s)) error("not an input port"); }
+void assertOutPort(sexp s) { if (!isOutPort(s)) error("not an output port"); }
+void assertString(sexp s)  { if (!isString(s)) error("not a string"); }
 
 /*
  * allocate a cell from the freelist
@@ -635,54 +682,6 @@ sexp modfn(sexp x, sexp y)
         return 0;
 }
 
-/*
- * a rational is really just a list (rational numerator denominator)
- */
-bool isRational(sexp exp)
-{
-    return isCons(exp) &&
-           rationala == exp->car &&
-           (exp = exp->cdr) && exp->car &&
-           (exp = exp->cdr) && exp->car &&
-           !exp->cdr;
-}
-
-/*
- * (complex real imaginary)
- */
-bool isComplex(sexp exp)
-{
-    return isCons(exp) &&
-           complexa == exp->car &&
-           (exp = exp->cdr) && exp->car &&
-           (exp = exp->cdr) && exp->car &&
-           !exp->cdr;
-}
-
-void assertAtom(sexp s)
-{
-    if (!isAtom(s))
-        error("not symbol");
-}
-
-void assertComplex(sexp s)
-{
-    if (!isComplex(s))
-        error("not complex");
-}
-
-void assertInPort(sexp s)
-{
-    if (!isInPort(s))
-        error("not an input port");
-}
-
-void assertOutPort(sexp s)
-{
-    if (!isOutPort(s))
-        error("not an output port");
-}
-
 sexp angle(sexp s)
 {
     assertComplex(s);
@@ -728,11 +727,7 @@ sexp stringp(sexp x) { return isString(x) ? t : 0; }
 sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
 sexp procedurep(sexp p) { return p && (isFunct(p) || isCons(p) && closurea == p->car) ? t : 0; }
 
-void assertString(sexp s)
-{
-    if (!isString(s))
-        error("not a string");
-}
+// length of String or Atom
 
 int slen(sexp s)
 {
@@ -776,7 +771,7 @@ char* sref(sexp s, int i)
 /*
  * construct a linked list of chunks of characters
  */
-sexp chunk(const char *t)
+sexp newchunk(const char *t)
 {
     if (0 == *t)
         return 0;
@@ -823,7 +818,7 @@ sexp num2string(sexp num)
         sprintf(b, "%#f", asFlonum(num));
     else if (isDouble(num))
         sprintf(b, "%#f", asFlonum(num));
-    return lose(1, newstring(save(chunk(b))));
+    return lose(1, newstring(save(newchunk(b))));
 }
 
 sexp makestring(sexp args)
@@ -838,10 +833,10 @@ sexp makestring(sexp args)
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
-    return lose(1, newstring(save(chunk(b))));
+    return lose(1, newstring(save(newchunk(b))));
 }
 
-void sstr(char* b, sexp s)
+char* sstr(char* b, sexp s)
 {
     assertString(s);
 
@@ -852,17 +847,14 @@ void sstr(char* b, sexp s)
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
     }
     *q++ = 0;
+    return b;
 }
 
 sexp stringcopyf(sexp s)
 {
     assertString(s);
 
-    char *b = (char*) alloca(slen(s)+1);
-
-    sstr(b, s);
-
-    return lose(1, newstring(save(chunk(b))));
+    return lose(1, newstring(save(newchunk(sstr((char*)alloca(slen(s)+1), s)))));
 }
 
 sexp stringappend(sexp p, sexp q)
@@ -879,19 +871,7 @@ sexp stringappend(sexp p, sexp q)
     sstr(b+pl, q);
     b[pl+ql+1] = '\0';
 
-    return lose(1, newstring(save(chunk(b))));
-}
-
-void assertChar(sexp c)
-{
-    if (!isChar(c))
-        error("not a character");
-}
-
-void assertFixnum(sexp i)
-{
-    if (!isFixnum(i))
-        error("not an integer");
+    return lose(1, newstring(save(newchunk(b))));
 }
 
 sexp stringfillf(sexp s, sexp c)
@@ -1129,7 +1109,7 @@ sexp substringf(sexp s, sexp i, sexp j)
                 int n = k+m;
                 if (n == jj) {
                     b[n-ii] = 0;
-                    return lose(1, newstring(save(chunk(b))));
+                    return lose(1, newstring(save(newchunk(b))));
                 } else if (ii <= n && n < jj)
                     b[n-ii] = t->text[m];
             }
@@ -1216,17 +1196,6 @@ sexp delayform(sexp exp, sexp env)
                         save(cons(env, 0))))))))));
 }
 
-bool isPromise(sexp p)
-{
-    return isCons(p) &&
-           promisea == p->car &&
-           (p = p->cdr) &&             // car has forced flag
-           (p = p->cdr) &&             // car has value
-           (p = p->cdr) &&             // car has exp
-           (p = p->cdr) &&             // car has env
-          !p->cdr;                     // correct length
-}
-
 sexp promisep(sexp p)
 {
     return isPromise(p) ? t : 0;
@@ -1271,8 +1240,8 @@ sexp load(sexp x)
     if (!isString(x))
         return r;
 
-    char *name = (char*) alloca(slen(x));
-    sstr(name, x);
+    char *name = sstr((char*)alloca(slen(x)+1), x);
+
     printf("; load: %s\n", name);
 
     FILE* fin = fopen(name, "r");
@@ -1283,7 +1252,7 @@ sexp load(sexp x)
             sexp input = read(fin, 0);
             if (!input || eofa == input)
                 break;
-            //display(stdout, input, true); putchar('\n'); fflush(stdout);
+            //debug("input", input);
             save(input);
             r = lose(1, eval(input, global));
         }
@@ -1347,16 +1316,6 @@ void displayChunks(FILE* fout, sexp p, bool write)
     }
     if (write)
         fputc('"', fout);
-}
-
-/*
- * a closure is really just a list (closure exp env)
- */
-bool isClosure(sexp exp)
-{
-    return isCons(exp) &&
-           closurea == exp->car && exp->cdr && exp->cdr->car &&
-           exp->cdr->cdr && exp->cdr->cdr->car && !exp->cdr->cdr->cdr;
 }
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
@@ -1457,9 +1416,9 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
         fprintf(fout, "%s", "#f");
     else if (isCons(exp) && safe(seenSet, exp))
         displayList(fout, exp, seenSet, write);
-    else if (isString(exp)) {
+    else if (isString(exp))
         displayChunks(fout, ((String*)exp)->chunks, write);
-    } else if (isAtom(exp))
+    else if (isAtom(exp))
         displayChunks(fout, ((Atom*)exp)->chunks, false);
     else if (isFixnum(exp))
         fprintf(fout, "%ld", ((Fixnum*)exp)->fixnum);
@@ -1481,6 +1440,13 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
         }
         fprintf(fout, write ? "#\\%c" : "%c", ((Char*)exp)->text[0]);
     }
+}
+
+void debug(const char *label, sexp exp)
+{
+    printf("%s: ", label);
+    display(stdout, exp, true);
+    putchar('\n');
 }
 
 /*
@@ -1637,7 +1603,7 @@ sexp define(sexp p, sexp r)
 
 sexp get(sexp p, sexp env)
 {
-    // printf("get env: "); display(stdout, env); putchar('\n');
+    //debug("get env", env);
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
             return q->car->cdr;
@@ -1655,7 +1621,7 @@ sexp get(sexp p, sexp env)
 sexp set(sexp p, sexp r, sexp env)
 {
     sexp s = 0;
-    //printf("set env: "); display(stdout, env); putchar('\n');
+    //debug("set env", env);
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
@@ -1816,18 +1782,20 @@ sexp quoteform(sexp exp, sexp env)
     return exp->cdr->car;
 }
 
-sexp quasiquoteform(sexp exp, sexp env);
-
 sexp unquoteform(sexp exp, sexp env)
 {
     if (!exp || !isCons(exp))
         return exp;
-    else if (unquote == exp->car)
+    else if (unquote == exp->car && isCons(exp->cdr))
         return lose(2, eval(save(exp)->cdr->car, save(env)));
-    else {
-        save(exp);
-        save(env);
-        return lose(4, cons(save(unquoteform(exp->car, env)), save(unquoteform(exp->cdr, env))));
+    else if (exp->car && unquotesplicing == exp->car->car) {
+        save(exp); save(env);
+        return lose(5, save(append(save(eval(exp->car->cdr->car, env)),
+                                   save(unquoteform(exp->cdr, env)))));
+    } else {
+        save(exp); save(env);
+        return lose(4, cons(save(unquoteform(exp->car, env)),
+                            save(unquoteform(exp->cdr, env))));
     }
 }
 
@@ -1882,16 +1850,16 @@ sexp augment(sexp exp, sexp env)
 sexp letform(sexp exp, sexp env)
 {
     sexp r;
-    //printf("let org env: "); display(stdout, env); putchar('\n');
+    //debug("let org env", env);
     sexp e = save(augment(save(exp)->cdr->car, save(env)));
-    //printf("let old env: "); display(stdout, e); putchar('\n');
+    //debug("let old env", e);
     for (sexp f = e; f; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
-    //printf("let fix env: "); display(stdout, e); putchar('\n');
+    //debug("let fix env", e);
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = eval(p->car, e);
-    //printf("let new env: "); display(stdout, e); putchar('\n');
+    //debug("let new env", e);
     return lose(3, r);
 }
 
@@ -2041,11 +2009,16 @@ sexp scan(FILE* fin)
         return rparen;
     else if ('\'' == c)
         return qchar;
-    else if (',' == c)
-        return comma;
     else if ('`' == c)
         return tick;
-    else if ('#' == c) {
+    else if (',' == c) {
+        c = getc(fin);
+        if ('@' != c) {
+            ungetc(c, fin);
+            return comma;
+        } else
+            return commaat;
+    } else if ('#' == c) {
         c = getc(fin);
         if ('f' == c)
             return 0;
@@ -2176,14 +2149,18 @@ sexp read(FILE* fin, int level)
         return lose(2, cons(quasiquote, save(cons(save(read(fin, level)), 0))));
     if (comma == p)
         return lose(2, cons(unquote, save(cons(save(read(fin, level)), 0))));
+#if 0
+    if (commaat == p)
+        return lose(2, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
+#endif
     if (level == 0 && rparen == p)
         error("error: an s-expression cannot begin with ')'");
     return p;
 }
 
-sexp intern_atom_chunk(const char *s)
+sexp atomize(const char *s)
 {
-    return lose(2, intern(save(newatom(save(chunk(s))))));
+    return lose(2, intern(save(newatom(save(newchunk(s))))));
 }
 
 void intr_handler(int sig, siginfo_t *si, void *ctx)
@@ -2256,170 +2233,171 @@ int main(int argc, char **argv, char **envp)
 
     // set up all predefined atoms
 
-    acosa        = intern_atom_chunk("acos");
-    adda         = intern_atom_chunk("add");
-    alphapa      = intern_atom_chunk("char-alphabetic?");
-    ampera       = intern_atom_chunk("&");
-    anda         = intern_atom_chunk("and");
-    anglea       = intern_atom_chunk("angle");
-    appenda      = intern_atom_chunk("append");
-    applya       = intern_atom_chunk("apply");
-    asina        = intern_atom_chunk("asin");
-    atana        = intern_atom_chunk("atan");
-    atompa       = intern_atom_chunk("atom?");
-    atomsa       = intern_atom_chunk("atoms");
-    begin        = intern_atom_chunk("begin");
-    callwithina  = intern_atom_chunk("call-with-input-file");
-    callwithouta = intern_atom_chunk("call-with-output-file");
-    cara         = intern_atom_chunk("car");
-    cdra         = intern_atom_chunk("cdr");
-    ceilinga     = intern_atom_chunk("ceiling");
-    char2ia      = intern_atom_chunk("char->integer");
-    charcieqa    = intern_atom_chunk("char-ci=?");
-    charcigea    = intern_atom_chunk("char-ci>=?");
-    charcigta    = intern_atom_chunk("char-ci>?");
-    charcilea    = intern_atom_chunk("char-ci<=?");
-    charcilta    = intern_atom_chunk("char-ci<?");
-    chareqa      = intern_atom_chunk("char=?");
-    chargea      = intern_atom_chunk("char>=?");
-    chargta      = intern_atom_chunk("char>?");
-    charlea      = intern_atom_chunk("char<=?");
-    charlta      = intern_atom_chunk("char<?");
-    charpa       = intern_atom_chunk("char?");
-    clinporta    = intern_atom_chunk("close-input-port");
-    closurea     = intern_atom_chunk("closure");
-    cloutporta   = intern_atom_chunk("close-output-port");
-    comma        = intern_atom_chunk(",");
-    complexa     = intern_atom_chunk("complex");
-    cond         = intern_atom_chunk("cond");
-    consa        = intern_atom_chunk("cons");
-    cosa         = intern_atom_chunk("cos");
-    curinporta   = intern_atom_chunk("current-input-port");
-    curoutporta  = intern_atom_chunk("current-output-port");
-    cyclicpa     = intern_atom_chunk("cyclic?");
-    definea      = intern_atom_chunk("define");
-    delaya       = intern_atom_chunk("delay");
-    displaya     = intern_atom_chunk("display");
-    diva         = intern_atom_chunk("div");
-    dot          = intern_atom_chunk(".");
-    downcasea    = intern_atom_chunk("char-downcase");
-    e2ia         = intern_atom_chunk("exact->inexact");
-    elsea        = intern_atom_chunk("else");
-    eofa         = intern_atom_chunk("");
-    eofobjp      = intern_atom_chunk("eof-object?");
-    eqa          = intern_atom_chunk("eq?");
-    eqna         = intern_atom_chunk("=");
-    equalpa      = intern_atom_chunk("equal?");
-    eqva         = intern_atom_chunk("eqv?");
-    evala        = intern_atom_chunk("eval");
-    exactpa      = intern_atom_chunk("exact?");
-    expa         = intern_atom_chunk("exp");
-    f            = intern_atom_chunk("#f");
-    floora       = intern_atom_chunk("floor");
-    forcea       = intern_atom_chunk("force");
-    forcedpa     = intern_atom_chunk("promise-forced?");
-    gca          = intern_atom_chunk("gc");
-    gea          = intern_atom_chunk(">=");
-    gta          = intern_atom_chunk(">");
-    i2ea         = intern_atom_chunk("inexact->exact");
-    ifa          = intern_atom_chunk("if");
-    inexactpa    = intern_atom_chunk("inexact?");
-    inportpa     = intern_atom_chunk("input-port?");
-    int2chara    = intern_atom_chunk("integer->char");
-    integerpa    = intern_atom_chunk("integer?");
-    intenva      = intern_atom_chunk("interaction-environment");
-    lambda       = intern_atom_chunk("lambda");
-    lea          = intern_atom_chunk("<=");
-    let          = intern_atom_chunk("let");
-    list2sa      = intern_atom_chunk("list->string");
-    listpa       = intern_atom_chunk("list?");
-    loada        = intern_atom_chunk("load");
-    loga         = intern_atom_chunk("log");
-    lowercasepa  = intern_atom_chunk("char-lower-case?");
-    lparen       = intern_atom_chunk("(");
-    lsha         = intern_atom_chunk("<<");
-    lta          = intern_atom_chunk("<");
-    makestringa  = intern_atom_chunk("make-string");
-    minus        = intern_atom_chunk("-");
-    moda         = intern_atom_chunk("mod");
-    mula         = intern_atom_chunk("mul");
-    newlinea     = intern_atom_chunk("newline");
-    nil          = intern_atom_chunk("#f");
-    nota         = intern_atom_chunk("not");
-    nulenva      = intern_atom_chunk("null-environment");
-    nullpa       = intern_atom_chunk("null?");
-    num2stringa  = intern_atom_chunk("number->string");
-    numberpa     = intern_atom_chunk("number?");
-    numericpa    = intern_atom_chunk("char-numeric?");
-    openina      = intern_atom_chunk("open-input-file");
-    openouta     = intern_atom_chunk("open-output-file");
-    ora          = intern_atom_chunk("or");
-    outportpa    = intern_atom_chunk("output-port?");
-    pairpa       = intern_atom_chunk("pair?");
-    peekchara    = intern_atom_chunk("peek-char");
-    pipea        = intern_atom_chunk("|");
-    powa         = intern_atom_chunk("pow");
-    procedurepa  = intern_atom_chunk("procedure?");
-    promisea     = intern_atom_chunk("promise");
-    promisepa    = intern_atom_chunk("promise?");
-    promiseva    = intern_atom_chunk("promise-value");
-    qchar        = intern_atom_chunk("'");
-    quasiquote   = intern_atom_chunk("quasiquote");
-    quote        = intern_atom_chunk("quote");
-    rationala    = intern_atom_chunk("rational");
-    reada        = intern_atom_chunk("read");
-    readchara    = intern_atom_chunk("read-char");
-    readypa      = intern_atom_chunk("char-ready?");
-    realpa       = intern_atom_chunk("real?");
-    reversea     = intern_atom_chunk("reverse");
-    rounda       = intern_atom_chunk("round");
-    rparen       = intern_atom_chunk(")");
-    rsha         = intern_atom_chunk(">>");
-    s2lista      = intern_atom_chunk("string->list");
-    s2numa       = intern_atom_chunk("string->number");
-    s2sya        = intern_atom_chunk("string->symbol");
-    seta         = intern_atom_chunk("set!");
-    setcara      = intern_atom_chunk("set-car!");
-    setcdra      = intern_atom_chunk("set-cdr!");
-    sina         = intern_atom_chunk("sin");
-    spacea       = intern_atom_chunk("space");
-    sqrta        = intern_atom_chunk("sqrt");
-    stringcieq   = intern_atom_chunk("string-ci=?");
-    stringcige   = intern_atom_chunk("string-ci>=?");
-    stringcigt   = intern_atom_chunk("string-ci>?");
-    stringcile   = intern_atom_chunk("string-ci<=?");
-    stringcilt   = intern_atom_chunk("string-ci<?");
-    stringcopy   = intern_atom_chunk("string-copy");
-    stringeq     = intern_atom_chunk("string=?");
-    stringfill   = intern_atom_chunk("string-fill!");
-    stringge     = intern_atom_chunk("string>=?");
-    stringgt     = intern_atom_chunk("string>?");
-    stringle     = intern_atom_chunk("string<=?");
-    stringlength = intern_atom_chunk("string-length");
-    stringlt     = intern_atom_chunk("string<?");
-    stringpa     = intern_atom_chunk("string?");
-    stringref    = intern_atom_chunk("string-ref");
-    stringset    = intern_atom_chunk("string-set!");
-    suba         = intern_atom_chunk("sub");
-    substringa   = intern_atom_chunk("substring");
-    sy2sa        = intern_atom_chunk("symbol->string");
-    symbolpa     = intern_atom_chunk("symbol?");
-    tana         = intern_atom_chunk("tan");
-    tick         = intern_atom_chunk("`");
-    tilde        = intern_atom_chunk("~");
-    t            = intern_atom_chunk("#t");
-    truncatea    = intern_atom_chunk("truncate");
-    unquote      = intern_atom_chunk("unquote");
-    upcasea      = intern_atom_chunk("char-upcase");
-    uppercasepa  = intern_atom_chunk("char-upper-case?");
-    voida        = intern_atom_chunk("");
-    whilea       = intern_atom_chunk("while");
-    whitespacepa = intern_atom_chunk("char-whitespace?");
-    withina      = intern_atom_chunk("with-input-from-file");
-    withouta     = intern_atom_chunk("with-output-to-file");
-    writea       = intern_atom_chunk("write");
-    writechara   = intern_atom_chunk("write-char");
-    xora         = intern_atom_chunk("^");
+    acosa           = atomize("acos");
+    adda            = atomize("add");
+    alphapa         = atomize("char-alphabetic?");
+    ampera          = atomize("&");
+    anda            = atomize("and");
+    anglea          = atomize("angle");
+    appenda         = atomize("append");
+    applya          = atomize("apply");
+    asina           = atomize("asin");
+    atana           = atomize("atan");
+    atompa          = atomize("atom?");
+    atomsa          = atomize("atoms");
+    begin           = atomize("begin");
+    callwithina     = atomize("call-with-input-file");
+    callwithouta    = atomize("call-with-output-file");
+    cara            = atomize("car");
+    cdra            = atomize("cdr");
+    ceilinga        = atomize("ceiling");
+    char2ia         = atomize("char->integer");
+    charcieqa       = atomize("char-ci=?");
+    charcigea       = atomize("char-ci>=?");
+    charcigta       = atomize("char-ci>?");
+    charcilea       = atomize("char-ci<=?");
+    charcilta       = atomize("char-ci<?");
+    chareqa         = atomize("char=?");
+    chargea         = atomize("char>=?");
+    chargta         = atomize("char>?");
+    charlea         = atomize("char<=?");
+    charlta         = atomize("char<?");
+    charpa          = atomize("char?");
+    clinporta       = atomize("close-input-port");
+    closurea        = atomize("closure");
+    cloutporta      = atomize("close-output-port");
+    comma           = atomize(",");
+    complexa        = atomize("complex");
+    cond            = atomize("cond");
+    consa           = atomize("cons");
+    cosa            = atomize("cos");
+    curinporta      = atomize("current-input-port");
+    curoutporta     = atomize("current-output-port");
+    cyclicpa        = atomize("cyclic?");
+    definea         = atomize("define");
+    delaya          = atomize("delay");
+    displaya        = atomize("display");
+    diva            = atomize("div");
+    dot             = atomize(".");
+    downcasea       = atomize("char-downcase");
+    e2ia            = atomize("exact->inexact");
+    elsea           = atomize("else");
+    eofa            = atomize("");
+    eofobjp         = atomize("eof-object?");
+    eqa             = atomize("eq?");
+    eqna            = atomize("=");
+    equalpa         = atomize("equal?");
+    eqva            = atomize("eqv?");
+    evala           = atomize("eval");
+    exactpa         = atomize("exact?");
+    expa            = atomize("exp");
+    f               = atomize("#f");
+    floora          = atomize("floor");
+    forcea          = atomize("force");
+    forcedpa        = atomize("promise-forced?");
+    gca             = atomize("gc");
+    gea             = atomize(">=");
+    gta             = atomize(">");
+    i2ea            = atomize("inexact->exact");
+    ifa             = atomize("if");
+    inexactpa       = atomize("inexact?");
+    inportpa        = atomize("input-port?");
+    int2chara       = atomize("integer->char");
+    integerpa       = atomize("integer?");
+    intenva         = atomize("interaction-environment");
+    lambda          = atomize("lambda");
+    lea             = atomize("<=");
+    let             = atomize("let");
+    list2sa         = atomize("list->string");
+    listpa          = atomize("list?");
+    loada           = atomize("load");
+    loga            = atomize("log");
+    lowercasepa     = atomize("char-lower-case?");
+    lparen          = atomize("(");
+    lsha            = atomize("<<");
+    lta             = atomize("<");
+    makestringa     = atomize("make-string");
+    minus           = atomize("-");
+    moda            = atomize("mod");
+    mula            = atomize("mul");
+    newlinea        = atomize("newline");
+    nil             = atomize("#f");
+    nota            = atomize("not");
+    nulenva         = atomize("null-environment");
+    nullpa          = atomize("null?");
+    num2stringa     = atomize("number->string");
+    numberpa        = atomize("number?");
+    numericpa       = atomize("char-numeric?");
+    openina         = atomize("open-input-file");
+    openouta        = atomize("open-output-file");
+    ora             = atomize("or");
+    outportpa       = atomize("output-port?");
+    pairpa          = atomize("pair?");
+    peekchara       = atomize("peek-char");
+    pipea           = atomize("|");
+    powa            = atomize("pow");
+    procedurepa     = atomize("procedure?");
+    promisea        = atomize("promise");
+    promisepa       = atomize("promise?");
+    promiseva       = atomize("promise-value");
+    qchar           = atomize("'");
+    quasiquote      = atomize("quasiquote");
+    quote           = atomize("quote");
+    rationala       = atomize("rational");
+    reada           = atomize("read");
+    readchara       = atomize("read-char");
+    readypa         = atomize("char-ready?");
+    realpa          = atomize("real?");
+    reversea        = atomize("reverse");
+    rounda          = atomize("round");
+    rparen          = atomize(")");
+    rsha            = atomize(">>");
+    s2lista         = atomize("string->list");
+    s2numa          = atomize("string->number");
+    s2sya           = atomize("string->symbol");
+    seta            = atomize("set!");
+    setcara         = atomize("set-car!");
+    setcdra         = atomize("set-cdr!");
+    sina            = atomize("sin");
+    spacea          = atomize("space");
+    sqrta           = atomize("sqrt");
+    stringcieq      = atomize("string-ci=?");
+    stringcige      = atomize("string-ci>=?");
+    stringcigt      = atomize("string-ci>?");
+    stringcile      = atomize("string-ci<=?");
+    stringcilt      = atomize("string-ci<?");
+    stringcopy      = atomize("string-copy");
+    stringeq        = atomize("string=?");
+    stringfill      = atomize("string-fill!");
+    stringge        = atomize("string>=?");
+    stringgt        = atomize("string>?");
+    stringle        = atomize("string<=?");
+    stringlength    = atomize("string-length");
+    stringlt        = atomize("string<?");
+    stringpa        = atomize("string?");
+    stringref       = atomize("string-ref");
+    stringset       = atomize("string-set!");
+    suba            = atomize("sub");
+    substringa      = atomize("substring");
+    sy2sa           = atomize("symbol->string");
+    symbolpa        = atomize("symbol?");
+    tana            = atomize("tan");
+    tick            = atomize("`");
+    tilde           = atomize("~");
+    t               = atomize("#t");
+    truncatea       = atomize("truncate");
+    unquote         = atomize("unquote");
+    unquotesplicing = atomize("unquote-splicing");
+    upcasea         = atomize("char-upcase");
+    uppercasepa     = atomize("char-upper-case?");
+    voida           = atomize("");
+    whilea          = atomize("while");
+    whitespacepa    = atomize("char-whitespace?");
+    withina         = atomize("with-input-from-file");
+    withouta        = atomize("with-output-to-file");
+    writea          = atomize("write");
+    writechara      = atomize("write-char");
+    xora            = atomize("^");
 
     // set the definitions (special forms)
 
@@ -2571,11 +2549,11 @@ int main(int argc, char **argv, char **envp)
     define_funct(writechara,    0, (void*)writechar);
     define_funct(xora,          0, (void*)xorf);
 
-    load(newstring(chunk("init.l")));
+    load(newstring(newchunk("init.l")));
 
     if (argc > 1)
     {
-        load(newstring(chunk(argv[1])));
+        load(newstring(newchunk(argv[1])));
         return 0;
     }
 
