@@ -839,12 +839,18 @@ sexp newchunk(const char *t)
 
 void renderFloat(char* b, float x)
 {
-    sprintf(b, "%#.8g", x);
+    if ((long)x == x)
+        sprintf(b, "%ld.0", (long)x);
+    else
+        sprintf(b, "%#.8g", x);
 }
 
 void renderDouble(char* b, double x)
 {
-    sprintf(b, "%#.15g", x);
+    if ((long)x == x)
+        sprintf(b, "%ld.0", (long)x);
+    else
+        sprintf(b, "%#.15g", x);
 }
 
 sexp num2string(sexp exp)
