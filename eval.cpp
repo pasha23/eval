@@ -618,16 +618,16 @@ sexp addf(sexp x, sexp y)
         else if (isFlonum(y))
             return newflonum(asFixnum(x) + asFlonum(y));
         else
-            return 0;
+            error("add: bad right argument");
     } else if (isFlonum(x)) {
         if (isFixnum(y))
             return newflonum(asFlonum(x) + asFixnum(y));
         else if (isFlonum(y))
             return newflonum(asFlonum(x) + asFlonum(y));
         else
-            return 0;
+            error("add: bad right argument");
     } else
-        return 0;
+        error("add: bad left argument");
 }
 
 sexp subf(sexp x, sexp y)
@@ -638,16 +638,16 @@ sexp subf(sexp x, sexp y)
         else if (isFlonum(y))
             return newflonum(asFixnum(x) - asFlonum(y));
         else
-            return 0;
+            error("sub: bad right argument");
     } else if (isFlonum(x)) {
         if (isFixnum(y))
             return newflonum(asFlonum(x) - asFixnum(y));
         else if (isFlonum(y))
             return newflonum(asFlonum(x) - asFlonum(y));
         else
-            return 0;
+            error("sub: bad right argument");
     } else
-        return 0;
+        error("sub: bad left argument");
 }
 
 sexp mulf(sexp x, sexp y)
@@ -658,56 +658,56 @@ sexp mulf(sexp x, sexp y)
         else if (isFlonum(y))
             return newflonum(asFixnum(x) * asFlonum(y));
         else
-            return 0;
+            error("mul: bad right argument");
     } else if (isFlonum(x)) {
         if (isFixnum(y))
             return newflonum(asFlonum(x) * asFixnum(y));
         else if (isFlonum(y))
             return newflonum(asFlonum(x) * asFlonum(y));
         else
-            return 0;
+            error("mul: bad right argument");
     } else
-        return 0;
+        error("mul: bad left argument");
 }
 
 sexp divf(sexp x, sexp y)
 {
     if (isFixnum(x)) {
-        if (isFixnum(y))
+        if (isFixnum(y) && asFixnum(y))
             return newfixnum(asFixnum(x) / asFixnum(y));
-        else if (isFlonum(y))
+        else if (isFlonum(y) && asFlonum(y))
             return newflonum((double)asFixnum(x) / asFlonum(y));
         else
-            return 0;
+            error("div: bad right argument");
     } else if (isFlonum(x)) {
-        if (isFixnum(y))
+        if (isFixnum(y) && asFixnum(y))
             return newflonum(asFlonum(x) / asFixnum(y));
-        else if (isFlonum(y))
+        else if (isFlonum(y) && asFlonum(y))
             return newflonum(asFlonum(x) / asFlonum(y));
         else
-            return 0;
+            error("div: bad right argument");
     } else
-        return 0;
+        error("div: bad left argument");
 }
 
 sexp modfn(sexp x, sexp y)
 {
     if (isFixnum(x)) {
-        if (isFixnum(y))
+        if (isFixnum(y) && asFixnum(y))
             return newfixnum(asFixnum(x) % asFixnum(y));
-        else if (isFlonum(y))
+        else if (isFlonum(y) && asFlonum(y))
             return newflonum(fmod((double)asFixnum(x), asFlonum(y)));
         else
-            return 0;
+            error("mod: bad right argument");
     } else if (isFlonum(x)) {
-        if (isFixnum(y))
+        if (isFixnum(y) && asFixnum(y))
             return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
-        else if (isFlonum(y))
+        else if (isFlonum(y) && asFlonum(y))
             return newflonum(fmod(asFlonum(x), asFlonum(y)));
         else
-            return 0;
+            error("mod: bad right argument");
     } else
-        return 0;
+        error("mod: bad left argument");
 }
 
 sexp angle(sexp s)
@@ -837,22 +837,48 @@ sexp newchunk(const char *t)
     }
 }
 
-sexp num2string(sexp num)
+void renderFloat(char* b, float x)
+{
+    sprintf(b, "%#.8g", x);
+}
+
+void renderDouble(char* b, double x)
+{
+    sprintf(b, "%#.15g", x);
+}
+
+sexp num2string(sexp exp)
 {
     char b[32];
-    if (isFixnum(num))
-        sprintf(b, "%ld", ((Fixnum*)num)->fixnum);
-    else if (isFloat(num))
-        sprintf(b, "%#.8f", asFlonum(num));
-    else if (isDouble(num))
-        sprintf(b, "%#.15f", asFlonum(num));
-    else if (isRational(num))
-        sprintf(b, "%ld/%ld", asFixnum(num->cdr->car), asFixnum(num->cdr->cdr->car));
-    else if (isComplex(num)) {
-        if (asFlonum(num->cdr->cdr->car) >= 0)
-            sprintf(b, "%#.8f+%#.8fi", asFlonum(num->cdr->car), asFlonum(num->cdr->cdr->car));
-        else
-            sprintf(b, "%#.8f%#.8fi", asFlonum(num->cdr->car), asFlonum(num->cdr->cdr->car));
+    if (isFixnum(exp))
+        sprintf(b, "%ld", ((Fixnum*)exp)->fixnum);
+    else if (isFloat(exp)) {
+        char b[32];
+        renderFloat(b, asFlonum(exp));
+        sprintf(b, "%s", b);
+    } else if (isDouble(exp)) {
+        char b[32];
+        renderDouble(b, asFlonum(exp));
+        sprintf(b, "%s", b);
+    } else if (isRational(exp))
+        sprintf(b, "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
+    else if (isComplex(exp)) {
+        if (asFlonum(exp->cdr->car)) {
+            char b0[32], b1[32];
+            renderFloat(b0, asFlonum(exp->cdr->car));
+            renderFloat(b1, asFlonum(exp->cdr->cdr->car));
+            if (asFlonum(exp->cdr->cdr->car) >= 0)
+                sprintf(b, "%s+%si", b0, b1);
+            else if (asFlonum(exp->cdr->cdr->car) < 0)
+                sprintf(b, "%s%si", b0, b1);
+            else
+                sprintf(b, "%s", b0);
+        } else if (asFlonum(exp->cdr->cdr->car)) {
+            char b1[32];
+            renderFloat(b1, asFlonum(exp->cdr->cdr->car));
+            sprintf(b, "%si", b1);
+        } else
+            sprintf(b, "0.0+0.0i");
     }
     return lose(1, newstring(save(newchunk(b))));
 }
@@ -1204,7 +1230,7 @@ sexp stringreff(sexp s, sexp i)
 
     char* p = sref(s, asFixnum(i));
     if (!p)
-        return 0;
+        error("string-ref: out of bounds");
 
     return newcharacter(*p);
 }
@@ -1217,17 +1243,17 @@ sexp stringsetf(sexp s, sexp k, sexp c)
 
     char* p = sref(s, asFixnum(k));
     if (!p)
-        return 0;
+        error("string-set!: out of bounds");
 
     *p = ((Char*)c)->text[0];
 
-    return voida;
+    return s;
 }
 
 sexp substringf(sexp s, sexp i, sexp j)
 {
     if (!s || !isString(s->car) || !s->cdr || !isFixnum(s->cdr->car))
-        return 0;
+        error("substring: bad arguments");
 
     int ii = asFixnum(s->cdr->car);
     int jj = slen(s->car);
@@ -1237,7 +1263,7 @@ sexp substringf(sexp s, sexp i, sexp j)
     s = s->car;
 
     if (ii < 0 || jj <= ii)
-        return 0;
+        error("substring: bad arguments");
 
     char* b = (char*)alloca(jj-ii+1);
 
@@ -1260,7 +1286,7 @@ sexp substringf(sexp s, sexp i, sexp j)
         k += sizeof(t->text);
     }
 
-    return 0;
+    error("substring: bad arguments");
 }
 
 // (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
@@ -1270,6 +1296,7 @@ sexp append(sexp p, sexp q)
     return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q;
 }
 
+// needs error checking
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
 sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
@@ -1539,11 +1566,10 @@ void displayVector(FILE* fout, sexp v, std::set<sexp>& seenSet, bool write)
 {
     putchar('[');
     Vector *vv = (Vector*)v;
-    if (vv->length && safe(seenSet, vv->elements[0]))
-        display(fout, vv->elements[0], write);
-    for (int i = 1; i < vv->length; ++i)
+    for (int i = 0; i < vv->length; ++i)
     {
-        fprintf(fout, ", ");
+        if (i)
+            fprintf(fout, ", ");
         if (safe(seenSet, vv->elements[i]))
             display(fout, vv->elements[i], write);
     }
@@ -1573,10 +1599,22 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
     else if (isRational(exp))
         fprintf(fout, "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
     else if (isComplex(exp)) {
-        if (asFlonum(exp->cdr->cdr->car) >= 0)
-            fprintf(fout, "%#.8f+%#.8fi", asFlonum(exp->cdr->car), asFlonum(exp->cdr->cdr->car));
-        else
-            fprintf(fout, "%#.8f%#.8fi", asFlonum(exp->cdr->car), asFlonum(exp->cdr->cdr->car));
+        if (asFlonum(exp->cdr->car)) {
+            char b0[32], b1[32];
+            renderFloat(b0, asFlonum(exp->cdr->car));
+            renderFloat(b1, asFlonum(exp->cdr->cdr->car));
+            if (asFlonum(exp->cdr->cdr->car) >= 0)
+                fprintf(fout, "%s+%si", b0, b1);
+            else if (asFlonum(exp->cdr->cdr->car) < 0)
+                fprintf(fout, "%s%si", b0, b1);
+            else
+                fprintf(fout, "%s", b0);
+        } else if (asFlonum(exp->cdr->cdr->car)) {
+            char b1[32];
+            renderFloat(b1, asFlonum(exp->cdr->cdr->car));
+            fprintf(fout, "%si", b1);
+        } else
+            fprintf(fout, "0.0+0.0i");
     } else if (isCons(exp) && safe(seenSet, exp))
         displayList(fout, exp, seenSet, write);
     else if (isString(exp))
@@ -1585,11 +1623,15 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
         displayChunks(fout, ((Atom*)exp)->chunks, false);
     else if (isFixnum(exp))
         fprintf(fout, "%ld", ((Fixnum*)exp)->fixnum);
-    else if (isFloat(exp))
-        fprintf(fout, "%#.8f", asFlonum(exp));
-    else if (isDouble(exp))
-        fprintf(fout, "%#.15f", asFlonum(exp));
-    else if (isFunct(exp))
+    else if (isFloat(exp)) {
+        char b[32];
+        renderFloat(b, asFlonum(exp));
+        fprintf(fout, "%s", b);
+    } else if (isDouble(exp)) {
+        char b[32];
+        renderDouble(b, asFlonum(exp));
+        fprintf(fout, "%s", b);
+    } else if (isFunct(exp))
         fprintf(fout, "#<function%d@%p>", arity(exp), (void*)((Funct*)exp)->funcp);
     else if (isForm(exp))
         fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
@@ -1615,14 +1657,6 @@ void debug(const char *label, sexp exp)
 {
     printf("%s: ", label);
     display(stdout, exp, true);
-    putchar('\n');
-}
-
-void envto(const char *label, sexp e0, sexp e1)
-{
-    printf("%s: ", label);
-    for (sexp e = e1; e && e != e0; e = e->cdr)
-        display(stdout, e->car, true);
     putchar('\n');
 }
 
@@ -1671,6 +1705,7 @@ sexp s2num(sexp x)
         if (nptr == strchr(b, '\0'))
             return newfixnum(fixer);
     }
+    error("string->number: not a number");
 }
 
 sexp s2list(sexp x)
@@ -1710,6 +1745,8 @@ sexp list2s(sexp s)
     int i = 0;
     for ( ; s; s = s->cdr)
     {
+        assertChar(s->car);
+
         r->text[i++] = ((Char*)(s->car))->text[0];
 
         if (i == sizeof(r->text))
@@ -2041,6 +2078,14 @@ sexp setform(sexp exp, sexp env)
     return lose(3, set(exp->cdr->car, save(eval(save(exp)->cdr->cdr->car, env)), save(env)));
 }
 
+void envto(const char *label, sexp e0, sexp e1)
+{
+    printf("%s: ", label);
+    for (sexp e = e1; e && e != e0; e = e->cdr)
+        display(stdout, e->car, true);
+    putchar('\n');
+}
+
 sexp letform(sexp exp, sexp env)
 {
     sexp r;
@@ -2246,15 +2291,18 @@ sexp readChunks(FILE* fin, const char *ends)
 
 char whitespace(FILE* fin, char c)
 {
-    while (strchr(" \t\r\n", c))
-        c = getc(fin);
-
-    while (';' == c)
+    if (c > 0)
     {
-        while ('\n' != c)
-            c = getc(fin);
         while (strchr(" \t\r\n", c))
             c = getc(fin);
+
+        while (';' == c)
+        {
+            while ('\n' != c)
+                c = getc(fin);
+            while (strchr(" \t\r\n", c))
+                c = getc(fin);
+        }
     }
 
     return c;

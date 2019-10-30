@@ -112,9 +112,9 @@
 
 (define (make-polar r theta) #f)    ;; not done
 
-(define (real-part z) (if (complex? z) (cadr z) #f))
+(define real-part cadr)
 
-(define (imag-part z) (if (complex? z) (caddr z) #f))
+(define imag-part caddr)
 
 (define (square x) (mul x x))
 
@@ -254,10 +254,6 @@
             (if (equal? a (caar e))
                 (car e)
                 (memv a (cdr e)))))
-
-(define (gcd x y) (if (eqv? y 0) x (gcd y (mod x y))))
-
-(define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
 
 (define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
 
