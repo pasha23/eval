@@ -31,25 +31,30 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
-(define (boolean? x) (or (eqv? x #t) (eqv? x #f)))
+(define (boolean? x) (or (eq? x #t) (eq? x #f)))
 
-(define (even? x) (eqv? 0 (mod x 2)))
+(define (even? x) (= 0 (mod x 2)))
 
 (define (negative? x) (< x 0))
 
-(define (odd? x) (eqv? 1 (mod x 2)))
+(define (odd? x) (= 1 (mod x 2)))
 
 (define (positive? x) (> x 0))
 
-(define (zero? x) (eqv? 0 x))
+(define (zero? x) (= 0 x))
 
-(define (make-polar r theta) #f)    ;; not done
+(define (gcd x y) (if (= 0 y) x (gcd y (mod x y))))
+
+(define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
 
 (define (rational? r)
         (and (eq? 'rational (car r))
              (integer? (cadr r))
              (integer? (caddr r))
              (null? (cdddr r))))
+
+(define (make-rational n d)
+        (cons 'rational (cons n (cons d #f))))
 
 (define (rationalize real)
         (let ((maxden 268435456)
@@ -61,52 +66,41 @@
                     (set! t (add (mul m10 ai) m11)) (set! m11 m10) (set! m10 t)
                     (set! x (div 1.0 (sub x (exact->inexact ai))))
                     (set! ai (inexact->exact x)))
-             (cons 'rational (cons m00 (cons m10 #f)))))
+             (make-rational m00 m10)))
 
-(define (numerator r)   (if (rational? r) (cadr r) #f))
-(define (denominator r) (if (rational? r) (caddr r) #f))
+(define numerator cadr)
 
-(define (rational-reduce x)
-        (let ((g (gcd (numerator x) (denominator x))))
-             (cons 'rational (cons (div (numerator x) g) (cons (div (denominator x) g) #f)))))
+(define denominator caddr)
+
+(define (rational-reduce n d)
+        (let ((g (gcd n d)))
+             (let ((ng (div n g))
+                   (dg (div d g)))
+                  (if (< dg 0)
+                      (make-rational (sub 0 ng) (sub 0 dg))
+                      (make-rational ng dg)))))
 
 (define (rational-add x y)
-        (if (and (rational? x)
-                 (rational? y))
-            (let ((d (lcm (denominator x) (denominator y))))
-                  (let ((xn (mul (numerator x) (div d (denominator x))))
-                        (yn (mul (numerator y) (div d (denominator y)))))
-                       (rational-reduce (cons 'rational (cons (add xn yn) (cons d #f))))))
-            #f))
+        (let ((d (lcm (denominator x) (denominator y))))
+              (let ((xn (mul (numerator x) (div d (denominator x))))
+                    (yn (mul (numerator y) (div d (denominator y)))))
+                   (rational-reduce (add xn yn) d))))
 
 (define (rational-sub x y)
-        (if (and (rational? x)
-                 (rational? y))
-            (let ((d (lcm (denominator x) (denominator y))))
-                  (let ((xn (mul (numerator x) (div d (denominator x))))
-                        (yn (mul (numerator y) (div d (denominator y)))))
-                       (rational-reduce (cons 'rational (cons (sub xn yn) (cons d #f))))))
-            #f))
+        (let ((d (lcm (denominator x) (denominator y))))
+              (let ((xn (mul (numerator x) (div d (denominator x))))
+                    (yn (mul (numerator y) (div d (denominator y)))))
+                   (rational-reduce (sub xn yn) d))))
 
 (define (rational-mul x y)
-        (if (and (rational? x)
-                 (rational? y))
-            (let ((g (gcd (denominator x) (denominator y))))
-                 (rational-reduce (cons 'rational
-                                  (cons (div (mul (numerator x) (numerator y)) g)
-                                  (cons (div (mul (denominator x) (denominator y)) g)
-                       #f)))))
-            #f))
+        (let ((g (gcd (denominator x) (denominator y))))
+             (rational-reduce (div (mul (numerator x) (numerator y)) g)
+                              (div (mul (denominator x) (denominator y)) g))))
 
 (define (rational-div x y)
-        (if (and (rational? x)
-                 (rational? y))
-            (let ((g (gcd (denominator x) (numerator y))))
-                 (rational-reduce (cons 'rational
-                                  (cons (div (mul (numerator x) (denominator y)) g)
-                                  (cons (div (mul (denominator x) (numerator y)) g)
-                       #f)))))
-            #f))
+        (let ((g (gcd (denominator x) (numerator y))))
+             (rational-reduce (div (mul (numerator x) (denominator y)) g)
+                              (div (mul (denominator x) (numerator y)) g))))
 
 (define (complex? z)
         (and (eq? 'complex (car z))
@@ -114,7 +108,12 @@
              (real? (caddr z))
              (null? (cdddr z))))
 
+(define (make-complex re im) (cons 'complex (cons re (cons im #f))))
+
+(define (make-polar r theta) #f)    ;; not done
+
 (define (real-part z) (if (complex? z) (cadr z) #f))
+
 (define (imag-part z) (if (complex? z) (caddr z) #f))
 
 (define (square x) (mul x x))
@@ -123,6 +122,33 @@
         (if (complex? z)
             (sqrt (add (square (real-part z)) (square (imag-part z))))
             #f))
+
+(define (complex-add z w)
+        (make-complex (add (real-part z) (real-part w))
+                      (add (imag-part z) (imag-part w))))
+
+(define (complex-sub z w)
+        (make-complex (sub (real-part z) (real-part w))
+                      (sub (imag-part z) (imag-part w))))
+
+(define (complex-mul z w)
+        (let ((x (real-part z))
+              (y (imag-part z))
+              (u (real-part w))
+              (v (imag-part w)))
+             (make-complex (sub (mul x u) (mul y v))
+                           (add (mul x v) (mul y u)))))
+
+(define (complex-div z w)
+        (let ((x (real-part z))
+              (y (imag-part z))
+              (u (real-part w))
+              (v (imag-part w)))
+             (let ((denominator (add (square u) (square v))))
+                  (make-complex (div (add (mul x u) (mul y v))
+                                     denominator)
+                                (div (sub (mul y u) (mul x v))
+                                     denominator)))))
 
 (define (make-rectangular x y) (cons 'complex (cons x (cons y #f))))
 

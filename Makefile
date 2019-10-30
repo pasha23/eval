@@ -1,6 +1,6 @@
 all: eval32 eval tests.out
 
-tests.out: eval tests.l
+tests.out: eval init.l tests.l
 	./eval tests.l > tests.out
 
 eval32.list: eval32

@@ -25,7 +25,7 @@
 
 #ifdef BROKEN
 #include <assert.h>
-#define error(s) do { printf("%s\n", s); assert(0); } while(0)
+#define error(s) do { printf("%s\n", s); assert(false); } while(0)
 #else
 #define error(s) do { psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
@@ -211,6 +211,9 @@ sexp save(sexp p)
     return p;
 }
 
+/*
+ * replace the top of the protection stack, return it
+ */
 sexp replace(sexp p)
 {
     return *psp = p;
@@ -456,21 +459,21 @@ sexp newflonum(double number)
 
 sexp define_form(sexp name, Formp f)
 {
-    Form* p = (Form*)newcell();
+    Form* p = (Form*)save(newcell());
     p->tags[0] = OTHER;
     p->tags[1] = FORM;
     p->formp = f;
-    return lose(1, define(name, save((sexp)p)));
+    return lose(1, define(name, (sexp)p));
 }
 
 sexp define_funct(sexp name, int arity, void* f)
 {
-    Funct* p = (Funct*)newcell();
+    Funct* p = (Funct*)save(newcell());
     p->tags[0] = OTHER;
     p->tags[1] = FUNCT;
     p->tags[2] = arity;
     p->funcp = f;
-    return lose(1, define(name, save((sexp)p)));
+    return lose(1, define(name, (sexp)p));
 }
 
 sexp cons(sexp car, sexp cdr)
@@ -501,18 +504,16 @@ sexp setcarf(sexp p, sexp q)
 {
     if (!isCons(p))
         error("error: set-car! of non-pair");
-    sexp r = p->car;
     p->car = q;
-    return r;
+    return voida;
 }
 
 sexp setcdrf(sexp p, sexp q)
 {
     if (!isCons(p))
         error("error: set-cdr! of non-pair");
-    sexp r = p->cdr;
     p->cdr = q;
-    return r;
+    return voida;
 }
 
 sexp andform(sexp p, sexp env)
@@ -845,13 +846,21 @@ sexp num2string(sexp num)
         sprintf(b, "%#.8f", asFlonum(num));
     else if (isDouble(num))
         sprintf(b, "%#.15f", asFlonum(num));
+    else if (isRational(num))
+        sprintf(b, "%ld/%ld", asFixnum(num->cdr->car), asFixnum(num->cdr->cdr->car));
+    else if (isComplex(num)) {
+        if (asFlonum(num->cdr->cdr->car) >= 0)
+            sprintf(b, "%#.8f+%#.8fi", asFlonum(num->cdr->car), asFlonum(num->cdr->cdr->car));
+        else
+            sprintf(b, "%#.8f%#.8fi", asFlonum(num->cdr->car), asFlonum(num->cdr->cdr->car));
+    }
     return lose(1, newstring(save(newchunk(b))));
 }
 
 sexp makestring(sexp args)
 {
     if (!args || !isFixnum(args->car))
-        error("make-string: args missing");
+        error("make-string: args expected");
 
     int l = asFixnum(args->car);
     char *b = (char*) alloca(l+1);
@@ -1167,7 +1176,7 @@ sexp writechar(sexp args)
             assertOutPort(port = args->cdr->car);
     }
     fprintf(((OutPort*)port)->file, "#\\%c", ((Char*)(args->car))->text[0]);
-    return args->car;
+    return voida;
 }
 
 sexp achunk(sexp s)
@@ -1212,7 +1221,7 @@ sexp stringsetf(sexp s, sexp k, sexp c)
 
     *p = ((Char*)c)->text[0];
 
-    return s;
+    return voida;
 }
 
 sexp substringf(sexp s, sexp i, sexp j)
@@ -1370,9 +1379,7 @@ sexp promisev(sexp p)
  */
 sexp load(sexp x)
 {
-    sexp r = 0;
-    if (!isString(x))
-        return r;
+    assertString(x);
 
     char *name = sstr((char*)alloca(slen(x)+1), x);
 
@@ -1387,12 +1394,12 @@ sexp load(sexp x)
             if (!input || eofa == input)
                 break;
             //debug("input", input);
-            save(input);
-            r = lose(1, eval(input, global));
+            eval(input, global);
         }
         fclose(fin);
+        return t;
     }
-    return r;
+    return 0;
 }
 
 sexp spacef(sexp args)
@@ -1504,39 +1511,28 @@ void insert(std::set<sexp>& seenSet, sexp exp)
 
 void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
 {
-    if (isClosure(exp))
-        fprintf(fout, "#<closure@%p>", (void*)exp);
-    else if (isPromise(exp))
-        fprintf(fout, "#<promise@%p>", (void*)exp);
-    else {
-        putc('(', fout);
-        while (exp && safe(seenSet, exp)) {
-            display(fout, exp->car, seenSet, write);
-            insert(seenSet, exp);
-            if (exp->cdr) {
-                if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
+    putc('(', fout);
+    while (exp && safe(seenSet, exp)) {
+        display(fout, exp->car, seenSet, write);
+        insert(seenSet, exp);
+        if (exp->cdr) {
+            if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
+            {
+                if (safe(seenSet, exp->cdr))
                 {
-                    if (safe(seenSet, exp->cdr))
-                    {
-                        putc(' ', fout);
-                        exp = exp->cdr;
-                    }
-                } else {
-                    fprintf(fout, " . ");
+                    putc(' ', fout);
                     exp = exp->cdr;
-                    if (isClosure(exp))
-                        fprintf(fout, "#<closure@%p>", (void*)exp);
-                    else if (isPromise(exp))
-                        fprintf(fout, "#<promise@%p>", (void*)exp);
-                    else
-                        display(fout, exp, seenSet, write);
-                    exp = 0;
                 }
-            } else
+            } else {
+                fprintf(fout, " . ");
                 exp = exp->cdr;
-        }
-        putc(')', fout);
+                display(fout, exp, seenSet, write);
+                exp = 0;
+            }
+        } else
+            exp = exp->cdr;
     }
+    putc(')', fout);
 }
 
 void displayVector(FILE* fout, sexp v, std::set<sexp>& seenSet, bool write)
@@ -1570,7 +1566,18 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
 {
     if (!exp)
         fprintf(fout, "%s", "#f");
-    else if (isCons(exp) && safe(seenSet, exp))
+    else if (isClosure(exp))
+        fprintf(fout, "#<closure@%p>", (void*)exp);
+    else if (isPromise(exp))
+        fprintf(fout, "#<promise@%p>", (void*)exp);
+    else if (isRational(exp))
+        fprintf(fout, "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
+    else if (isComplex(exp)) {
+        if (asFlonum(exp->cdr->cdr->car) >= 0)
+            fprintf(fout, "%#.8f+%#.8fi", asFlonum(exp->cdr->car), asFlonum(exp->cdr->cdr->car));
+        else
+            fprintf(fout, "%#.8f%#.8fi", asFlonum(exp->cdr->car), asFlonum(exp->cdr->cdr->car));
+    } else if (isCons(exp) && safe(seenSet, exp))
         displayList(fout, exp, seenSet, write);
     else if (isString(exp))
         displayChunks(fout, ((String*)exp)->chunks, write);
@@ -1783,16 +1790,14 @@ sexp equalp(sexp x, sexp y)
 
 sexp define(sexp p, sexp r)
 {
-    sexp s = 0;
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
-            s = q->car->cdr;
             q->car->cdr = r;
-            return s;
+            return voida;
         }
     global = cons(save(cons(save(p), save(r))), global);
-    return lose(3, 0);
+    return lose(3, voida);
 }
 
 sexp get(sexp p, sexp env)
@@ -1801,7 +1806,10 @@ sexp get(sexp p, sexp env)
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
             return q->car->cdr;
-
+#if 1
+    debug("unbound", p);
+    error("get");
+#else
     char msg[] = "error: get unbound";
     int  len = slen(p);
     char *name = (char *) alloca(slen(p)+1);
@@ -1810,20 +1818,22 @@ sexp get(sexp p, sexp env)
     sprintf(buff, "%s %s", msg, name);
     strncpy(errorBuffer, buff, sizeof(errorBuffer));
     error(errorBuffer);
+#endif
 }
 
 sexp set(sexp p, sexp r, sexp env)
 {
-    sexp s = 0;
     //debug("set env", env);
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
-            s = q->car->cdr;
             q->car->cdr = r;
-            return s;
+            return voida;
         }
-
+#if 1
+    debug("unbound", p);
+    error("set");
+#else
     char msg[] = "error: set! unbound";
     int  len = slen(p);
     char *name = (char*) alloca(slen(p)+1);
@@ -1832,6 +1842,7 @@ sexp set(sexp p, sexp r, sexp env)
     sprintf(buff, "%s %s", msg, name);
     strncpy(errorBuffer, buff, sizeof(errorBuffer));
     error(errorBuffer);
+#endif
 }
 
 sexp evlis(sexp p, sexp env)
@@ -1987,7 +1998,7 @@ sexp unquoteform(sexp exp, sexp env)
     else if (exp->car && unquotesplicing == exp->car->car) {
         save(exp); save(env);
         return lose(mark, save(append(save(eval(exp->car->cdr->car, env)),
-                                   save(unquoteform(exp->cdr, env)))));
+                                      save(unquoteform(exp->cdr, env)))));
     } else {
         save(exp); save(env);
         return lose(mark, cons(save(unquoteform(exp->car, env)),
@@ -2040,12 +2051,12 @@ sexp letform(sexp exp, sexp env)
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     // this next line is suspect, altering too many bindings
-    for (sexp f = e; f && f != global; f = f->cdr)
+    for (sexp f = e; f; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
-    return lose(psp-mark, r);
+    return lose(mark, r);
 }
 
 sexp letstarform(sexp exp, sexp env)
@@ -2058,12 +2069,12 @@ sexp letstarform(sexp exp, sexp env)
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
     // this next line is suspect, altering too many bindings
-    for (sexp f = e; f && f != global; f = f->cdr)
+    for (sexp f = e; f; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
-    return lose(psp-mark, r);
+    return lose(mark, r);
 }
 
 sexp letrecform(sexp exp, sexp env)
@@ -2078,12 +2089,12 @@ sexp letrecform(sexp exp, sexp env)
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
     // this next line is suspect, altering too many bindings
-    for (sexp f = e; f && f != global; f = f->cdr)
+    for (sexp f = e; f; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
-    return lose(psp-mark, r);
+    return lose(mark, r);
 }
 
 /*
@@ -2162,6 +2173,8 @@ sexp apply(sexp fun, sexp args)
         }
     }
 
+    debug("not fun", fun);
+
     error("apply bad function");
 
     return 0;
@@ -2177,6 +2190,9 @@ sexp eval(sexp p, sexp env)
 
     if (isAtom(p))
         return get(p, env);
+
+    if (isRational(p) || isComplex(p))
+        return p;
 
     sexp* mark = psp;
 
@@ -2244,7 +2260,7 @@ char whitespace(FILE* fin, char c)
     return c;
 }
 
-enum { NON_NUMERIC, INT_NUMERIC, FLO_NUMERIC };
+enum { NON_NUMERIC, INT_NUMERIC, INT_RATIONAL, FLO_NUMERIC, FLO_IMAGINARY };
 
 /*
  * read an atom, number or string from the input stream
@@ -2354,9 +2370,24 @@ sexp scan(FILE* fin)
             }
         }
 
-        *p++ = 0;
+        if (INT_NUMERIC == rc && '/' == c)
+            rc = INT_RATIONAL;
+
+        if (FLO_NUMERIC == rc && 'i' == c)
+            rc = FLO_IMAGINARY;
+
         ungetc(c, fin);
+        *p++ = 0;
         break;
+    }
+
+    if (FLO_IMAGINARY == rc)
+    {
+        char *nptr;
+        c = getc(fin);
+        double floater = strtod(buffer, &nptr);
+        if (nptr == strchr(buffer, '\0'))
+            return lose(4, cons(complexa, save(cons(save(newflonum(0.0)), save(cons(save(newflonum(floater)), 0))))));
     }
 
     if (FLO_NUMERIC == rc)
@@ -2364,7 +2395,28 @@ sexp scan(FILE* fin)
         char *nptr;
         double floater = strtod(buffer, &nptr);
         if (nptr == strchr(buffer, '\0'))
-            return newflonum(floater);
+            if ('-' == c || '+' == c) {
+                if ('+' == c)
+                    c = getc(fin);
+                sexp im = save(scan(fin));
+                im->cdr->car = newflonum(floater);
+                return lose(1, im);
+            } else
+                return newflonum(floater);
+    }
+
+    if (INT_RATIONAL == rc)
+    {
+        char *nptr;
+        long fixer = strtol(buffer, &nptr, 10);
+        if (nptr == strchr(buffer, '\0'))
+            if ('/' == c) {
+                c = getc(fin);
+                sexp den = save(scan(fin));
+                sexp num = save(newfixnum(fixer));
+                return lose(4, cons(rationala, save(cons(num, save(cons(den, 0))))));
+            } else
+                return newfixnum(fixer);
     }
 
     if (INT_NUMERIC == rc)
@@ -2383,7 +2435,7 @@ sexp scan(FILE* fin)
         return lose(1, r);
     }
 
-    return lose(1, intern(newatom(save(readChunks(fin, "( )[,]\t\r\n")))));
+    return lose(2, intern(save(newatom(save(readChunks(fin, "( )[,]\t\r\n"))))));
 }
 
 sexp readTail(FILE* fin, int level)
@@ -2396,6 +2448,24 @@ sexp readTail(FILE* fin, int level)
     return lose(2, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
 }
 
+sexp readVector(FILE* fin, int level)
+{
+    sexp q = 0;
+    sexp* mark = psp;
+    for (;;)
+    {
+        sexp s = save(read(fin, level));
+        if (rbracket == s)
+            return lose(mark, list2vec(save(reverse(q))));
+        q = replace(cons(s, q));
+        s = scan(fin);
+        if (rbracket == s)
+            return lose(mark, list2vec(save(reverse(q))));
+        if (comma != s)
+            error("comma expected in vector");
+    }
+}
+
 /*
  * read an s-expression
  */
@@ -2406,6 +2476,8 @@ sexp read(FILE* fin, int level)
         return 0;
     if (lparen == p)
         return readTail(fin, level+1);
+    if (lbracket == p)
+        return readVector(fin, level+1);
     if (qchar == p)
         return lose(2, cons(quote, save(cons(save(read(fin, level)), 0))));
     if (tick == p)
@@ -2416,8 +2488,8 @@ sexp read(FILE* fin, int level)
     if (commaat == p)
         return lose(2, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
 #endif
-    if (level == 0 && rparen == p)
-        error("error: an s-expression cannot begin with ')'");
+    if (level == 0 && (rbracket == p || rparen == p))
+        error("error: an s-expression cannot begin with ')' or ']'");
     return p;
 }
 
@@ -2573,6 +2645,7 @@ int main(int argc, char **argv, char **envp)
     integerpa       = atomize("integer?");
     intenva         = atomize("interaction-environment");
     lambda          = atomize("lambda");
+    lbracket        = atomize("[");
     lea             = atomize("<=");
     let             = atomize("let");
     letrec          = atomize("letrec");
@@ -2615,6 +2688,7 @@ int main(int argc, char **argv, char **envp)
     quasiquote      = atomize("quasiquote");
     quote           = atomize("quote");
     rationala       = atomize("rational");
+    rbracket        = atomize("]");
     reada           = atomize("read");
     readchara       = atomize("read-char");
     readypa         = atomize("char-ready?");
