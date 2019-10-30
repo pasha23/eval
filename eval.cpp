@@ -126,6 +126,7 @@ sexp stringpa, stringref, stringset, suba, substringa, sy2sa, symbolpa, t, tana,
 sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
+sexp lbracket, rbracket;
 
 static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
@@ -249,10 +250,6 @@ static inline void unmarkCell(sexp p)
 
 void mark(sexp p);
 
-void deleteinport(sexp v) { fclose(((InPort*)v)->file); }
-void deleteoutport(sexp v) { fclose(((OutPort*)v)->file); }
-void deletevector(sexp v) { delete ((Vector*)v)->elements; }
-
 void markCons(sexp p, std::set<sexp>& seenSet)
 {
     if (!p || isMarked(p))
@@ -299,6 +296,10 @@ void mark(sexp p)
     } else
         markCell(p);
 }
+
+void deleteinport(sexp v) { fclose(((InPort*)v)->file); }
+void deleteoutport(sexp v) { fclose(((OutPort*)v)->file); }
+void deletevector(sexp v) { delete ((Vector*)v)->elements; }
 
 /*
  * mark all reachable objects
@@ -1453,11 +1454,18 @@ void displayChunks(FILE* fout, sexp p, bool write)
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
 {
-    if (!exp || !isCons(exp) || isClosure(exp) || isPromise(exp))
+    if (!exp || !(isCons(exp) || isVector(exp)) || isClosure(exp) || isPromise(exp))
         return false;
-    if (seenSet.find(exp) == seenSet.end()) {
+    if (isCons(exp) && seenSet.find(exp) == seenSet.end()) {
         seenSet.insert(exp);
         return cyclic(seenSet, exp->car) || cyclic(seenSet, exp->cdr);
+    } else if (isVector(exp) && seenSet.find(exp) == seenSet.end()) {
+        seenSet.insert(exp);
+        Vector* v = (Vector*)exp;
+        for (int i = v->length; --i >= 0; )
+            if (cyclic(seenSet, v->elements[i]))
+                return true;
+        return false;
     } else
         return true;
 }
@@ -1531,16 +1539,17 @@ void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
     }
 }
 
-void displayVector(FILE* fout, sexp v, bool write)
+void displayVector(FILE* fout, sexp v, std::set<sexp>& seenSet, bool write)
 {
     putchar('[');
     Vector *vv = (Vector*)v;
-    if (vv->length)
+    if (vv->length && safe(seenSet, vv->elements[0]))
         display(fout, vv->elements[0], write);
     for (int i = 1; i < vv->length; ++i)
     {
         fprintf(fout, ", ");
-        display(fout, vv->elements[i], write);
+        if (safe(seenSet, vv->elements[i]))
+            display(fout, vv->elements[i], write);
     }
     putchar(']');
 }
@@ -1577,8 +1586,8 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
         fprintf(fout, "#<function%d@%p>", arity(exp), (void*)((Funct*)exp)->funcp);
     else if (isForm(exp))
         fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
-    else if (isVector(exp))
-        displayVector(fout, exp, write);
+    else if (isVector(exp) && safe(seenSet, exp))
+        displayVector(fout, exp, seenSet, write);
     else if (isInPort(exp))
         fprintf(fout, "#<input@%d>", ((InPort*)exp)->file->_fileno);
     else if (isOutPort(exp))
@@ -2261,6 +2270,10 @@ sexp scan(FILE* fin)
         return qchar;
     else if ('`' == c)
         return tick;
+    else if ('[' == c)
+        return lbracket;
+    else if (']' == c)
+        return rbracket;
     else if (',' == c) {
         c = getc(fin);
         if ('@' != c) {
@@ -2277,7 +2290,7 @@ sexp scan(FILE* fin)
         if ('\\' == c)
         {
             c = getc(fin);
-            while (!isspace(c) && ')' != c)
+            while (!isspace(c) && ')' != c && ']' != c && ',' != c)
                 { *p++ = c; c = getc(fin); }
             ungetc(c, fin);
             *p = 0;
@@ -2370,7 +2383,7 @@ sexp scan(FILE* fin)
         return lose(1, r);
     }
 
-    return lose(1, intern(newatom(save(readChunks(fin, "( )\t\r\n")))));
+    return lose(1, intern(newatom(save(readChunks(fin, "( )[,]\t\r\n")))));
 }
 
 sexp readTail(FILE* fin, int level)
