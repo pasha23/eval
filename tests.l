@@ -1,223 +1,186 @@
 (define tests '(
-    (eqv? (^ 7 2) 5)
-    (eqv? (~ 0) -1)
+    (= (~ 0) -1)
+    (= 1.0 (cos (acos 1.0)))
+    (= 1.0 (exp 0.0))
+    (= 1.0 (floor 1.5))
+    (= 1.0 (sin (asin 1.0)))
+    (= -1.0 (truncate -1.5))
+    (= (- 1 2 3) -4)
+    (= 128 (expt 2 7))
+    (= 13 (fib 5))
+    (= 157 (numerator (rationalize 3.14)))
+    (= 1 (>> 8 3))
+    (= 1 (counter))
+    (= 2 (counter))
+    (= 1 (mod 3 2))
+    (= 2.0 (exact->inexact 2))
     (< 2 3)
-    (eqv? 8 (<< 1 3))
+    (= 29 (ack 3 2))
+    (= 2 (gcd 12 10))
+    (= 2 (sub 5 3))
+    (= 3.0 (imag-part '(complex 5.0 3.0)))
+    (= 30 (lcm 12 10))
+    (= 3.0 (round 3.1))
+    (= 3.0 (sqrt 9.0))
+    (= (% 3 2) 1)
     (<= 3 3)
     (= 3 3)
-    (> 5 3)
     (>= 3 3)
-    (eqv? 1 (>> 8 3))
-    (eqv? 5 (| 4 1))
-    (eqv? (- 1 2 3) -4)
-    (eqv? (/ 4 2) 2)
-    (eqv? (* 3 4) 12)
-    (eqv? (& 5 2) 0)
-    (eqv? (% 3 2) 1)
-    (eqv? (+ 3 4) 7)
-    (eqv? (abs -7) 7)
-    (= 29 (ack 3 2))
-    (eqv? 1.0 (cos (acos 1.0)))
-    (eqv? (add 3 4) 7)
+    (= (* 3 4) 12)
+    (= (+ 3 4) 7)
+    (= 3628800 (let ((p 1) (n 10)) (while (> n 0) (set! p (* n p)) (set! n (- n 1)) p)))
+    (= '3 (add 2 1))
+    (= 3 (begin 1 2 3))
+    (= 3 (div 12 4))
+    (= 3 (if #t 3 2))
+    (= 3 (inexact->exact 3.0))
+    (= 3 (length '(a b c)))
+    (= 3 (max 1 3 2))
+    (= 3 (min 4 3 6))
+    (= 3 (string-length "abc"))
+    (= 3 (string->number "3"))
+    (= 3 (vector-length (list->vector (list 1 2 3))))
+    (= 3 (vector-length (vector 1 2 3)))
+    (= (/ 4 2) 2)
+    (= 45.0 (real-part '(complex 45.0 18.0)))
+    (= 45 (string-length (make-string 45)))
+    (= 50 (denominator (rationalize 3.14)))
+    (= 5.0 (real-part '(complex 5.0 3.0)))
+    (= (& 5 2) 0)
+    (> 5 3)
+    (= 5 (| 4 1))
+    (= 5 (force (delay 5)))
+    (= 65 (char->integer #\A))
+    (= 6 (fac 3))
+    (= 6 (mul 2 3))
+    (= 6 (tak 7 6 5))
+    (= (^ 7 2) 5)
+    (= 7 (eval '(add 3 4) (interaction-environment)))
+    (= 8 (<< 1 3))
+    (= 9 (square 3))
+    (<= (abs (- 1.0 (log (exp 1.0)))) 1e-15)
+    (<= (abs (- 1.0 (tan (atan 1.0)))) 1e-15)
+    (= (abs -7) 7)
+    (<= (abs (- 8.0 (pow 2.0 3.0))) 1e-15)
+    (<= (abs (- (sqrt 2.0) (magnitude '(complex 1.0 1.0)))) 1e-15)
+    (= (add 3 4) 7)
     (alist? '((a . b) (c . d)))
     (and #t #t)
-    (< (sub (angle '(complex 1.0 1.0)) 0.785398163397448) 1e-15)
-    (eqv? '(a b c d e) (append '(a b c) '(d e)))
-    (eq? 'a (apply car '((a b))))
-    (eqv? 1.0 (sin (asin 1.0)))
-    (eqv? '(c . d) (assoc 'c '((a . b) (c . d))))
-    (eqv? '(c . d) (assq 'c '((a . b) (c . d))))
-    (eq? 'd (assv 'c '((a . b) (c . d))))
-    (<= (abs (- 1.0 (tan (atan 1.0)))) 1e-15)
-    ;; atoms
-    (= 3 (begin 1 2 3))
-    (not (boolean? 5))
-    ;; caaaar
-    ;; caaadr
-    ;; caaar
-    ;; caadar
-    ;; caaddr
-    ;; caadr
-    ;; caar
-    ;; cadaar
-    ;; cadadr
-    ;; cadar
-    ;; caddar
-    ;; cadddr
-    ;; caddr
-    ;; cadr
-    ;; car
-    ;; cdaaar
-    ;; cdaadr
-    ;; cdaar
-    ;; cdadar
-    ;; cdaddr
-    ;; cdadr
-    ;; cdar
-    ;; cddaar
-    ;; cddadr
-    ;; cddar
-    ;; cdddar
-    ;; cddddr
-    ;; cdddr
-    ;; cddr
-    ;; cdr
-    (eqv? (ceiling 1.5) 2.0)
+    (= (ceiling 1.5) 2.0)
+    (char? #\a)
+    (char=? #\a #\a)
     (char<=? #\a #\b)
     (char<? #\a #\b)
-    (char=? #\a #\a)
+    (char=? #\a (char-downcase #\A))
+    (char=? #\A (char-upcase #\a))
+    (char=? #\A (integer->char 65))
+    (char-alphabetic? #\a)
+    (char=? #\A (string-ref "aAa" 1))
     (char>=? #\b #\a)
     (char>? #\b #\a)
-    (char? #\a)
-    (char-alphabetic? #\a)
-    (char-ci<=? #\A #\b)
-    (char-ci<? #\B #\c)
     (char-ci=? #\A #\a)
+    (char-ci<=? #\A #\b)
     (char-ci>=? #\B #\a)
     (char-ci>? #\B #\a)
-    (char=? #\a (char-downcase #\A))
-    (= 65 (char->integer #\A))
+    (char-ci<? #\B #\c)
     (char-lower-case? #\a)
     (char-numeric? #\0)
-    ;; char-ready?
-    (char=? #\A (char-upcase #\a))
     (char-upper-case? #\A)
     (char-whitespace? #\space)
     (complex? '(complex 3.0 4.0))
-    ;; cond
-    (eqv? '(a b c) (cons 'a '(b c)))
-    ;; (eqv? 1 (counter))
-    ;; (eqv? 2 (counter))
-    ;; cross
-    (let ((b 'b)) (let ((a (list b b b b b))) (set-cdr! (cddddr a) a) (cyclic? a)))
-    ;; define
-    ;; del-assoc
-    ;; del-assq
-    ;; del-assv
-    ;; delay
-    ;; (= 3 (denominator (rationalize 1.5)))
-    ;; display
-    (= 3 (div 12 4))
-    ;; eof-object?
+    (complex? '(complex 4.0 3.0))
     (eq? 'a 'a)
-    (eqv? '(1 2 3) '(1 2 3))
-    (= 7 (eval '(add 3 4) (interaction-environment)))
-    (even? 2)
-    (exact? 2)
-    (= 2.0 (exact->inexact 2))
-    (= 1.0 (exp 0.0))
-    (= 128 (expt 2 7))
-    (not #f)
-    (= 6 (fac 3))
-    (= 13 (fib 5))
-    (= 1.0 (floor 1.5))
-    ;; fold
-    ;; (= 5 (force (delay 5)))
-    ;; for-each
-    (= 2 (gcd 12 10))
-    (= 3 (if #t 3 2))
-    (= (imag-part '(complex 3.0 4.0)) 4.0)
-    (inexact? 3.0)
-    (= 3 (inexact->exact 3.0))
-    (integer? 3)
-    (char=? #\A (integer->char 65))
-    ;; interaction-environment
-    ;; iota
-    ;; lambda
-    (= 30 (lcm 12 10))
-    (= 3 (length '(a b c)))
+    (eq? 'a (apply car '((a b))))
+    (eq? 'a (car '(a)))
+    (eq? 'a (vector-ref (list->vector '(b a a)) 1))
+    (eq? 'b (cadr '(a b)))
+    (eqv? '(b) (cdr '(a b)))
+    (eq? 'c (caddr '(a b c)))
+    (eqv? '(c) (cddr '(a b c)))
+    (eq? 'd (assv 'c '((a . b) (c . d))))
+    (eq? 'd (cadddr '(a b c d)))
+    (eqv? '(d) (cdddr '(a b c d)))
+    (eqv? '(e) (cddddr '(a b c d e)))
     (eqv? '(0 1 2) (let ((a 0) (b 1) (c 2)) (list a b c)))
-    ;; (eqv? '(b c a) (letrec ((a b) (b c) (c a)) (list a b c)))
     (eqv? '(0 1 2) (let* ((a 0) (b (add a 1)) (c (add b 1))) (list a b c)))
+    (eqv? '(1 2 3) '(1 2 3))
     (eqv? '(1 2 3) (list 1 2 3))
-    (list? '(1 2 3))
+    (eqv? 157 (numerator (rationalize 3.14)))
+    (eqv? 3.0 (imag-part '(complex 5.0 3.0)))
+    (eqv? '(3 2 1) (reverse '(1 2 3)))
+    (eqv? '(3 2 1) (reverse! '(1 2 3)))
+    (eqv? 3 (vector-length (list->vector (list 1 2 3))))
+    (eqv? 3 (vector-length (vector 1 2 3)))
+    (eqv? 50 (denominator (rationalize 3.14)))
+    (eqv? 5.0 (real-part '(complex 5.0 3.0)))
+    (eqv? 5 (force (delay 5)))
+    (eqv? 9 (square 3))
+    (eqv? `(a ,(add 3 4) b) '(a 7 b))
+    (eqv? '(a b) (begin (let ((s '(a a))) (set-cdr! s '(b)) s )))
+    (eqv? '(a b) (begin (let ((s '(b b))) (set-car! s 'a) s)))
+    (eqv? '(a b c) (cons 'a '(b c)))
+    (eqv? '(a b c d e) (append '(a b c) '(d e)))
+    (eqv? `(a (unquote-splicing (list 1 2 3)) b c) '(a 1 2 3 b c))
+    (eqv? '(b) (cdr '(a b)))
+    (eqv? '(c) (cddr '(a b c)))
+    (eqv? '(c . d) (assoc 'c '((a . b) (c . d))))
+    (eqv? '(c . d) (assq 'c '((a . b) (c . d))))
     (eqv? '(c d e) (list-tail '(a b c d e) 2))
     (eqv? 'c (list-ref '(a b c d e) 2))
-    ;; load
-    (<= (abs (- 1.0 (log (exp 1.0)))) 1e-15)
-    (<= (abs (- (sqrt 2.0) (magnitude '(complex 1.0 1.0)))) 1e-15)
-    ;; make-counter
-    ;; make-polar
-    ;; make-rectangular
-    (= 45 (string-length (make-string 45)))
-    ;; map
-    ;; map*
-    (= 3 (max 1 3 2))
-    ;; member
-    ;; memq
-    ;; memv
-    (= 3 (min 4 3 6))
-    (= 1 (mod 3 2))
-    (= 6 (mul 2 3))
+    (eqv? '(d) (cdddr '(a b c d)))
+    (eqv? '(e) (cddddr '(a b c d e)))
+    (eqv? (list 1 2 3) (vector->list (list->vector (list 1 2 3))))
+    (eqv? (list->vector (list 1 2 3)) (list->vector (list 1 2 3)))
+    (eqv? '(rational 1 1) (rational-mul '(rational 2 3) '(rational 3 2)))
+    (eqv? '(rational 1 6) (rational-sub '(rational 1 2) '(rational 1 3)))
+    (eqv? '(rational 3 2) (rational-div '(rational 3 4) '(rational 1 2)))
+    (eqv? '(rational 5 6) (rational-add '(rational 1 2) '(rational 1 3)))
+    (eqv? (rationalize 3.14159265358979) '(rational 789453460 251290841))
+    (even? 2)
+    (exact? 2)
+    (= (imag-part '(complex 3.0 4.0)) 4.0)
+    (inexact? 3.0)
+    (integer? 3)
+    (let ((b 'b)) (let ((a (list b b b b b))) (set-cdr! (cddddr a) a) (cyclic? a)))
+    (list? '(1 2 3))
     (negative? -3)
-    ;; newline
+    (not (boolean? 5))
     (not #f)
     (null? #f)
-    ;; null-environment
     (number? 3)
-    (eqv? "3" (number->string 3))
-    ;; numerator
     (odd? 3)
     (or #f #f #t #f)
     (pair? '(a . b))
-    ;; pairs
-    ;; peek-char
     (positive? 3)
-    (<= (abs (- 8.0 (pow 2.0 3.0))) 1e-15)
-    (procedure? procedure?)
     (procedure? fib)
-    ;; promise?
-    ;; promise-forced?
-    ;; promise-value
-    (= '3 (add 2 1))
-    (eqv? `(a ,(add 3 4) b) '(a 7 b))
-    ;;(eqv? `(a ,@(list 1 2 3) b c) '(a 1 2 3 b c))
-    (eqv? `(a (unquote-splicing (list 1 2 3)) b c) '(a 1 2 3 b c))
+    (procedure? procedure?)
     (rational? '(rational 5 6))
-    (eqv? '(rational 5 6) (rational-add '(rational 1 2) '(rational 1 3)))
-    (eqv? '(rational 3 2) (rational-div '(rational 3 4) '(rational 1 2)))
-    (eqv? (rationalize 3.14159265358979) '(rational 789453460 251290841))
-    (eqv? '(rational 1 1) (rational-mul '(rational 2 3) '(rational 3 2)))
-    (eqv? '(rational 1 6) (rational-sub '(rational 1 2) '(rational 1 3)))
-    ;; read
-    ;; read-char
     (real? 45.0)
-    (= 45.0 (real-part '(complex 45.0 18.0)))
-    (eqv? '(3 2 1) (reverse '(1 2 3)))
-    (eqv? '(3 2 1) (reverse! '(1 2 3)))
-    (= 3.0 (round 3.1))
-    ;; set!
-    (eqv? '(a b) (begin (let ((s '(b b))) (set-car! s 'a) s)))
-    (eqv? '(a b) (begin (let ((s '(a a))) (set-cdr! s '(b)) s )))
     (= (sin (asin 1.0)) 1.0)
-    (= 3.0 (sqrt 9.0))
-    (= 3 (string->number "3"))
+    (string=? "3" (number->string 3))
+    (string=? "AAA" (string-fill! (make-string 3) #\A))
+    (string=? "aA" (substring "baA" 1 3))
+    (string? "abc")
+    (string=? "abc" "abc")
     (string<=? "abc" "abd")
     (string<? "abc" "abd")
-    (string=? "abc" "abc")
+    (string=? "abc" (list->string (list #\a #\b #\c)))
+    (string=? "abc" (string #\a #\b #\c))
+    (string=? "abc" (string-copy "abc"))
+    (string=? "aBc" (string-set! "abc" 1 #\B ))
+    (string=? "abc" (symbol->string 'abc))
     (string>=? "abd" "abc")
     (string>? "abd" "abc")
-    (string? "abc")
-    (string-ci<=? "ABC" "abc")
-    (string-ci<? "ABC" "abd")
-    (string-ci=? "ABC" "aBc")
     (string-ci>=? "aBc" "ABB")
+    (string-ci<=? "ABC" "abc")
+    (string-ci=? "ABC" "aBc")
+    (string-ci<? "ABC" "abd")
     (string-ci>? "ABd" "abC")
-    (string=? "abc" (string-copy "abc"))
-    (string=? "AAA" (string-fill! (make-string 3) #\A))
-    (= 3 (string-length "abc"))
-    (char=? #\A (string-ref "aAa" 1))
-    (string=? "aBc" (string-set! "abc" 1 #\B ))
-    (= 2 (sub 5 3))
-    (string=? "aA" (substring "baA" 1 3))
+    (string? (string #\a #\b #\c))
+    (< (sub (angle '(complex 1.0 1.0)) 0.785398163397448) 1e-15)
     (symbol? 'a)
-    (eqv? "abc" (symbol->string 'abc))
-    (= 6 (tak 7 6 5))
-    (<= (abs (- 1.0 (tan (atan 1.0)))) 1e-15)
-    ;; truncate
-    ;; while
-    ;; write
-    ;; write-char
+    (vector? (list->vector (list 1 2 3)))
+    (vector? (make-vector 3))
     (zero? 0)
     #t
 ))

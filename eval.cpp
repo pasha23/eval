@@ -58,7 +58,8 @@ enum Tag1
     DOUBLE  =  7,
     CHAR    =  8,
     INPORT  =  9,
-    OUTPORT = 10
+    OUTPORT = 10,
+    VECTOR  = 11
 };
 
 typedef struct Cons *sexp;
@@ -85,6 +86,7 @@ struct Form    { char tags[sizeof(sexp)]; Formp                  formp; };
 struct Char    { char tags[2];            char    text[sizeof(Cons)-2]; };
 struct InPort  { char tags[sizeof(sexp)]; FILE*                   file; };
 struct OutPort { char tags[sizeof(sexp)]; FILE*                   file; };
+struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short length; sexp* elements; };
 
 sexp scan(FILE* fin);
 sexp set(sexp p, sexp r);
@@ -107,22 +109,23 @@ sexp atompa, atomsa, begin, callwithina, callwithouta, cara, cdra, ceilinga;
 sexp char2ia, char2inta, charcieqa, charcigea, charcigta, charcilea, charcilta;
 sexp chareqa, chargea, chargta, charlea, charlta, charpa, clinporta, closurea;
 sexp cloutporta, comma, commaat, complexa, cond, consa, cosa, curinporta;
-sexp curoutporta, cyclicpa, definea, delaya, displaya, diva, dot, downcasea;
+sexp curoutporta, cyclicpa, definea, delaya, displaya, diva, doa, dot, downcasea;
 sexp e2ia, elsea, eofa, eofobjp, eqa, eqna, equalpa, eqva, evala, exactpa;
 sexp expa, f, floora, forcea, forcedpa, gca, gea, gta, i2ea, ifa, inexactpa;
-sexp inportpa, int2chara, integerpa, intenva, lambda, lea, let, list2sa, listpa;
-sexp loada, loga, lowercasepa, lparen, lsha, lta, makestringa, minus, moda;
-sexp modulo, mula, newlinea, nil, nota, nulenva, nullpa, num2stringa, numberpa;
-sexp numericpa, openina, openouta, ora, outportpa, pairpa, peekchara, pipea;
-sexp plus, powa, procedurepa, promisea, promisepa, promiseva, qchar, quasiquote;
-sexp quote, rationala, reada, readchara, readypa, realpa, reversea, rounda;
-sexp rparen, rsha, s2lista, s2numa, s2sya, seta, setcara, setcdra, sina, spacea;
-sexp sqrta, stringappenda, stringcieq, stringcige, stringcigt, stringcile;
-sexp stringcilt, stringcopy, stringeq, stringfill, stringge, stringgt, stringle;
-sexp stringlength, stringlt, stringpa, stringref, stringset, suba, substringa;
-sexp sy2sa, symbolpa, t, tana, tick, tilde, times, truncatea, unquote;
-sexp unquotesplicing, upcasea, uppercasepa, voida, whilea, whitespacepa, withina;
-sexp withouta, writea, writechara, xora, letstar, letrec; 
+sexp inportpa, int2chara, integerpa, intenva, lambda, lea, let, letrec, letstar;
+sexp list2sa, list2vector, listpa, loada, loga, lowercasepa, lparen, lsha, lta;
+sexp makestringa, makevector, minus, moda, modulo, mula, newlinea, nil, nota;
+sexp nulenva, nullpa, num2stringa, numberpa, numericpa, openina, openouta, ora;
+sexp outportpa, pairpa, peekchara, pipea, plus, powa, procedurepa, promisea;
+sexp promisepa, promiseva, qchar, quasiquote, quote, rationala, reada, readchara;
+sexp readypa, realpa, reversea, rounda, rparen, rsha, s2lista, s2numa, s2sya;
+sexp seta, setcara, setcdra, sina, spacea, sqrta, stringa, stringappenda;
+sexp stringcieq, stringcige, stringcigt, stringcile, stringcilt, stringcopy;
+sexp stringeq, stringfill, stringge, stringgt, stringle, stringlength, stringlt;
+sexp stringpa, stringref, stringset, suba, substringa, sy2sa, symbolpa, t, tana, tick;
+sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
+sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
+sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
 
 static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
@@ -139,6 +142,7 @@ static inline bool isDouble(const sexp p)  { return isOther(p) && DOUBLE  == eva
 static inline bool isChar(const sexp p)    { return isOther(p) && CHAR    == evalType(p);       }
 static inline bool isInPort(const sexp p)  { return isOther(p) && INPORT  == evalType(p);       }
 static inline bool isOutPort(const sexp p) { return isOther(p) && OUTPORT == evalType(p);       }
+static inline bool isVector(const sexp p)  { return isOther(p) && VECTOR  == evalType(p);       }
 static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);                  }
 
 bool isClosure(sexp p)
@@ -206,6 +210,11 @@ sexp save(sexp p)
     return p;
 }
 
+sexp replace(sexp p)
+{
+    return *psp = p;
+}
+
 /*
  * pop n items from the protection stack then return p
  */
@@ -239,6 +248,10 @@ static inline void unmarkCell(sexp p)
 }
 
 void mark(sexp p);
+
+void deleteinport(sexp v) { fclose(((InPort*)v)->file); }
+void deleteoutport(sexp v) { fclose(((OutPort*)v)->file); }
+void deletevector(sexp v) { delete ((Vector*)v)->elements; }
 
 void markCons(sexp p, std::set<sexp>& seenSet)
 {
@@ -279,6 +292,10 @@ void mark(sexp p)
     } else if (isString(p)) {
         mark(((String*)p)->chunks);
         markCell(p);
+    } else if (isVector(p)) {
+        Vector* v = (Vector*)p;
+        for (int i = v->length; --i >= 0; mark(v->elements[i])) {}
+        markCell(p);
     } else
         markCell(p);
 }
@@ -310,9 +327,11 @@ void gc(bool verbose)
         if (!isMarked(p))
         {
             if (isOutPort(p))
-                fclose(((OutPort*)p)->file);
+                deleteoutport(p);
             else if (isInPort(p))
-                fclose(((InPort*)p)->file);
+                deleteinport(p);
+            else if (isVector(p))
+                deletevector(p);
             p->car = 0;
             p->cdr = freelist;
             freelist = p;
@@ -822,9 +841,9 @@ sexp num2string(sexp num)
     if (isFixnum(num))
         sprintf(b, "%ld", ((Fixnum*)num)->fixnum);
     else if (isFloat(num))
-        sprintf(b, "%#f", asFlonum(num));
+        sprintf(b, "%#.8f", asFlonum(num));
     else if (isDouble(num))
-        sprintf(b, "%#f", asFlonum(num));
+        sprintf(b, "%#.15f", asFlonum(num));
     return lose(1, newstring(save(newchunk(b))));
 }
 
@@ -930,6 +949,113 @@ sexp callwithin(sexp p, sexp f) { sexp inp = openin(p); sexp q = apply(f, cons(i
 
 // call-with-output-file
 sexp callwithout(sexp p) { sexp oup = openout(p); sexp q = apply(f, cons(oup, 0)); cloutport(oup); return q; }
+
+sexp vectorp(sexp v)
+{
+    return isVector(v) ? t : 0;
+}
+
+sexp newvector(int len, sexp fill)
+{
+    Vector* v = (Vector*) save(newcell());
+    v->tags[0] = OTHER;
+    v->tags[1] = VECTOR;
+    v->length = len;
+    v->elements = new sexp[len];
+    for (int i = v->length; --i >= 0; v->elements[i] = fill) {}
+    return lose(1, (sexp)v);
+}
+
+sexp makevec(sexp args)
+{
+    save(args);
+    int len = 0;
+    if (args->car && isFixnum(args->car))
+        len = asFixnum(args->car);
+    sexp fill = 0;
+    if (args->cdr && args->cdr->car)
+        fill = args->cdr->car;
+    return lose(1, newvector(len, fill));
+}
+
+sexp list2vec(sexp list)
+{
+    save(list);
+    int length = 0;
+    for (sexp p = list; p; p = p->cdr)
+        ++length;
+    Vector* v = (Vector*) save(newvector(length, 0));
+    int index = 0;
+    for (sexp p = list; p; p = p->cdr)
+        v->elements[index++] = p->car;
+    return lose(2, (sexp)v);
+}
+
+void assertVector(sexp v)
+{
+    if (!isVector(v))
+        error("not a vector");
+}
+
+sexp vec2list(sexp vector)
+{
+    assertVector(vector);
+    save(vector);
+    Vector* v = (Vector*)vector;
+    int index = v->length;
+    sexp list = save(0);
+    while (index > 0)
+        replace(list = cons(v->elements[--index], list));
+    return lose(2, list);
+}
+
+sexp vecfill(sexp vector, sexp value)
+{
+    assertVector(vector);
+    save(value);
+    save(vector);
+    Vector* v = (Vector*)vector;
+    int index = v->length;
+    while (index > 0)
+        v->elements[--index] = value;
+    return lose(2, vector);
+}
+
+sexp veclength(sexp vector)
+{
+    assertVector(vector);
+    save(vector);
+    return lose(1, newfixnum(((Vector*)vector)->length));
+}
+
+sexp vecref(sexp vector, sexp index)
+{
+    assertFixnum(index);
+    assertVector(vector);
+    return ((Vector*)vector)->elements[asFixnum(index)];
+}
+
+sexp vector(sexp args)
+{
+    save(args);
+    int index = 0;
+    for (sexp p = args; p; p = p->cdr)
+        ++index;
+    Vector* v = (Vector*) save(newvector(index, 0));
+    index = 0;
+    for (sexp p = args; p; p = p->cdr)
+        v->elements[index++] = p->car;
+    return lose(2, (sexp)v);
+}
+
+sexp vecset(sexp vector, sexp index, sexp value)
+{
+    assertFixnum(index);
+    assertVector(vector);
+    Vector* v = (Vector*)vector;
+    v->elements[asFixnum(index)] = value;
+    return voida;
+}
 
 /*
  * compare chunks
@@ -1405,6 +1531,20 @@ void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
     }
 }
 
+void displayVector(FILE* fout, sexp v, bool write)
+{
+    putchar('[');
+    Vector *vv = (Vector*)v;
+    if (vv->length)
+        display(fout, vv->elements[0], write);
+    for (int i = 1; i < vv->length; ++i)
+    {
+        fprintf(fout, ", ");
+        display(fout, vv->elements[i], write);
+    }
+    putchar(']');
+}
+
 const char *char_names[] =
 {
   "nul","soh","stx","etx","eot","enq","ack","bel","bs", "ht", "nl", "vt", "np", "cr", "so", "si",
@@ -1430,13 +1570,19 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
     else if (isFixnum(exp))
         fprintf(fout, "%ld", ((Fixnum*)exp)->fixnum);
     else if (isFloat(exp))
-        fprintf(fout, "%#f", asFlonum(exp));
+        fprintf(fout, "%#.8f", asFlonum(exp));
     else if (isDouble(exp))
-        fprintf(fout, "%#f", asFlonum(exp));
+        fprintf(fout, "%#.15f", asFlonum(exp));
     else if (isFunct(exp))
         fprintf(fout, "#<function%d@%p>", arity(exp), (void*)((Funct*)exp)->funcp);
     else if (isForm(exp))
         fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
+    else if (isVector(exp))
+        displayVector(fout, exp, write);
+    else if (isInPort(exp))
+        fprintf(fout, "#<input@%d>", ((InPort*)exp)->file->_fileno);
+    else if (isOutPort(exp))
+        fprintf(fout, "#<output@%d>", ((OutPort*)exp)->file->_fileno);
     else if (isChar(exp)) {
         if (write)
         {
@@ -1534,9 +1680,10 @@ sexp s2list(sexp x)
  */
 sexp list2s(sexp s)
 {
-    if (0 == s)
-        return 0;
+    if (!s)
+        return newstring(0);
 
+    save(s);
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
@@ -1563,7 +1710,29 @@ sexp list2s(sexp s)
     while (i < sizeof(r->text))
         r->text[i++] = 0;
 
-    return lose(1, newatom(p));
+    return lose(2, newstring(p));
+}
+
+sexp string(sexp args)
+{
+    return list2s(args);
+}
+
+bool eqvb(sexp x, sexp y);
+
+bool cmpv(sexp p, sexp q)
+{
+    Vector* pv = (Vector*)p;
+    Vector* qv = (Vector*)q;
+
+    if (pv->length != qv->length)
+        return false;
+
+    for (int i = pv->length; --i >= 0; )
+        if (!eqvb(pv->elements[i], qv->elements[i]))
+            return false;
+
+    return true;
 }
 
 /*
@@ -1588,6 +1757,7 @@ bool eqvb(sexp x, sexp y)
     case FIXNUM: return asFixnum(x) == asFixnum(y);
     case FLOAT :
     case DOUBLE: return asFlonum(x) == asFlonum(y);
+    case VECTOR: return cmpv(x, y);
     default:     return 0;
     }
 }
@@ -1861,7 +2031,7 @@ sexp letform(sexp exp, sexp env)
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     // this next line is suspect, altering too many bindings
-    for (sexp f = e; f; f = f->cdr)
+    for (sexp f = e; f && f != global; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
@@ -1879,7 +2049,7 @@ sexp letstarform(sexp exp, sexp env)
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
     // this next line is suspect, altering too many bindings
-    for (sexp f = e; f; f = f->cdr)
+    for (sexp f = e; f && f != global; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
@@ -1899,12 +2069,44 @@ sexp letrecform(sexp exp, sexp env)
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
     // this next line is suspect, altering too many bindings
-    for (sexp f = e; f; f = f->cdr)
+    for (sexp f = e; f && f != global; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
             f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
     return lose(psp-mark, r);
+}
+
+/*
+ * (do ((var value step)
+ *      (var value step) ...)
+ *      (test)
+ *      body)
+ */
+sexp doform(sexp exp, sexp env)
+{
+    // loop {
+    //    set value step
+    //    body
+    // }
+    sexp e = env;
+    sexp* mark = psp;
+    // bind all the variables to their values
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+    for (;;)
+    {
+        sexp s = 0;
+        // if ! (test) break;
+        if (!eval(exp->cdr->cdr->car, e))
+            return lose(mark, s);
+        // body ..
+        for (sexp r = exp->cdr->cdr->cdr; r; r = r->cdr)
+            s = eval(r->car, e);
+        // step each variable
+        for (sexp v = exp->cdr->car; v; v = v->cdr)
+            set(v->car->car, eval(v->car->cdr->car, e), e);
+    }
 }
 
 sexp apply(sexp fun, sexp args)
@@ -2329,6 +2531,7 @@ int main(int argc, char **argv, char **envp)
     delaya          = atomize("delay");
     displaya        = atomize("display");
     diva            = atomize("div");
+    doa             = atomize("do");
     dot             = atomize(".");
     downcasea       = atomize("char-downcase");
     e2ia            = atomize("exact->inexact");
@@ -2359,9 +2562,10 @@ int main(int argc, char **argv, char **envp)
     lambda          = atomize("lambda");
     lea             = atomize("<=");
     let             = atomize("let");
-    letstar         = atomize("let*");
     letrec          = atomize("letrec");
+    letstar         = atomize("let*");
     list2sa         = atomize("list->string");
+    list2vector     = atomize("list->vector");
     listpa          = atomize("list?");
     loada           = atomize("load");
     loga            = atomize("log");
@@ -2370,6 +2574,7 @@ int main(int argc, char **argv, char **envp)
     lsha            = atomize("<<");
     lta             = atomize("<");
     makestringa     = atomize("make-string");
+    makevector      = atomize("make-vector");
     minus           = atomize("-");
     moda            = atomize("mod");
     mula            = atomize("mul");
@@ -2405,6 +2610,7 @@ int main(int argc, char **argv, char **envp)
     rounda          = atomize("round");
     rparen          = atomize(")");
     rsha            = atomize(">>");
+    stringa         = atomize("string");
     s2lista         = atomize("string->list");
     s2numa          = atomize("string->number");
     s2sya           = atomize("string->symbol");
@@ -2435,14 +2641,21 @@ int main(int argc, char **argv, char **envp)
     sy2sa           = atomize("symbol->string");
     symbolpa        = atomize("symbol?");
     tana            = atomize("tan");
+    t               = atomize("#t");
     tick            = atomize("`");
     tilde           = atomize("~");
-    t               = atomize("#t");
     truncatea       = atomize("truncate");
     unquote         = atomize("unquote");
     unquotesplicing = atomize("unquote-splicing");
     upcasea         = atomize("char-upcase");
     uppercasepa     = atomize("char-upper-case?");
+    vec2lista       = atomize("vector->list");
+    vectora         = atomize("vector");
+    vectorfill      = atomize("vector-fill!");
+    vectorlength    = atomize("vector-length");
+    vectorpa        = atomize("vector?");
+    vectorref       = atomize("vector-ref");
+    vectorset       = atomize("vector-set!");
     voida           = atomize("");
     whilea          = atomize("while");
     whitespacepa    = atomize("char-whitespace?");
@@ -2459,6 +2672,7 @@ int main(int argc, char **argv, char **envp)
     define_form(cond,         condform);
     define_form(definea,      defineform);
     define_form(delaya,       delayform);
+    define_form(doa,          doform);
     define_form(intenva,      intenvform);
     define_form(nulenva,      nulenvform);
     define_form(ifa,          ifform);
@@ -2532,6 +2746,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(integerpa,     1, (void*)integerp);
     define_funct(lea,           2, (void*)le);
     define_funct(list2sa,       1, (void*)list2s);
+    define_funct(list2vector,   1, (void*)list2vec);
     define_funct(listpa,        1, (void*)listp);
     define_funct(loada,         1, (void*)load);
     define_funct(loga,          1, (void*)logff);
@@ -2539,6 +2754,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(lsha,          2, (void*)lsh);
     define_funct(lta,           2, (void*)lt);
     define_funct(makestringa,   0, (void*)makestring);
+    define_funct(makevector,    0, (void*)makevec);
     define_funct(moda,          2, (void*)modfn);
     define_funct(mula,          2, (void*)mulf);
     define_funct(newlinea,      0, (void*)newlinef);
@@ -2571,6 +2787,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(sina,          1, (void*)sinff);
     define_funct(spacea,        0, (void*)spacef);
     define_funct(sqrta,         1, (void*)sqrtff);
+    define_funct(stringa,       0, (void*)string);
     define_funct(stringappenda, 2, (void*)stringappend);
     define_funct(stringcieq,    2, (void*)stringcieqf);
     define_funct(stringcige,    2, (void*)stringcigef);
@@ -2597,6 +2814,13 @@ int main(int argc, char **argv, char **envp)
     define_funct(truncatea,     1, (void*)truncate);
     define_funct(upcasea,       1, (void*)upcase);
     define_funct(uppercasepa,   1, (void*)uppercasep);
+    define_funct(vec2lista,     1, (void*)vec2list);
+    define_funct(vectora,       0, (void*)vector);
+    define_funct(vectorfill,    2, (void*)vecfill);
+    define_funct(vectorlength,  1, (void*)veclength);
+    define_funct(vectorpa,      1, (void*)vectorp);
+    define_funct(vectorref,     2, (void*)vecref);
+    define_funct(vectorset,     3, (void*)vecset);
     define_funct(whitespacepa,  1, (void*)whitespacep);
     define_funct(withina,       1, (void*)within);
     define_funct(withouta,      1, (void*)without);
