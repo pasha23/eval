@@ -102,55 +102,64 @@
              (rational-reduce (div (mul (numerator x) (denominator y)) g)
                               (div (mul (denominator x) (numerator y)) g))))
 
-(define (complex? z)
-        (and (eq? 'complex (car z))
+(define (rectangular? z)
+        (and (eq? 'rectangular (car z))
              (real? (cadr z))
              (real? (caddr z))
              (null? (cdddr z))))
 
-(define (make-complex re im) (cons 'complex (cons re (cons im #f))))
+(define (polar? z)
+        (and (eq? 'polar (car z))
+             (real? (cadr z))
+             (real? (caddr z))
+             (null? (cdddr z))))
 
-(define (make-polar r theta) #f)    ;; not done
+(define (complex? z)
+        (or (rectangular? z)
+            (polar? z)))
 
-(define real-part cadr)
+(define (make-rectangular re im) (cons 'rectangular (cons re (cons im #f))))
 
-(define imag-part caddr)
+(define (make-polar r theta) (cons 'polar (cons r (cons theta #f))))
+
+(define (rectangular->polar z) (make-polar (magnitude z) (angle z)))
+
+(define (polar->rectangular z) (make-rectangular (mul (cadr z) (cos (caddr z))) (mul (cadr z) (sin (caddr z)))))
+
+(define (real-part z) (if (rectangular? z) (cadr z) (mul (cadr z) (cos (caddr z)))))
+
+(define (imag-part z) (if (rectangular? z) (caddr z) (mul (cadr z) (sin (caddr z)))))
 
 (define (square x) (mul x x))
 
-(define (magnitude z)
-        (if (complex? z)
-            (sqrt (add (square (real-part z)) (square (imag-part z))))
-            #f))
-
-(define (complex-add z w)
-        (make-complex (add (real-part z) (real-part w))
+(define (rectangular-add z w)
+        (make-rectangular (add (real-part z) (real-part w))
                       (add (imag-part z) (imag-part w))))
 
-(define (complex-sub z w)
-        (make-complex (sub (real-part z) (real-part w))
+(define (rectangular-sub z w)
+        (make-rectangular (sub (real-part z) (real-part w))
                       (sub (imag-part z) (imag-part w))))
 
-(define (complex-mul z w)
+(define (rectangular-mul z w)
         (let ((x (real-part z))
               (y (imag-part z))
               (u (real-part w))
               (v (imag-part w)))
-             (make-complex (sub (mul x u) (mul y v))
+             (make-rectangular (sub (mul x u) (mul y v))
                            (add (mul x v) (mul y u)))))
 
-(define (complex-div z w)
+(define (rectangular-div z w)
         (let ((x (real-part z))
               (y (imag-part z))
               (u (real-part w))
               (v (imag-part w)))
              (let ((denominator (add (square u) (square v))))
-                  (make-complex (div (add (mul x u) (mul y v))
+                  (make-rectangular (div (add (mul x u) (mul y v))
                                      denominator)
                                 (div (sub (mul y u) (mul x v))
                                      denominator)))))
 
-(define (make-rectangular x y) (cons 'complex (cons x (cons y #f))))
+(define (make-rectangular x y) (cons 'rectangular (cons x (cons y #f))))
 
 (define (fib x) (if (<= x 0) 1 (add (fib (sub x 2)) (fib (sub x 1)))))
 

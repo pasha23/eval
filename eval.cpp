@@ -105,7 +105,7 @@ void envto(const char *label, sexp e0, sexp e1);
 // these are the built-in atoms
 
 sexp acosa, adda, alphapa, ampera, anda, anglea, appenda, applya, asina, atana;
-sexp atompa, atomsa, begin, callwithina, callwithouta, cara, cdra, ceilinga;
+sexp ata, atompa, atomsa, begin, callwithina, callwithouta, cara, cdra, ceilinga;
 sexp char2ia, char2inta, charcieqa, charcigea, charcigta, charcilea, charcilta;
 sexp chareqa, chargea, chargta, charlea, charlta, charpa, clinporta, closurea;
 sexp cloutporta, comma, commaat, complexa, cond, consa, cosa, curinporta;
@@ -126,7 +126,7 @@ sexp stringpa, stringref, stringset, suba, substringa, sy2sa, symbolpa, t, tana,
 sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
-sexp lbracket, rbracket;
+sexp lbracket, rbracket, polara, magnitudea, rectangulara;
 
 static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
 static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
@@ -155,13 +155,27 @@ bool isClosure(sexp p)
            !p->cdr;
 }
 
-bool isComplex(sexp p)
+bool isRectangular(sexp p)
 {
     return isCons(p) &&
-           complexa == p->car &&       // (complex
+           rectangulara == p->car &&   // (rectangular
            (p = p->cdr) && p->car &&   //  real
            (p = p->cdr) && p->car &&   //  imaginary)
            !p->cdr;
+}
+
+bool isPolar(sexp p)
+{
+    return isCons(p) &&
+           polara == p->car &&         // (polar
+           (p = p->cdr) && p->car &&   //  r
+           (p = p->cdr) && p->car &&   //  theta)
+           !p->cdr;
+}
+
+bool isComplex(sexp p)
+{
+    return isRectangular(p) || isPolar(p);
 }
 
 bool isPromise(sexp p)
@@ -361,13 +375,15 @@ sexp gcf(sexp l)
     return 0;
 }
 
-void assertAtom(sexp s)    { if (!isAtom(s)) error("not symbol"); }
-void assertChar(sexp c)    { if (!isChar(c)) error("not a character"); }
-void assertComplex(sexp s) { if (!isComplex(s)) error("not complex"); }
-void assertFixnum(sexp i)  { if (!isFixnum(i)) error("not an integer"); }
-void assertInPort(sexp s)  { if (!isInPort(s)) error("not an input port"); }
-void assertOutPort(sexp s) { if (!isOutPort(s)) error("not an output port"); }
-void assertString(sexp s)  { if (!isString(s)) error("not a string"); }
+void assertAtom(sexp s)        { if (!isAtom(s)) error("not symbol"); }
+void assertChar(sexp c)        { if (!isChar(c)) error("not a character"); }
+void assertRectangular(sexp s) { if (!isRectangular(s)) error("not rectangular"); }
+void assertComplex(sexp s)     { if (!isComplex(s)) error("not complex"); }
+void assertPolar(sexp s)       { if (!isPolar(s)) error("not polar"); }
+void assertFixnum(sexp i)      { if (!isFixnum(i)) error("not an integer"); }
+void assertInPort(sexp s)      { if (!isInPort(s)) error("not an input port"); }
+void assertOutPort(sexp s)     { if (!isOutPort(s)) error("not an output port"); }
+void assertString(sexp s)      { if (!isString(s)) error("not a string"); }
 
 /*
  * allocate a cell from the freelist
@@ -710,10 +726,24 @@ sexp modfn(sexp x, sexp y)
         error("mod: bad left argument");
 }
 
-sexp angle(sexp s)
+// (define (magnitude z) (sqrt (add (square (real-part z)) (square (imag-part z)))))
+
+sexp magnitude(sexp z)
 {
-    assertComplex(s);
-    return newflonum(atan2(asFlonum(s->cdr->cdr->car), asFlonum(s->cdr->car)));
+    save(z);
+    assertRectangular(z);
+    return lose(1, newflonum(sqrt(asFlonum(z->cdr->car)*
+                                  asFlonum(z->cdr->car)+
+                                  asFlonum(z->cdr->cdr->car)*
+                                  asFlonum(z->cdr->cdr->car))));
+}
+
+// (define (angle z) (atan2 (imag-part z) (real-part z)))
+
+sexp angle(sexp z)
+{
+    assertRectangular(z);
+    return newflonum(atan2(asFlonum(z->cdr->cdr->car), asFlonum(z->cdr->car)));
 }
 
 // functions on real numbers
@@ -868,7 +898,7 @@ sexp num2string(sexp exp)
         sprintf(b, "%s", b);
     } else if (isRational(exp))
         sprintf(b, "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
-    else if (isComplex(exp)) {
+    else if (isRectangular(exp)) {
         if (asFlonum(exp->cdr->car)) {
             char b0[32], b1[32];
             renderFloat(b0, asFlonum(exp->cdr->car));
@@ -885,6 +915,11 @@ sexp num2string(sexp exp)
             sprintf(b, "%si", b1);
         } else
             sprintf(b, "0.0+0.0i");
+    } else if (isPolar(exp)) {
+        char b0[32], b1[32];
+        renderFloat(b0, asFlonum(exp->cdr->car));
+        renderFloat(b1, asFlonum(exp->cdr->cdr->car));
+        sprintf(b, "%s@%si", b0, b1);
     }
     return lose(1, newstring(save(newchunk(b))));
 }
@@ -1604,7 +1639,7 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
         fprintf(fout, "#<promise@%p>", (void*)exp);
     else if (isRational(exp))
         fprintf(fout, "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
-    else if (isComplex(exp)) {
+    else if (isRectangular(exp)) {
         if (asFlonum(exp->cdr->car)) {
             char b0[32], b1[32];
             renderFloat(b0, asFlonum(exp->cdr->car));
@@ -1621,6 +1656,11 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
             fprintf(fout, "%si", b1);
         } else
             fprintf(fout, "0.0+0.0i");
+    } else if (isPolar(exp)) {
+        char b0[32], b1[32];
+        renderFloat(b0, asFlonum(exp->cdr->car));
+        renderFloat(b1, asFlonum(exp->cdr->cdr->car));
+        fprintf(fout, "%s@%si", b0, b1);
     } else if (isCons(exp) && safe(seenSet, exp))
         displayList(fout, exp, seenSet, write);
     else if (isString(exp))
@@ -2242,7 +2282,7 @@ sexp eval(sexp p, sexp env)
     if (isAtom(p))
         return get(p, env);
 
-    if (isRational(p) || isComplex(p))
+    if (isRational(p) || isRectangular(p) || isPolar(p))
         return p;
 
     sexp* mark = psp;
@@ -2441,7 +2481,7 @@ sexp scan(FILE* fin)
         c = getc(fin);
         double floater = strtod(buffer, &nptr);
         if (nptr == strchr(buffer, '\0'))
-            return lose(4, cons(complexa, save(cons(save(newflonum(0.0)), save(cons(save(newflonum(floater)), 0))))));
+            return lose(4, cons(rectangulara, save(cons(save(newflonum(0.0)), save(cons(save(newflonum(floater)), 0))))));
     }
 
     if (FLO_NUMERIC == rc)
@@ -2634,6 +2674,7 @@ int main(int argc, char **argv, char **envp)
     appenda         = atomize("append");
     applya          = atomize("apply");
     asina           = atomize("asin");
+    ata             = atomize("@");
     atana           = atomize("atan");
     atompa          = atomize("atom?");
     atomsa          = atomize("atoms");
@@ -2713,6 +2754,7 @@ int main(int argc, char **argv, char **envp)
     lparen          = atomize("(");
     lsha            = atomize("<<");
     lta             = atomize("<");
+    magnitudea      = atomize("magnitude");
     makestringa     = atomize("make-string");
     makevector      = atomize("make-vector");
     minus           = atomize("-");
@@ -2733,6 +2775,7 @@ int main(int argc, char **argv, char **envp)
     pairpa          = atomize("pair?");
     peekchara       = atomize("peek-char");
     pipea           = atomize("|");
+    polara          = atomize("polar");
     powa            = atomize("pow");
     procedurepa     = atomize("procedure?");
     promisea        = atomize("promise");
@@ -2747,6 +2790,7 @@ int main(int argc, char **argv, char **envp)
     readchara       = atomize("read-char");
     readypa         = atomize("char-ready?");
     realpa          = atomize("real?");
+    rectangulara    = atomize("rectangular");
     reversea        = atomize("reverse");
     rounda          = atomize("round");
     rparen          = atomize(")");
@@ -2894,6 +2938,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(lowercasepa,   1, (void*)lowercasep);
     define_funct(lsha,          2, (void*)lsh);
     define_funct(lta,           2, (void*)lt);
+    define_funct(magnitudea,    1, (void*)magnitude);
     define_funct(makestringa,   0, (void*)makestring);
     define_funct(makevector,    0, (void*)makevec);
     define_funct(moda,          2, (void*)modfn);
