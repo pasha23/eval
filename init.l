@@ -77,7 +77,7 @@
              (let ((ng (div n g))
                    (dg (div d g)))
                   (if (< dg 0)
-                      (make-rational (sub 0 ng) (sub 0 dg))
+                      (make-rational (neg ng) (neg dg))
                       (make-rational ng dg)))))
 
 (define (rational-add x y)
@@ -284,7 +284,7 @@
             (cons (pairs (car a) b)
                   (cross (cdr a) b)) a))
 
-(define (abs x) (if (< x 0) (sub 0 x) x))
+(define (abs x) (if (< x 0) (neg x) x))
 
 (define (max . l)
         (letrec ((maxi
@@ -319,7 +319,7 @@
                 (if (cddr l)
                     (sub (car l) (sum(cdr l)))
                     (sub (car l) (cadr l)))
-                (sub 0 (car l)))
+                (neg (car l)))
             0))
 
 (define (product l)

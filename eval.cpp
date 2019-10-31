@@ -126,7 +126,7 @@ sexp stringpa, stringref, stringset, suba, substringa, sy2sa, symbolpa, t, tana,
 sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
-sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma;
+sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma, nega;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -726,6 +726,15 @@ sexp modfn(sexp x, sexp y)
         error("mod: bad left argument");
 }
 
+sexp negf(sexp x)
+{
+    if (isFixnum(x))
+        return newfixnum(-asFixnum(x));
+    if (isFlonum(x))
+        return newflonum(-asFlonum(x));
+    error("neg: not a number");
+}
+
 // (define (magnitude z) (sqrt (add (square (real-part z)) (square (imag-part z)))))
 
 sexp magnitude(sexp z)
@@ -948,7 +957,7 @@ sexp num2string(sexp exp)
         char b0[32], b1[32];
         renderFloat(b0, asFlonum(exp->cdr->car));
         renderFloat(b1, asFlonum(exp->cdr->cdr->car));
-        sprintf(b, "%s@%si", b0, b1);
+        sprintf(b, "%s@%s", b0, b1);
     }
     return lose(1, newstring(save(newchunk(b))));
 }
@@ -1689,7 +1698,7 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
         char b0[32], b1[32];
         renderFloat(b0, asFlonum(exp->cdr->car));
         renderFloat(b1, asFlonum(exp->cdr->cdr->car));
-        fprintf(fout, "%s@%si", b0, b1);
+        fprintf(fout, "%s@%s", b0, b1);
     } else if (isCons(exp) && safe(seenSet, exp))
         displayList(fout, exp, seenSet, write);
     else if (isString(exp))
@@ -1757,29 +1766,29 @@ sexp s2sy(sexp x) { assertString(x); return intern(newatom(((String*)x)->chunks)
 sexp sy2s(sexp x) { assertAtom(x); return newstring(((Atom*)x)->chunks); }
 
 // string->number
-sexp s2num(sexp x)
+sexp s2num(sexp s)
 {
-    assertString(x);
-    char* b = (char*) alloca(slen(x)+1);
+    assertString(s);
+    char* b = (char*) alloca(slen(s)+1);
     char *q = b;
-    for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
         Chunk* t = (Chunk*)(p->car);
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
     }
     *q++ = 0;
 
-    if (strchr(b, '.') || strchr(b, 'e') || strchr(b, 'E')) {
-        char *nptr;
-        double floater = strtod(b, &nptr);
-        if (nptr == strchr(b, '\0'))
-            return newflonum(floater);
-    } else {
-        char *nptr;
-        long fixer = strtol(b, &nptr, 10);
-        if (nptr == strchr(b, '\0'))
-            return newfixnum(fixer);
-    }
+    double x, y; long z, w;
+    if (2 == sscanf(b, "%lf%lfi", &x, &y))
+        return cons(rectangulara, cons(newflonum(x), cons(newflonum(y), 0)));
+    if (2 == sscanf(b, "%lf@%lf", &x, &y))
+        return cons(polara, cons(newflonum(x), cons(newflonum(y), 0)));
+    if (2 == sscanf(b, "%ld/%ld", &z, &w))
+        return cons(rationala, cons(newfixnum(z), cons(newfixnum(w), 0)));
+    if ((strchr(b, '.') || strchr(b, 'e') || strchr(b, 'E')) && (1 == sscanf(b, "%lf", &x)))
+        return newflonum(x);
+    if (1 == sscanf(b, "%ld", &z))
+        return newfixnum(z);
     error("string->number: not a number");
 }
 
@@ -2783,6 +2792,7 @@ int main(int argc, char **argv, char **envp)
     minus           = atomize("-");
     moda            = atomize("mod");
     mula            = atomize("mul");
+    nega            = atomize("neg");
     newlinea        = atomize("newline");
     nil             = atomize("#f");
     nota            = atomize("not");
@@ -2968,6 +2978,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(makevector,    0, (void*)makevec);
     define_funct(moda,          2, (void*)modfn);
     define_funct(mula,          2, (void*)mulf);
+    define_funct(nega,          1, (void*)negf);
     define_funct(newlinea,      0, (void*)newlinef);
     define_funct(nota,          1, (void*)isnot);
     define_funct(nullpa,        1, (void*)nullp);
