@@ -2608,10 +2608,8 @@ sexp read(FILE* fin, int level)
         return lose(2, cons(quasiquote, save(cons(save(read(fin, level)), 0))));
     if (comma == p)
         return lose(2, cons(unquote, save(cons(save(read(fin, level)), 0))));
-#if 0
     if (commaat == p)
         return lose(2, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
-#endif
     if (level == 0 && (rbracket == p || rparen == p))
         error("error: an s-expression cannot begin with ')' or ']'");
     return p;
@@ -2730,6 +2728,7 @@ int main(int argc, char **argv, char **envp)
     closurea        = atomize("closure");
     cloutporta      = atomize("close-output-port");
     comma           = atomize(",");
+    commaat         = atomize(",@");
     complexa        = atomize("complex");
     cond            = atomize("cond");
     consa           = atomize("cons");

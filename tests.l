@@ -105,6 +105,7 @@
     (eqv? '(0 1 2) (let* ((a 0) (b (add a 1)) (c (add b 1))) (list a b c)))
     (eqv? '(1 2 3) '(1 2 3))
     (eqv? '(1 2 3) (list 1 2 3))
+    (eqv? '(a b 1 2 3 c d) `(a b ,@(list 1 2 3) c d))
     (eqv? 157 (numerator (rationalize 3.14)))
     (eqv? 3.0 (imag-part 5.0+3.0i))
     (eqv? '(3 2 1) (reverse '(1 2 3)))
