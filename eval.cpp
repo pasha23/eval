@@ -1900,11 +1900,11 @@ sexp equalp(sexp x, sexp y)
     return eqvb(x, y) ? t : 0;
 }
 
-void fixenvs(void)
+void fixenvs(sexp env)
 {
-    for (sexp f = global; f; f = f->cdr)
+    for (sexp f = env; f; f = f->cdr)
         if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
-            f->car->cdr->cdr->cdr->car = global;
+            f->car->cdr->cdr->cdr->car = env;
 }
 
 sexp define(sexp p, sexp r)
@@ -1916,7 +1916,6 @@ sexp define(sexp p, sexp r)
             return voida;
         }
     global = cons(save(cons(save(p), save(r))), global);
-    fixenvs();
     return lose(3, voida);
 }
 
@@ -2068,7 +2067,6 @@ sexp defineform(sexp p, sexp env)
                 }
             // update the closure definition to include the one we just made
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
-            fixenvs();
             return lose(mark, voida);
         } else {
             save(env);
@@ -2085,7 +2083,6 @@ sexp defineform(sexp p, sexp env)
                 }
             // update the closure definition to include the one we just made
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, v)), global);
-            fixenvs();
             return lose(mark, voida);
         }
     } else {
@@ -2096,7 +2093,6 @@ sexp defineform(sexp p, sexp env)
                 return lose(mark, voida);
             }
         global = cons(save(cons(p->cdr->car, save(eval(save(p)->cdr->cdr->car, save(env))))), global);
-        fixenvs();
         return lose(mark, voida);
     }
 }
