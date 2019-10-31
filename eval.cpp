@@ -1375,7 +1375,6 @@ sexp append(sexp p, sexp q)
     return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q;
 }
 
-// needs error checking
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
 sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
@@ -1780,11 +1779,11 @@ sexp s2num(sexp s)
 
     double x, y; long z, w;
     if (2 == sscanf(b, "%lf%lfi", &x, &y))
-        return cons(rectangulara, cons(newflonum(x), cons(newflonum(y), 0)));
+        return lose(4, cons(rectangulara, save(cons(save(newflonum(x)), save(cons(save(newflonum(y)), 0))))));
     if (2 == sscanf(b, "%lf@%lf", &x, &y))
-        return cons(polara, cons(newflonum(x), cons(newflonum(y), 0)));
+        return lose(4, cons(polara, save(cons(save(newflonum(x)), save(cons(save(newflonum(y)), 0))))));
     if (2 == sscanf(b, "%ld/%ld", &z, &w))
-        return cons(rationala, cons(newfixnum(z), cons(newfixnum(w), 0)));
+        return lose(4, cons(rationala, save(cons(save(newfixnum(z)), save(cons(save(newfixnum(w)), 0))))));
     if ((strchr(b, '.') || strchr(b, 'e') || strchr(b, 'E')) && (1 == sscanf(b, "%lf", &x)))
         return newflonum(x);
     if (1 == sscanf(b, "%ld", &z))
@@ -2221,7 +2220,7 @@ sexp letrecform(sexp exp, sexp env)
 /*
  * (do ((var value step)
  *      (var value step) ...)
- *      (test)
+ *      ((test) ..)
  *      body)
  */
 sexp doform(sexp exp, sexp env)
@@ -2235,18 +2234,21 @@ sexp doform(sexp exp, sexp env)
     // bind all the variables to their values
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+    sexp s = save(0);
     for (;;)
     {
-        sexp s = 0;
-        // if ! (test) break;
-        if (!eval(exp->cdr->cdr->car, e))
-            return lose(mark, s);
-        // body ..
+        // if any test succeeds, return s
+        for (sexp t = exp->cdr->cdr->car; t; t = t->cdr)
+            if (eval(t->car, e))
+                return lose(mark, s);
+
+        // execute each body expression
         for (sexp r = exp->cdr->cdr->cdr; r; r = r->cdr)
-            s = eval(r->car, e);
+            s = replace(eval(r->car, e));
+
         // step each variable
         for (sexp v = exp->cdr->car; v; v = v->cdr)
-            set(v->car->car, eval(v->car->cdr->car, e), e);
+            set(v->car->car, eval(v->car->cdr->cdr->car, e), e);
     }
 }
 
@@ -2581,6 +2583,8 @@ sexp readVector(FILE* fin, int level)
         sexp s = save(read(fin, level));
         if (rbracket == s)
             return lose(mark, list2vec(save(reverse(q))));
+        while (unquote == s->car)
+            s = s->cdr->car;
         q = replace(cons(s, q));
         s = scan(fin);
         if (rbracket == s)

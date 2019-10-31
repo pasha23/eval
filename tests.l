@@ -182,6 +182,7 @@
     (symbol? 'a)
     (vector? (list->vector (list 1 2 3)))
     (vector? (make-vector 3))
+    (= 4 (do ((i 1 (add 1 i))) ((> i 4)) i))
     (zero? 0)
     #t
 ))
