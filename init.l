@@ -56,6 +56,8 @@
 (define (make-rational n d)
         (cons 'rational (cons n (cons d #f))))
 
+(define (make-real x) (div (exact->inexact (cadr x)) (exact->inexact (caddr x))))
+
 (define (rationalize real)
         (let ((maxden 268435456)
               (t 0) (x real)
@@ -130,6 +132,10 @@
 
 (define (imag-part z) (if (rectangular? z) (caddr z) (mul (cadr z) (sin (caddr z)))))
 
+(define (mag-part z) (if (rectangular? z) (magnitude z) (cadr z)))
+
+(define (theta-part z) (if (rectangular? z) (angle z) (caddr z)))
+
 (define (square x) (mul x x))
 
 (define (rectangular-add z w)
@@ -160,6 +166,14 @@
                                      denominator)))))
 
 (define (make-rectangular x y) (cons 'rectangular (cons x (cons y #f))))
+
+(define (polar-mul z w)
+        (make-polar (mul (mag-part z) (mag-part w))
+                    (add (theta-part z) (theta-part w))))
+
+(define (polar-div z w)
+        (make-polar (div (mag-part z) (mag-part w))
+                    (sub (theta-part z) (theta-part w))))
 
 (define (fib x) (if (<= x 0) 1 (add (fib (sub x 2)) (fib (sub x 1)))))
 
@@ -267,12 +281,12 @@
 (define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
 
 (define (iota n)
-        (let ((riot
-               (lambda (n m)
-                       (if (> n 0)
-                           (cons (sub m n) (riot (sub n 1) m))
-                           #f))))
-              (riot n n)))
+        (letrec ((riot
+                  (lambda (n m)
+                          (if (> n 0)
+                              (cons (sub m n) (riot (sub n 1) m))
+                              #f))))
+                 (riot n n)))
 
 (define (pairs a b)
         (if b
