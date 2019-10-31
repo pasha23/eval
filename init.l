@@ -43,9 +43,9 @@
 
 (define (zero? x) (= 0 x))
 
-(define (gcd x y) (if (= 0 y) x (gcd y (mod x y))))
+;; (define (gcd x y) (if (zero? y) x (gcd y (mod x y))))
 
-(define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
+;; (define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
 
 (define (rational? r)
         (and (eq? 'rational (car r))
@@ -287,28 +287,28 @@
 (define (abs x) (if (< x 0) (sub 0 x) x))
 
 (define (max . l)
-        (let ((maxi
-               (lambda (x y) (if (< x y) y x)))
-              (maxx
-               (lambda (l)
-                       (if (cdr l)
-                            (if (cddr l)
-                                (maxi (car l) (maxx (cdr l)))
-                                (maxi (car l) (cadr l)))
-                            (car l)))))
-             (maxx l)))
+        (letrec ((maxi
+                  (lambda (x y) (if (< x y) y x)))
+                 (maxx
+                  (lambda (l)
+                          (if (cdr l)
+                               (if (cddr l)
+                                   (maxi (car l) (maxx (cdr l)))
+                                   (maxi (car l) (cadr l)))
+                               (car l)))))
+                maxi(maxx l)))
 
 (define (min . l)
-        (let ((mini
-               (lambda (x y) (if (< x y) x y)))
-              (minx
-               (lambda (l)
-                       (if (cdr l)
-                           (if (cddr l)
-                               (mini (car l) (minx (cdr l)))
-                               (mini (car l) (cadr l)))
-                           (car l)))))
-             (minx l)))
+        (letrec ((mini
+                  (lambda (x y) (if (< x y) x y)))
+                 (minx
+                  (lambda (l)
+                          (if (cdr l)
+                              (if (cddr l)
+                                  (mini (car l) (minx (cdr l)))
+                                  (mini (car l) (cadr l)))
+                              (car l)))))
+                (minx l)))
 
 (define (sum l)
         (if l (add (car l) (sum (cdr l))) 0))

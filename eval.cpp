@@ -126,25 +126,25 @@ sexp stringpa, stringref, stringset, suba, substringa, sy2sa, symbolpa, t, tana,
 sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
-sexp lbracket, rbracket, polara, magnitudea, rectangulara;
+sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma;
 
-static inline int  evalType(const sexp p)  { return                      ((Other*)p)->tags[1];  }
-static inline int  arity(const sexp p)     { return                      ((Other*)p)->tags[2];  }
-static inline bool isMarked(const sexp p)  { return       (MARK        & ((Other*)p)->tags[0]); }
-static inline bool isCons(const sexp p)    { return p && !(OTHER       & ((Other*)p)->tags[0]); }
-static inline bool isOther(const sexp p)   { return p &&  (OTHER       & ((Other*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)    { return isOther(p) && ATOM    == evalType(p);       }
-static inline bool isString(const sexp p)  { return isOther(p) && STRING  == evalType(p);       }
-static inline bool isFunct(const sexp p)   { return isOther(p) && FUNCT   == evalType(p);       }
-static inline bool isForm(const sexp p)    { return isOther(p) && FORM    == evalType(p);       }
-static inline bool isFixnum(const sexp p)  { return isOther(p) && FIXNUM  == evalType(p);       }
-static inline bool isFloat(const sexp p)   { return isOther(p) && FLOAT   == evalType(p);       }
-static inline bool isDouble(const sexp p)  { return isOther(p) && DOUBLE  == evalType(p);       }
-static inline bool isChar(const sexp p)    { return isOther(p) && CHAR    == evalType(p);       }
-static inline bool isInPort(const sexp p)  { return isOther(p) && INPORT  == evalType(p);       }
-static inline bool isOutPort(const sexp p) { return isOther(p) && OUTPORT == evalType(p);       }
-static inline bool isVector(const sexp p)  { return isOther(p) && VECTOR  == evalType(p);       }
-static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);                  }
+static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
+static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
+static inline bool isMarked(const sexp p)  { return       (MARK  & ((Other*)p)->tags[0]); }
+static inline bool isCons(const sexp p)    { return p && !(OTHER & ((Other*)p)->tags[0]); }
+static inline bool isOther(const sexp p)   { return p &&  (OTHER & ((Other*)p)->tags[0]); }
+static inline bool isAtom(const sexp p)    { return isOther(p) && ATOM    == evalType(p); }
+static inline bool isString(const sexp p)  { return isOther(p) && STRING  == evalType(p); }
+static inline bool isFunct(const sexp p)   { return isOther(p) && FUNCT   == evalType(p); }
+static inline bool isForm(const sexp p)    { return isOther(p) && FORM    == evalType(p); }
+static inline bool isFixnum(const sexp p)  { return isOther(p) && FIXNUM  == evalType(p); }
+static inline bool isFloat(const sexp p)   { return isOther(p) && FLOAT   == evalType(p); }
+static inline bool isDouble(const sexp p)  { return isOther(p) && DOUBLE  == evalType(p); }
+static inline bool isChar(const sexp p)    { return isOther(p) && CHAR    == evalType(p); }
+static inline bool isInPort(const sexp p)  { return isOther(p) && INPORT  == evalType(p); }
+static inline bool isOutPort(const sexp p) { return isOther(p) && OUTPORT == evalType(p); }
+static inline bool isVector(const sexp p)  { return isOther(p) && VECTOR  == evalType(p); }
+static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);            }
 
 bool isClosure(sexp p)
 {
@@ -153,6 +153,26 @@ bool isClosure(sexp p)
            (p = p->cdr) && p->car &&  //  exp
            (p = p->cdr) && p->car &&  //  env)
            !p->cdr;
+}
+
+bool isPromise(sexp p)
+{
+    return isCons(p) &&
+           promisea == p->car &&       // (promise
+           (p = p->cdr) &&             // forced
+           (p = p->cdr) &&             // value
+           (p = p->cdr) &&             // exp
+           (p = p->cdr) &&             // env)
+          !p->cdr;
+}
+
+bool isRational(sexp exp)
+{
+    return isCons(exp) &&
+           rationala == exp->car &&             // (rational
+           (exp = exp->cdr) && exp->car &&      //  real
+           (exp = exp->cdr) && exp->car &&      //  imag)
+           !exp->cdr;
 }
 
 bool isRectangular(sexp p)
@@ -176,26 +196,6 @@ bool isPolar(sexp p)
 bool isComplex(sexp p)
 {
     return isRectangular(p) || isPolar(p);
-}
-
-bool isPromise(sexp p)
-{
-    return isCons(p) &&
-           promisea == p->car &&       // (promise
-           (p = p->cdr) &&             // forced
-           (p = p->cdr) &&             // value
-           (p = p->cdr) &&             // exp
-           (p = p->cdr) &&             // env)
-          !p->cdr;
-}
-
-bool isRational(sexp exp)
-{
-    return isCons(exp) &&
-           rationala == exp->car &&             // (rational
-           (exp = exp->cdr) && exp->car &&      //  real
-           (exp = exp->cdr) && exp->car &&      //  imag)
-           !exp->cdr;
 }
 
 jmp_buf the_jmpbuf;
@@ -375,15 +375,15 @@ sexp gcf(sexp l)
     return 0;
 }
 
-void assertAtom(sexp s)        { if (!isAtom(s)) error("not symbol"); }
-void assertChar(sexp c)        { if (!isChar(c)) error("not a character"); }
+void assertAtom(sexp s)        { if (!isAtom(s))        error("not symbol"); }
+void assertChar(sexp c)        { if (!isChar(c))        error("not a character"); }
 void assertRectangular(sexp s) { if (!isRectangular(s)) error("not rectangular"); }
-void assertComplex(sexp s)     { if (!isComplex(s)) error("not complex"); }
-void assertPolar(sexp s)       { if (!isPolar(s)) error("not polar"); }
-void assertFixnum(sexp i)      { if (!isFixnum(i)) error("not an integer"); }
-void assertInPort(sexp s)      { if (!isInPort(s)) error("not an input port"); }
-void assertOutPort(sexp s)     { if (!isOutPort(s)) error("not an output port"); }
-void assertString(sexp s)      { if (!isString(s)) error("not a string"); }
+void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
+void assertPolar(sexp s)       { if (!isPolar(s))       error("not polar"); }
+void assertFixnum(sexp i)      { if (!isFixnum(i))      error("not an integer"); }
+void assertInPort(sexp s)      { if (!isInPort(s))      error("not an input port"); }
+void assertOutPort(sexp s)     { if (!isOutPort(s))     error("not an output port"); }
+void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
 
 /*
  * allocate a cell from the freelist
@@ -744,6 +744,35 @@ sexp angle(sexp z)
 {
     assertRectangular(z);
     return newflonum(atan2(asFlonum(z->cdr->cdr->car), asFlonum(z->cdr->car)));
+}
+
+// (define (gcd x y) (if (zero? y) x (gcd y (mod x y))))
+
+long gcd(long x, long y)
+{
+    return y ? gcd(y, x % y) : x;
+}
+
+sexp gcdf(sexp x, sexp y)
+{
+    assertFixnum(x);
+    assertFixnum(y);
+    return newfixnum(gcd(asFixnum(x), asFixnum(y)));
+}
+
+// (define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
+
+long lcm(long x, long y)
+{
+    long g = gcd(x, y);
+    return (x / g) * (y / g);
+}
+
+sexp lcmf(sexp x, sexp y)
+{
+    assertFixnum(x);
+    assertFixnum(y);
+    return newfixnum(lcm(asFixnum(x), asFixnum(y)));
 }
 
 // functions on real numbers
@@ -1871,6 +1900,13 @@ sexp equalp(sexp x, sexp y)
     return eqvb(x, y) ? t : 0;
 }
 
+void fixenvs(void)
+{
+    for (sexp f = global; f; f = f->cdr)
+        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
+            f->car->cdr->cdr->cdr->car = global;
+}
+
 sexp define(sexp p, sexp r)
 {
     for (sexp q = global; q; q = q->cdr)
@@ -1880,6 +1916,7 @@ sexp define(sexp p, sexp r)
             return voida;
         }
     global = cons(save(cons(save(p), save(r))), global);
+    fixenvs();
     return lose(3, voida);
 }
 
@@ -2031,6 +2068,7 @@ sexp defineform(sexp p, sexp env)
                 }
             // update the closure definition to include the one we just made
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
+            fixenvs();
             return lose(mark, voida);
         } else {
             save(env);
@@ -2047,6 +2085,7 @@ sexp defineform(sexp p, sexp env)
                 }
             // update the closure definition to include the one we just made
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, v)), global);
+            fixenvs();
             return lose(mark, voida);
         }
     } else {
@@ -2057,6 +2096,7 @@ sexp defineform(sexp p, sexp env)
                 return lose(mark, voida);
             }
         global = cons(save(cons(p->cdr->car, save(eval(save(p)->cdr->cdr->car, save(env))))), global);
+        fixenvs();
         return lose(mark, voida);
     }
 }
@@ -2138,13 +2178,8 @@ sexp letform(sexp exp, sexp env)
     sexp e = env;
     sexp* mark = psp;
     save(env); save(exp);
-    //debug("letform", exp);
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
-    // this next line is suspect, altering too many bindings
-    for (sexp f = e; f; f = f->cdr)
-        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
-            f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
     return lose(mark, r);
@@ -2156,13 +2191,8 @@ sexp letstarform(sexp exp, sexp env)
     sexp e = env;
     sexp* mark = psp;
     save(env); save(exp);
-    //debug("letstarform", exp);
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
-    // this next line is suspect, altering too many bindings
-    for (sexp f = e; f; f = f->cdr)
-        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
-            f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
     return lose(mark, r);
@@ -2174,15 +2204,10 @@ sexp letrecform(sexp exp, sexp env)
     sexp e = env;
     sexp* mark = psp;
     save(env); save(exp);
-    //debug("letrecform", exp);
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
-    // this next line is suspect, altering too many bindings
-    for (sexp f = e; f; f = f->cdr)
-        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
-            f->car->cdr->cdr->cdr->car = e;
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
     return lose(mark, r);
@@ -2730,6 +2755,7 @@ int main(int argc, char **argv, char **envp)
     forcea          = atomize("force");
     forcedpa        = atomize("promise-forced?");
     gca             = atomize("gc");
+    gcda            = atomize("gcd");
     gea             = atomize(">=");
     gta             = atomize(">");
     i2ea            = atomize("inexact->exact");
@@ -2741,6 +2767,7 @@ int main(int argc, char **argv, char **envp)
     intenva         = atomize("interaction-environment");
     lambda          = atomize("lambda");
     lbracket        = atomize("[");
+    lcma            = atomize("lcm");
     lea             = atomize("<=");
     let             = atomize("let");
     letrec          = atomize("letrec");
@@ -2922,6 +2949,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(forcea,        1, (void*)force);
     define_funct(forcedpa,      1, (void*)forcedp);
     define_funct(gca,           0, (void*)gcf);
+    define_funct(gcda,          2, (void*)gcdf);
     define_funct(gea,           2, (void*)ge);
     define_funct(gta,           2, (void*)gt);
     define_funct(i2ea,          1, (void*)i2ef);
@@ -2929,6 +2957,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(inportpa,      1, (void*)inportp);
     define_funct(int2chara,     1, (void*)int2char);
     define_funct(integerpa,     1, (void*)integerp);
+    define_funct(lcma,          2, (void*)lcmf);
     define_funct(lea,           2, (void*)le);
     define_funct(list2sa,       1, (void*)list2s);
     define_funct(list2vector,   1, (void*)list2vec);
