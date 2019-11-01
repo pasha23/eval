@@ -1953,9 +1953,8 @@ sexp load(sexp x)
         while (!feof(fin))
         {
             sexp input = read(fin, 0);
-            if (!input || eofa == input)
+            if (eofa == input)
                 break;
-            //debug("input", input);
             eval(input, global);
         }
         fclose(fin);
@@ -2760,6 +2759,21 @@ sexp apply(sexp fun, sexp args)
     return 0;
 }
 
+sexp rationalform(sexp exp, sexp env)
+{
+    return exp;
+}
+
+sexp rectangularform(sexp exp, sexp env)
+{
+    return exp;
+}
+
+sexp polarform(sexp exp, sexp env)
+{
+    return exp;
+}
+
 /*
  * malformed constructs will fail without grace
  */
@@ -2770,9 +2784,6 @@ sexp eval(sexp p, sexp env)
 
     if (isAtom(p))
         return get(p, env);
-
-    if (isRational(p) || isRectangular(p) || isPolar(p))
-        return p;
 
     sexp* mark = psp;
 
@@ -3356,27 +3367,6 @@ int main(int argc, char **argv, char **envp)
     star            = atomize("*");
     percent         = atomize("%");
 
-    // set the definitions (special forms)
-
-    define_form(anda,         andform);
-    define_form(begin,        beginform);
-    define_form(cond,         condform);
-    define_form(definea,      defineform);
-    define_form(delaya,       delayform);
-    define_form(doa,          doform);
-    define_form(intenva,      intenvform);
-    define_form(nulenva,      nulenvform);
-    define_form(ifa,          ifform);
-    define_form(lambda,       lambdaform);
-    define_form(let,          letform);
-    define_form(letstar,      letstarform);
-    define_form(letrec,       letrecform);
-    define_form(ora,          orform);
-    define_form(quasiquote,   quasiquoteform);
-    define_form(quote,        quoteform);
-    define_form(seta,         setform);
-    define_form(whilea,       whileform);
-
     // set the definitions (functions)
     define_funct(acosa,         1, (void*)acosff);
     define_funct(alphapa,       1, (void*)alphap);
@@ -3389,8 +3379,6 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomsa,        0, (void*)atomsf);
     define_funct(callwithina,   1, (void*)callwithin);
     define_funct(callwithouta,  1, (void*)callwithout);
-    define_funct(cara,          1, (void*)car);
-    define_funct(cdra,          1, (void*)cdr);
     define_funct(ceilinga,      1, (void*)ceilingff);
     define_funct(char2ia,       1, (void*)char2int);
     define_funct(charcieqa,     2, (void*)charcieq);
@@ -3406,7 +3394,6 @@ int main(int argc, char **argv, char **envp)
     define_funct(charpa,        1, (void*)charp);
     define_funct(clinporta,     1, (void*)clinport);
     define_funct(cloutporta,    1, (void*)cloutport);
-    define_funct(consa,         2, (void*)cons);
     define_funct(cosa,          1, (void*)cosff);
     define_funct(curinporta,    0, (void*)curinport);
     define_funct(curoutporta,   0, (void*)curoutport);
@@ -3415,10 +3402,6 @@ int main(int argc, char **argv, char **envp)
     define_funct(downcasea,     1, (void*)downcase);
     define_funct(e2ia,          1, (void*)e2if);
     define_funct(eofobjp,       1, (void*)eofp);
-    define_funct(eqa,           2, (void*)eqp);
-    define_funct(eqna,          2, (void*)eqnp);
-    define_funct(equalpa,       2, (void*)equalp);
-    define_funct(eqva,          2, (void*)eqv);
     define_funct(evala,         2, (void*)eval);
     define_funct(exactpa,       1, (void*)exactp);
     define_funct(expa,          1, (void*)expff);
@@ -3427,15 +3410,12 @@ int main(int argc, char **argv, char **envp)
     define_funct(forcedpa,      1, (void*)forcedp);
     define_funct(gca,           0, (void*)gcf);
     define_funct(gcda,          2, (void*)gcdf);
-    define_funct(gea,           2, (void*)ge);
-    define_funct(gta,           2, (void*)gt);
     define_funct(i2ea,          1, (void*)i2ef);
     define_funct(inexactpa,     1, (void*)inexactp);
     define_funct(inportpa,      1, (void*)inportp);
     define_funct(int2chara,     1, (void*)int2char);
     define_funct(integerpa,     1, (void*)integerp);
     define_funct(lcma,          2, (void*)lcmf);
-    define_funct(lea,           2, (void*)le);
     define_funct(list2sa,       1, (void*)list2s);
     define_funct(list2vector,   1, (void*)list2vec);
     define_funct(listpa,        1, (void*)listp);
@@ -3443,13 +3423,10 @@ int main(int argc, char **argv, char **envp)
     define_funct(loga,          1, (void*)logff);
     define_funct(lowercasepa,   1, (void*)lowercasep);
     define_funct(lsha,          2, (void*)lsh);
-    define_funct(lta,           2, (void*)lt);
     define_funct(magnitudea,    1, (void*)magnitude);
     define_funct(makestringa,   0, (void*)makestring);
     define_funct(makevector,    0, (void*)makevec);
-    define_funct(nega,          1, (void*)negf);
     define_funct(newlinea,      0, (void*)newlinef);
-    define_funct(nota,          1, (void*)isnot);
     define_funct(nullpa,        1, (void*)nullp);
     define_funct(num2stringa,   1, (void*)num2string);
     define_funct(numberpa,      1, (void*)numberp);
@@ -3517,11 +3494,49 @@ int main(int argc, char **argv, char **envp)
     define_funct(writea,        0, (void*)write);
     define_funct(writechara,    0, (void*)writechar);
     define_funct(xora,          0, (void*)xorf);
-    define_funct(plus,          0, (void*)uniadd);
-    define_funct(minus,         0, (void*)unisub);
-    define_funct(star,          0, (void*)unimul);
-    define_funct(slash,         0, (void*)unidiv);
+    
+    // moved here because of frequent use
     define_funct(percent,       0, (void*)unimod);
+    define_funct(slash,         0, (void*)unidiv);
+    define_funct(nota,          1, (void*)isnot);
+    define_funct(nega,          1, (void*)negf);
+    define_funct(lta,           2, (void*)lt);
+    define_funct(lea,           2, (void*)le);
+    define_funct(gea,           2, (void*)ge);
+    define_funct(gta,           2, (void*)gt);
+    define_funct(eqa,           2, (void*)eqp);
+    define_funct(eqna,          2, (void*)eqnp);
+    define_funct(equalpa,       2, (void*)equalp);
+    define_funct(eqva,          2, (void*)eqv);
+    define_funct(plus,          0, (void*)uniadd);
+    define_funct(star,          0, (void*)unimul);
+    define_funct(minus,         0, (void*)unisub);
+    define_funct(cara,          1, (void*)car);
+    define_funct(cdra,          1, (void*)cdr);
+    define_funct(consa,         2, (void*)cons);
+
+    // set the definitions (special forms)
+    define_form(begin,        beginform);
+    define_form(cond,         condform);
+    define_form(definea,      defineform);
+    define_form(delaya,       delayform);
+    define_form(doa,          doform);
+    define_form(intenva,      intenvform);
+    define_form(nulenva,      nulenvform);
+    define_form(let,          letform);
+    define_form(letstar,      letstarform);
+    define_form(letrec,       letrecform);
+    define_form(quasiquote,   quasiquoteform);
+    define_form(seta,         setform);
+    define_form(whilea,       whileform);
+    define_form(anda,         andform);
+    define_form(ora,          orform);
+    define_form(ifa,          ifform);
+    define_form(quote,        quoteform);
+    define_form(lambda,       lambdaform);
+    define_form(rationala,    rationalform);
+    define_form(rectangulara, rectangularform);
+    define_form(polara,       polarform);
 
     load(newstring(newchunk("init.l")));
 
@@ -3558,7 +3573,7 @@ int main(int argc, char **argv, char **envp)
         total = 0;
         collected = 0;
         sexp e = read(stdin, 0);
-        if (!e || eofa == e)
+        if (eofa == e)
             break;
         killed = 0;
         sexp v = eval(e, global);
