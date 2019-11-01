@@ -125,7 +125,7 @@ sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
 sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma, nega;
-sexp stdina, stdouta;
+sexp stdina, stdouta, negativepa, positivepa, booleanpa;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -571,6 +571,27 @@ double asFlonum(sexp p)
                          ((Float*)p)->flonum;
 }
 
+sexp negativep(sexp x)
+{
+    if (isFixnum(x)) return asFixnum(x) < 0 ? t : 0;
+    if (isFlonum(x)) return asFlonum(x) < 0.0 ? t : 0;
+    error("negative? needs a real number");
+}
+
+sexp positivep(sexp x)
+{
+    if (isFixnum(x)) return asFixnum(x) >= 0 ? t : 0;
+    if (isFlonum(x)) return asFlonum(x) >= 0.0 ? t : 0;
+    error("positive? needs a real number");
+}
+
+sexp booleanp(sexp x) { return t == x || 0 == x ? t : 0; }
+
+double rat2real(sexp x)
+{
+    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
+}
+
 bool cmplt(sexp x, sexp y)
 {
     if (isFlonum(x)) {
@@ -578,11 +599,22 @@ bool cmplt(sexp x, sexp y)
             return asFlonum(x) < asFlonum(y);
         if (isFixnum(y))
             return asFlonum(x) < (double)asFixnum(y);
+        if (isRational(y))
+            return asFlonum(x) < rat2real(y);
     } else if (isFixnum(x)) {
         if (isFixnum(y))
             return asFixnum(x) < asFixnum(y);
         if (isFlonum(y))
             return (double)asFixnum(x) < asFixnum(y);
+        if (isRational(y))
+            return asFixnum(x) < rat2real(y);
+    } else if (isRational(x)) {
+        if (isFlonum(y))
+            return rat2real(x) < asFlonum(y);
+        if (isFixnum(y))
+            return rat2real(x) < (double)asFixnum(y);
+        if (isRational(y))
+            return rat2real(x) < rat2real(y);
     }
     error("error: comparison bad argument");
 }
@@ -594,11 +626,22 @@ bool cmple(sexp x, sexp y)
             return asFlonum(x) <= asFlonum(y);
         if (isFixnum(y))
             return asFlonum(x) <= (double)asFixnum(y);
+        if (isRational(y))
+            return asFlonum(x) <= rat2real(y);
     } else if (isFixnum(x)) {
         if (isFixnum(y))
             return asFixnum(x) <= asFixnum(y);
         if (isFlonum(y))
             return (double)asFixnum(x) <= asFixnum(y);
+        if (isRational(y))
+            return asFixnum(x) <= rat2real(y);
+    } else if (isRational(x)) {
+        if (isFlonum(y))
+            return rat2real(x) <= asFlonum(y);
+        if (isFixnum(y))
+            return rat2real(x) <= (double)asFixnum(y);
+        if (isRational(y))
+            return rat2real(x) <= rat2real(y);
     }
     error("error: comparison bad argument");
 }
@@ -860,11 +903,6 @@ sexp polar_div(sexp z, sexp w)
     double r = fmag(z) / fmag(w);
     double theta = fangle(z) - fangle(w);
     return 0.0 == r ? newflonum(0.0) : newpolar(r, theta);
-}
-
-double rat2real(sexp x)
-{
-    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
 }
 
 sexp uniadd(sexp l)
@@ -2885,7 +2923,17 @@ char whitespace(FILE* fin, char c)
     return c;
 }
 
-enum { NON_NUMERIC, INT_NUMERIC, INT_RATIONAL, FLO_NUMERIC, FLO_RECTANGULAR, FLO_POLAR };
+enum
+{
+    NON_NUMERIC,
+    INT_NUMERIC,
+    INT_RATIONAL,
+    FLO_NUMERIC,
+    FLO_RECTANGULAR,
+    INT_RECTANGULAR,
+    INT_POLAR,
+    FLO_POLAR
+};
 
 /*
  * read an atom, number or string from the input stream
@@ -2998,8 +3046,14 @@ sexp scan(FILE* fin)
         if (INT_NUMERIC == rc && '/' == c)
             rc = INT_RATIONAL;
 
+        if (INT_NUMERIC == rc && 'i' == c)
+            rc = INT_RECTANGULAR;
+
         if (FLO_NUMERIC == rc && 'i' == c)
             rc = FLO_RECTANGULAR;
+
+        if (INT_NUMERIC == rc && '@' == c)
+            rc = INT_POLAR;
 
         if (FLO_NUMERIC == rc && '@' == c)
             rc = FLO_POLAR;
@@ -3009,7 +3063,7 @@ sexp scan(FILE* fin)
         break;
     }
 
-    if (FLO_RECTANGULAR == rc)
+    if (FLO_RECTANGULAR == rc || INT_RECTANGULAR == rc)
     {
         char *nptr;
         c = getc(fin);
@@ -3020,7 +3074,7 @@ sexp scan(FILE* fin)
                                 save(cons(save(newflonum(floater)), 0))))));
     }
 
-    if (FLO_POLAR == rc)
+    if (FLO_POLAR == rc || INT_POLAR == rc)
     {
         char *nptr;
         c = getc(fin);
@@ -3061,7 +3115,14 @@ sexp scan(FILE* fin)
         char *nptr;
         long fixer = strtol(buffer, &nptr, 10);
         if (nptr == strchr(buffer, '\0'))
-            return newfixnum(fixer);
+            if ('-' == c || '+' == c) {
+                if ('+' == c)
+                    c = getc(fin);
+                sexp im = save(scan(fin));
+                im->cdr->car = newfixnum(fixer);
+                return lose(1, im);
+            } else
+                return newfixnum(fixer);
     }
 
     if ('"' == c)
@@ -3394,6 +3455,9 @@ int main(int argc, char **argv, char **envp)
     withouta        = atomize("with-output-to-file");
     writea          = atomize("write");
     writechara      = atomize("write-char");
+    booleanpa       = atomize("boolean?");
+    negativepa      = atomize("negative?");
+    positivepa      = atomize("positive?");
     xora            = atomize("^");
     plus            = atomize("+");
     minus           = atomize("-");
@@ -3413,6 +3477,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(asina,         1, (void*)asinff);
     define_funct(atana,         1, (void*)atanff);
     define_funct(atomsa,        0, (void*)atomsf);
+    define_funct(booleanpa,     1, (void*)booleanp);
     define_funct(callwithina,   1, (void*)callwithin);
     define_funct(callwithouta,  1, (void*)callwithout);
     define_funct(ceilinga,      1, (void*)ceilingff);
@@ -3532,6 +3597,8 @@ int main(int argc, char **argv, char **envp)
     define_funct(xora,          0, (void*)xorf);
     
     // moved here because of frequent use
+    define_funct(negativepa,    1, (void*)negativep);
+    define_funct(positivepa,    1, (void*)positivep);
     define_funct(percent,       0, (void*)unimod);
     define_funct(slash,         0, (void*)unidiv);
     define_funct(nota,          1, (void*)isnot);

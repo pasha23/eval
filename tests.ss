@@ -138,7 +138,6 @@
     (eqv? 1/6 (- 1/2 1/3))
     (eqv? 5/6 (+ 1/2 1/3))
     (eqv? (rationalize 3.14159265358979) 789453460/251290841)
-    (even? 2)
     (exact? 2)
     (= (imag-part 3.0+4.0i) 4.0)
     (inexact? 3.0)
@@ -150,7 +149,6 @@
     (not #f)
     (null? #f)
     (number? 3)
-    (odd? 3)
     (or #f #f #t #f)
     (pair? '(a . b))
     (positive? 3)
@@ -184,7 +182,7 @@
     (vector? (list->vector (list 1 2 3)))
     (vector? (make-vector 3))
     (= 4 (do ((i 1 (+ 1 i))) ((> i 4)) i))
-    (zero? 0)
+    (= 0 0)
     #t
 ))
 

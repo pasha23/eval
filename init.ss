@@ -33,17 +33,9 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
-(define (boolean? x) (or (eq? x #t) (eq? x #f)))
-
-(define (zero? x) (= 0 x))
-
 (define (negative? x) (< x 0))
 
 (define (positive? x) (> x 0))
-
-(define (even? x) (zero? (% x 2)))
-
-(define (odd? x) (= 1 (% x 2)))
 
 ;; (define (gcd x y) (if (zero? y) x (gcd y (% x y))))
 
@@ -110,9 +102,9 @@
 (define (fac x) (if (<= x 0) 1 (* x (fac (- x 1)))))
 
 (define (ack n m)
-        (if (zero? n)
+        (if (= 0 n)
             (+ m 1)
-            (if (zero? m)
+            (if (= 0 m)
                 (ack (- n 1) 1)
                 (ack (- n 1) (ack n (- m 1))))))
 
@@ -124,9 +116,9 @@
             z))
 
 (define (expt x n)
-        (if (zero? n)
+        (if (= 0 n)
             1
-            (if (odd? n)
+            (if (= 1 (% n 2))
                 (* x (expt x (- n 1)))
                 (let ((y (expt x (/ n 2))))
                      (* y y)))))
@@ -268,7 +260,7 @@
 (define (list-tail s i)
         (if (null? s)
             #f
-            (if (zero? i)
+            (if (= 0 i)
                 s
                 (list-tail (cdr s) (- i 1)))))
 
