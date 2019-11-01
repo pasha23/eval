@@ -22,12 +22,14 @@
 #include <cstring>
 #include <set>
 #include <ctype.h>
+#include <assert.h>
+
+bool killed = true;
 
 #ifdef BROKEN
-#include <assert.h>
 #define error(s) do { printf("%s\n", s); assert(false); } while(0)
 #else
-#define error(s) do { psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
+#define error(s) do { if (killed) { printf("%s\n", s); assert(false); } psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
 /*
@@ -199,7 +201,6 @@ bool isComplex(sexp p)
 
 jmp_buf the_jmpbuf;
 
-bool killed = 0;        // to catch consecutive SIGINTs
 sexp atoms = 0;         // all atoms are linked in a list
 sexp block = 0;         // all the storage starts here
 sexp global = 0;        // this is the global symbol table (a list)
@@ -3268,6 +3269,19 @@ int main(int argc, char **argv, char **envp)
     q->file = stdout;
     outport = (sexp)q;
 
+    struct sigaction intr_action;
+    intr_action.sa_flags = SA_SIGINFO;
+    intr_action.sa_sigaction = intr_handler;
+    struct sigaction segv_action;
+    segv_action.sa_flags = SA_SIGINFO;
+    segv_action.sa_sigaction = segv_handler;
+    char *s = (char*) sigsetjmp(the_jmpbuf, 1);
+    if (s)
+        printf("%s\n", s);
+
+    sigaction(SIGSEGV, &segv_action, NULL);
+    sigaction(SIGINT,  &intr_action, NULL);
+
     // set up all predefined atoms
 
     acosa           = atomize("acos");
@@ -3651,18 +3665,11 @@ int main(int argc, char **argv, char **envp)
         return 0;
     }
 
-    struct sigaction intr_action;
-    intr_action.sa_flags = SA_SIGINFO;
-    intr_action.sa_sigaction = intr_handler;
-    struct sigaction segv_action;
-    segv_action.sa_flags = SA_SIGINFO;
-    segv_action.sa_sigaction = segv_handler;
-    char *s = (char*) sigsetjmp(the_jmpbuf, 1);
+    killed = 0;
+
+    s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
         printf("%s\n", s);
-
-    sigaction(SIGSEGV, &segv_action, NULL);
-    sigaction(SIGINT,  &intr_action, NULL);
 
     // read evaluate display ...
     for (;;)
