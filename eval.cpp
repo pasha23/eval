@@ -1138,7 +1138,7 @@ sexp rational_mod(sexp x, sexp y)
 
 sexp rectangular_mod(sexp x, sexp y)
 {
-    if (0.0 == theta(x) && 0.0 == theta(y))
+    if (0.0 == imagpart(x) && 0.0 == imagpart(y))
         return newflonum(fmod(radius(x), radius(y)));
     error("rectangular_mod: not implemented");
 }
@@ -2843,7 +2843,7 @@ char whitespace(FILE* fin, char c)
     return c;
 }
 
-enum { NON_NUMERIC, INT_NUMERIC, INT_RATIONAL, FLO_NUMERIC, FLO_IMAGINARY };
+enum { NON_NUMERIC, INT_NUMERIC, INT_RATIONAL, FLO_NUMERIC, FLO_RECTANGULAR, FLO_POLAR };
 
 /*
  * read an atom, number or string from the input stream
@@ -2957,14 +2957,17 @@ sexp scan(FILE* fin)
             rc = INT_RATIONAL;
 
         if (FLO_NUMERIC == rc && 'i' == c)
-            rc = FLO_IMAGINARY;
+            rc = FLO_RECTANGULAR;
+
+        if (FLO_NUMERIC == rc && '@' == c)
+            rc = FLO_POLAR;
 
         ungetc(c, fin);
         *p++ = 0;
         break;
     }
 
-    if (FLO_IMAGINARY == rc)
+    if (FLO_RECTANGULAR == rc)
     {
         char *nptr;
         c = getc(fin);
@@ -2973,6 +2976,15 @@ sexp scan(FILE* fin)
             return lose(4, cons(rectangulara,
                                 save(cons(save(newflonum(0.0)),
                                 save(cons(save(newflonum(floater)), 0))))));
+    }
+
+    if (FLO_POLAR == rc)
+    {
+        char *nptr;
+        c = getc(fin);
+        double floater = strtod(buffer, &nptr);
+        if (nptr == strchr(buffer, '\0'))
+            return newpolar(floater, asFlonum(scan(fin)));
     }
 
     if (FLO_NUMERIC == rc)
