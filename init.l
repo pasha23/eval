@@ -33,19 +33,33 @@
 
 (define (boolean? x) (or (eq? x #t) (eq? x #f)))
 
-(define (even? x) (= 0 (mod x 2)))
+(define (zero? x) (= 0 x))
 
 (define (negative? x) (< x 0))
 
-(define (odd? x) (= 1 (mod x 2)))
-
 (define (positive? x) (> x 0))
 
-(define (zero? x) (= 0 x))
+(define (even? x) (zero? (% x 2)))
 
-;; (define (gcd x y) (if (zero? y) x (gcd y (mod x y))))
+(define (odd? x) (= 1 (% x 2)))
 
-;; (define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
+;; (define (gcd x y) (if (zero? y) x (gcd y (% x y))))
+
+;; (define (lcm x y) (let ((g (gcd x y))) (* (/ x g) (/ y g))))
+
+(define (make-rational n d) (cons 'rational (cons n (cons d #f))))
+
+(define (rationalize real)
+        (let ((maxden 268435456)
+              (t 0) (x real)
+              (m00 1) (m11 1) (m01 0) (m10 0)
+              (ai (inexact->exact real)))
+             (while (<= (+ (* m10 ai) m11) maxden)
+                    (set! t (+ (* m00 ai) m01)) (set! m01 m00) (set! m00 t)
+                    (set! t (+ (* m10 ai) m11)) (set! m11 m10) (set! m10 t)
+                    (set! x (/ 1.0 (- x (exact->inexact ai))))
+                    (set! ai (inexact->exact x)))
+             (make-rational m00 m10)))
 
 (define (rational? r)
         (and (eq? 'rational (car r))
@@ -53,56 +67,11 @@
              (integer? (caddr r))
              (null? (cdddr r))))
 
-(define (make-rational n d)
-        (cons 'rational (cons n (cons d #f))))
-
-(define (make-real x) (div (exact->inexact (cadr x)) (exact->inexact (caddr x))))
-
-(define (rationalize real)
-        (let ((maxden 268435456)
-              (t 0) (x real)
-              (m00 1) (m11 1) (m01 0) (m10 0)
-              (ai (inexact->exact real)))
-             (while (<= (add (mul m10 ai) m11) maxden)
-                    (set! t (add (mul m00 ai) m01)) (set! m01 m00) (set! m00 t)
-                    (set! t (add (mul m10 ai) m11)) (set! m11 m10) (set! m10 t)
-                    (set! x (div 1.0 (sub x (exact->inexact ai))))
-                    (set! ai (inexact->exact x)))
-             (make-rational m00 m10)))
-
 (define numerator cadr)
 
 (define denominator caddr)
 
-(define (rational-reduce n d)
-        (let ((g (gcd n d)))
-             (let ((ng (div n g))
-                   (dg (div d g)))
-                  (if (< dg 0)
-                      (make-rational (neg ng) (neg dg))
-                      (make-rational ng dg)))))
-
-(define (rational-add x y)
-        (let ((d (lcm (denominator x) (denominator y))))
-              (let ((xn (mul (numerator x) (div d (denominator x))))
-                    (yn (mul (numerator y) (div d (denominator y)))))
-                   (rational-reduce (add xn yn) d))))
-
-(define (rational-sub x y)
-        (let ((d (lcm (denominator x) (denominator y))))
-              (let ((xn (mul (numerator x) (div d (denominator x))))
-                    (yn (mul (numerator y) (div d (denominator y)))))
-                   (rational-reduce (sub xn yn) d))))
-
-(define (rational-mul x y)
-        (let ((g (gcd (denominator x) (denominator y))))
-             (rational-reduce (div (mul (numerator x) (numerator y)) g)
-                              (div (mul (denominator x) (denominator y)) g))))
-
-(define (rational-div x y)
-        (let ((g (gcd (denominator x) (numerator y))))
-             (rational-reduce (div (mul (numerator x) (denominator y)) g)
-                              (div (mul (denominator x) (numerator y)) g))))
+(define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
 
 (define (rectangular? z)
         (and (eq? 'rectangular (car z))
@@ -110,98 +79,57 @@
              (real? (caddr z))
              (null? (cdddr z))))
 
+(define (make-rectangular re im) (cons 'rectangular (cons re (cons im #f))))
+
 (define (polar? z)
         (and (eq? 'polar (car z))
              (real? (cadr z))
              (real? (caddr z))
              (null? (cdddr z))))
 
-(define (complex? z)
-        (or (rectangular? z)
-            (polar? z)))
-
-(define (make-rectangular re im) (cons 'rectangular (cons re (cons im #f))))
-
 (define (make-polar r theta) (cons 'polar (cons r (cons theta #f))))
 
-(define (rectangular->polar z) (make-polar (magnitude z) (angle z)))
+(define (real-part z) (if (rectangular? z) (cadr z) (* (cadr z) (cos (caddr z)))))
 
-(define (polar->rectangular z) (make-rectangular (mul (cadr z) (cos (caddr z))) (mul (cadr z) (sin (caddr z)))))
+(define (imag-part z) (if (rectangular? z) (caddr z) (* (cadr z) (sin (caddr z)))))
 
-(define (real-part z) (if (rectangular? z) (cadr z) (mul (cadr z) (cos (caddr z)))))
-
-(define (imag-part z) (if (rectangular? z) (caddr z) (mul (cadr z) (sin (caddr z)))))
+(define (polar->rectangular z) (make-rectangular (* (cadr z) (cos (caddr z))) (* (cadr z) (sin (caddr z)))))
 
 (define (mag-part z) (if (rectangular? z) (magnitude z) (cadr z)))
 
 (define (theta-part z) (if (rectangular? z) (angle z) (caddr z)))
 
-(define (square x) (mul x x))
+(define (rectangular->polar z) (make-polar (magnitude z) (angle z)))
 
-(define (rectangular-add z w)
-        (make-rectangular (add (real-part z) (real-part w))
-                      (add (imag-part z) (imag-part w))))
+(define (complex? z) (or (rectangular? z) (polar? z)))
 
-(define (rectangular-sub z w)
-        (make-rectangular (sub (real-part z) (real-part w))
-                      (sub (imag-part z) (imag-part w))))
+(define (fib x) (if (<= x 0) 1 (+ (fib (- x 2)) (fib (- x 1)))))
 
-(define (rectangular-mul z w)
-        (let ((x (real-part z))
-              (y (imag-part z))
-              (u (real-part w))
-              (v (imag-part w)))
-             (make-rectangular (sub (mul x u) (mul y v))
-                           (add (mul x v) (mul y u)))))
-
-(define (rectangular-div z w)
-        (let ((x (real-part z))
-              (y (imag-part z))
-              (u (real-part w))
-              (v (imag-part w)))
-             (let ((denominator (add (square u) (square v))))
-                  (make-rectangular (div (add (mul x u) (mul y v))
-                                     denominator)
-                                (div (sub (mul y u) (mul x v))
-                                     denominator)))))
-
-(define (make-rectangular x y) (cons 'rectangular (cons x (cons y #f))))
-
-(define (polar-mul z w)
-        (make-polar (mul (mag-part z) (mag-part w))
-                    (add (theta-part z) (theta-part w))))
-
-(define (polar-div z w)
-        (make-polar (div (mag-part z) (mag-part w))
-                    (sub (theta-part z) (theta-part w))))
-
-(define (fib x) (if (<= x 0) 1 (add (fib (sub x 2)) (fib (sub x 1)))))
-
-(define (fac x) (if (<= x 0) 1 (mul x (fac (sub x 1)))))
+(define (fac x) (if (<= x 0) 1 (* x (fac (- x 1)))))
 
 (define (ack n m)
-        (if (eqv? n 0)
-            (add m 1)
-            (if (eqv? m 0)
-                (ack (sub n 1) 1)
-                (ack (sub n 1) (ack n (sub m 1))))))
+        (if (zero? n)
+            (+ m 1)
+            (if (zero? m)
+                (ack (- n 1) 1)
+                (ack (- n 1) (ack n (- m 1))))))
 
 (define (tak x y z)
         (if (< y x)
-            (tak (tak (sub x 1) y z)
-                 (tak (sub y 1) z x)
-                 (tak (sub z 1) x y))
+            (tak (tak (- x 1) y z)
+                 (tak (- y 1) z x)
+                 (tak (- z 1) x y))
             z))
 
 (define (expt x n)
-        (if (eqv? 0 n)
+        (if (zero? n)
             1
             (if (odd? n)
-                (mul x (expt x (sub n 1)))
-                (let ((y (expt x (div n 2))))
-                     (mul y y)))))
+                (* x (expt x (- n 1)))
+                (let ((y (expt x (/ n 2))))
+                     (* y y)))))
 
-(define (length s) (if s (add 1 (length (cdr s))) 0))
+(define (length s) (if s (+ 1 (length (cdr s))) 0))
 
 (define (list . s) s)
 
@@ -284,7 +212,7 @@
         (letrec ((riot
                   (lambda (n m)
                           (if (> n 0)
-                              (cons (sub m n) (riot (sub n 1) m))
+                              (cons (- m n) (riot (- n 1) m))
                               #f))))
                  (riot n n)))
 
@@ -298,7 +226,7 @@
             (cons (pairs (car a) b)
                   (cross (cdr a) b)) a))
 
-(define (abs x) (if (< x 0) (neg x) x))
+(define (abs x) (if (< x 0) (- x) x))
 
 (define (max . l)
         (letrec ((maxi
@@ -324,57 +252,6 @@
                               (car l)))))
                 (minx l)))
 
-(define (sum l)
-        (if l (add (car l) (sum (cdr l))) 0))
-
-(define (diff l)
-        (if l
-            (if (cdr l)
-                (if (cddr l)
-                    (sub (car l) (sum(cdr l)))
-                    (sub (car l) (cadr l)))
-                (neg (car l)))
-            0))
-
-(define (product l)
-        (if l
-            (mul (car l) (product (cdr l)))
-            1))
-
-(define (quotient l)
-        (if l
-            (if (cdr l)
-                (if (cddr l)
-                    (div (car l) (quotient (cdr l)))
-                    (div (car l) (cadr l)))
-                (div 1 (exact->inexact (car l))))
-            1))
-
-(define (remainder l)
-        (if l
-            (if (cdr l)
-                (if (cddr l)
-                    (mod (car l) (remainder (cdr l)))
-                    (mod (car l) (cadr l)))
-                (mod 1 (car l)))
-            1))
-
-(define (+ . l) (sum l))
-
-(define (- . l) (diff l))
-
-(define (* . l) (product l))
-
-(define (/ . l) (quotient l))
-
-(define (% . l) (remainder l))
-
-(define (make-counter i)
-        (let ((n i))
-             (lambda (j) (begin (set! n (add n 1)) n))))
-
-(define counter (make-counter 0))
-
 (define (reverse! s)
         (let ((p s)
               (q '())
@@ -389,9 +266,9 @@
 (define (list-tail s i)
         (if (null? s)
             #f
-            (if (= i 0)
+            (if (zero? i)
                 s
-                (list-tail (cdr s) (sub i 1)))))
+                (list-tail (cdr s) (- i 1)))))
 
 (define (list-ref s i) (car (list-tail s i)))
 
@@ -400,6 +277,10 @@
 (define (for-each f s) (while s (f (car s)) (set! s (cdr s))))
 
 (define (map f s) (if s (cons (f (car s)) (map f (cdr s))) s))
+
+(define (make-counter i)
+        (let ((n i))
+             (lambda (j) (begin (set! n (+ n 1)) n))))
 
 (display (map car (interaction-environment))) (newline)
 
