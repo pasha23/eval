@@ -1,7 +1,7 @@
 all: eval32 eval tests.out
 
-tests.out: eval init.l tests.l
-	./eval tests.l > tests.out
+tests.out: eval init.ss tests.ss
+	./eval tests.ss > tests.out
 
 eval32.list: eval32
 	objdump -C -S eval32 > eval32.list

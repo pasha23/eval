@@ -127,6 +127,7 @@ sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
 sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma, nega;
+sexp stdina, stdouta;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -149,53 +150,53 @@ static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);  
 bool isClosure(sexp p)
 {
     return isCons(p) &&
-           closurea == p->car &&      // (closure
-           (p = p->cdr) && p->car &&  //  exp
-           (p = p->cdr) && p->car &&  //  env)
+           closurea == p->car &&            // (closure
+           isCons(p = p->cdr) && p->car &&  //  exp
+           isCons(p = p->cdr) && p->car &&  //  env)
            !p->cdr;
 }
 
 bool isPromise(sexp p)
 {
-    return isCons(p) &&
-           promisea == p->car &&       // (promise
-           (p = p->cdr) &&             // forced
-           (p = p->cdr) &&             // value
-           (p = p->cdr) &&             // exp
-           (p = p->cdr) &&             // env)
+    return isCons(p) && promisea == p->car &&   // (promise
+           isCons(p = p->cdr) &&                // forced
+           isCons(p = p->cdr) &&                // value
+           isCons(p = p->cdr) &&                // exp
+           isCons(p = p->cdr) &&                // env)
           !p->cdr;
 }
 
 bool isRational(sexp exp)
 {
-    return isCons(exp) &&
-           rationala == exp->car &&             // (rational
-           (exp = exp->cdr) && exp->car &&      //  real
-           (exp = exp->cdr) && exp->car &&      //  imag)
+    return isCons(exp) && rationala == exp->car &&  // (rational
+           isCons(exp = exp->cdr) && exp->car &&    //  real
+           isCons(exp = exp->cdr) && exp->car &&    //  imag)
            !exp->cdr;
 }
 
 bool isRectangular(sexp p)
 {
-    return isCons(p) &&
-           rectangulara == p->car &&   // (rectangular
-           (p = p->cdr) && p->car &&   //  real
-           (p = p->cdr) && p->car &&   //  imaginary)
+    return isCons(p) && rectangulara == p->car &&   // (rectangular
+           isCons(p = p->cdr) && p->car &&          //  real
+           isCons(p = p->cdr) && p->car &&          //  imaginary)
            !p->cdr;
 }
 
 bool isPolar(sexp p)
 {
-    return isCons(p) &&
-           polara == p->car &&         // (polar
-           (p = p->cdr) && p->car &&   //  r
-           (p = p->cdr) && p->car &&   //  theta)
+    return isCons(p) && polara == p->car &&     // (polar
+           (p = p->cdr) && p->car &&            //  r
+           (p = p->cdr) && p->car &&            //  theta)
            !p->cdr;
 }
 
 bool isComplex(sexp p)
 {
-    return isRectangular(p) || isPolar(p);
+    return isCons(p) &&
+           (rectangulara == p->car || polara == p->car) &&
+           isCons(p = p->cdr) && p->car &&
+           isCons(p = p->cdr) && p->car &&
+           !p->cdr;
 }
 
 jmp_buf the_jmpbuf;
@@ -331,8 +332,6 @@ void gc(bool verbose)
     marked = 0;
     mark(atoms);
     mark(global);
-    mark(inport);
-    mark(outport);
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
 
@@ -381,6 +380,8 @@ void assertRectangular(sexp s) { if (!isRectangular(s)) error("not rectangular")
 void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
 void assertPolar(sexp s)       { if (!isPolar(s))       error("not polar"); }
 void assertFixnum(sexp i)      { if (!isFixnum(i))      error("not an integer"); }
+void assertFlonum(sexp i)      { if (!isFlonum(i))      error("not real"); }
+void assertRational(sexp s)    { if (!isRational(s))    error("not rational"); }
 void assertInPort(sexp s)      { if (!isInPort(s))      error("not an input port"); }
 void assertOutPort(sexp s)     { if (!isOutPort(s))     error("not an output port"); }
 void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
@@ -1226,32 +1227,39 @@ sexp unimod(sexp l)
 }
 
 // functions on real numbers
-sexp sinff(sexp x) { return isFlonum(x) ? newflonum(sin(asFlonum(x))) : 0; }
-sexp cosff(sexp x) { return isFlonum(x) ? newflonum(cos(asFlonum(x))) : 0; }
-sexp tanff(sexp x) { return isFlonum(x) ? newflonum(tan(asFlonum(x))) : 0; }
-sexp expff(sexp x) { return isFlonum(x) ? newflonum(exp(asFlonum(x))) : 0; }
-sexp logff(sexp x) { return isFlonum(x) ? newflonum(log(asFlonum(x))) : 0; }
-sexp asinff(sexp x) { return isFlonum(x) ? newflonum(asin(asFlonum(x))) : 0; }
-sexp acosff(sexp x) { return isFlonum(x) ? newflonum(acos(asFlonum(x))) : 0; }
-sexp atanff(sexp x) { return isFlonum(x) ? newflonum(atan(asFlonum(x))) : 0; }
-sexp ceilingff(sexp x) { return isFlonum(x) ? newflonum(ceil(asFlonum(x))) : 0; }
-sexp floorff(sexp x) { return isFlonum(x) ? newflonum(floor(asFlonum(x))) : 0; }
-sexp roundff(sexp x) { return isFlonum(x) ? newflonum(round(asFlonum(x))) : 0; }
-sexp sqrtff(sexp x) { return isFlonum(x) ? newflonum(sqrt(asFlonum(x))) : 0; }
-sexp powff(sexp x, sexp y) { return isFlonum(x) && isFlonum(y) ? newflonum(pow(asFlonum(x), asFlonum(y))) : 0; }
-sexp truncate(sexp x) { return isFlonum(x) ? newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x))) : 0; }
+sexp sinff(sexp x) { assertFlonum(x); return newflonum(sin(asFlonum(x))); }
+sexp cosff(sexp x) { assertFlonum(x); return newflonum(cos(asFlonum(x))); }
+sexp tanff(sexp x) { assertFlonum(x); return newflonum(tan(asFlonum(x))); }
+sexp expff(sexp x) { assertFlonum(x); return newflonum(exp(asFlonum(x))); }
+sexp logff(sexp x) { assertFlonum(x); return newflonum(log(asFlonum(x))); }
+sexp asinff(sexp x) { assertFlonum(x); return newflonum(asin(asFlonum(x))); }
+sexp acosff(sexp x) { assertFlonum(x); return newflonum(acos(asFlonum(x))); }
+sexp atanff(sexp x) { assertFlonum(x); return newflonum(atan(asFlonum(x))); }
+sexp ceilingff(sexp x) { assertFlonum(x); return newflonum(ceil(asFlonum(x))); }
+sexp floorff(sexp x) { assertFlonum(x); return newflonum(floor(asFlonum(x))); }
+sexp roundff(sexp x) { assertFlonum(x); return newflonum(round(asFlonum(x))); }
+sexp sqrtff(sexp x) { assertFlonum(x); return newflonum(sqrt(asFlonum(x))); }
+
+sexp powff(sexp x, sexp y)
+{
+    assertFlonum(x); assertFlonum(y); return newflonum(pow(asFlonum(x), asFlonum(y)));
+}
+sexp truncate(sexp x)
+{
+    assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x)));
+}
 
 // exact, inexact
 sexp exactp(sexp x) { return isFixnum(x) ? t : 0; }
 sexp integerp(sexp x) { return isFixnum(x) ? t : 0; }
 sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
 sexp realp(sexp x) { return isFlonum(x) ? t : 0; }
-sexp i2ef(sexp x) { return isFlonum(x) ? newfixnum((long)asFlonum(x)) : 0; }
-sexp e2if(sexp x) { return isFixnum(x) ? newflonum((double)asFixnum(x)) : 0; }
+sexp i2ef(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
+sexp e2if(sexp x) { assertFixnum(x); return newflonum((double)asFixnum(x)); }
 
 // shifts
-sexp lsh(sexp x, sexp y) { return isFixnum(x) && isFixnum(y) ? newfixnum(asFixnum(x) << asFixnum(y)) : 0; }
-sexp rsh(sexp x, sexp y) { return isFixnum(x) && isFixnum(y) ? newfixnum(asFixnum(x) >> asFixnum(y)) : 0; }
+sexp lsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) << asFixnum(y)); }
+sexp rsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) >> asFixnum(y)); }
 
 // list structure predicates
 sexp isnot(sexp x) { return x ? 0 : t; }
@@ -1262,7 +1270,7 @@ sexp pairp(sexp x) { return isCons(x) ? t : 0; }
 sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : 0; }
 sexp stringp(sexp x) { return isString(x) ? t : 0; }
 sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
-sexp procedurep(sexp p) { return p && (isFunct(p) || isCons(p) && closurea == p->car) ? t : 0; }
+sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : 0; }
 
 // length of String or Atom
 
@@ -2367,7 +2375,7 @@ sexp equalp(sexp x, sexp y)
 void fixenvs(sexp env)
 {
     for (sexp f = env; f; f = f->cdr)
-        if (isCons(f->car->cdr) && closurea == f->car->cdr->car)
+        if (isClosure(f->car->cdr))
             f->car->cdr->cdr->cdr->car = env;
 }
 
@@ -2761,16 +2769,19 @@ sexp apply(sexp fun, sexp args)
 
 sexp rationalform(sexp exp, sexp env)
 {
+    assertRational(exp);
     return exp;
 }
 
 sexp rectangularform(sexp exp, sexp env)
 {
+    assertRectangular(exp);
     return exp;
 }
 
 sexp polarform(sexp exp, sexp env)
 {
+    assertPolar(exp);
     return exp;
 }
 
@@ -3319,6 +3330,8 @@ int main(int argc, char **argv, char **envp)
     slash           = atomize("/");
     spacea          = atomize("space");
     sqrta           = atomize("sqrt");
+    stdina          = atomize("stdin");
+    stdouta         = atomize("stdout");
     stringcieq      = atomize("string-ci=?");
     stringcige      = atomize("string-ci>=?");
     stringcigt      = atomize("string-ci>?");
@@ -3366,6 +3379,9 @@ int main(int argc, char **argv, char **envp)
     minus           = atomize("-");
     star            = atomize("*");
     percent         = atomize("%");
+
+    define(stdina,  inport);
+    define(stdouta, outport);
 
     // set the definitions (functions)
     define_funct(acosa,         1, (void*)acosff);
@@ -3538,7 +3554,7 @@ int main(int argc, char **argv, char **envp)
     define_form(rectangulara, rectangularform);
     define_form(polara,       polarform);
 
-    load(newstring(newchunk("init.l")));
+    load(newstring(newchunk("init.ss")));
 
     fixenvs(global);
 

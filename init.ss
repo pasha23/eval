@@ -2,7 +2,7 @@
 ; miscellaneous utilities and demos
 ;
 
-(define builtin-environment (null-environment))
+;; (define builtin-environment (null-environment))
 
 (define (caar x) (car (car x)))
 (define (cadr x) (car (cdr x)))
@@ -284,16 +284,13 @@
         (let ((n i))
              (lambda (j) (begin (set! n (+ n 1)) n))))
 
-(define (env-head l t)
-        (if (eq? l t)
-            #f
-            (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
+;; (define (env-head l t) (if (eq? l t) #f (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
 
-(define (builtin-defs) (env-head (null-environment) builtin-environment))
+;; (define (builtin-defs) (env-head (null-environment) builtin-environment))
 
-(define (init-defs) (env-head (null-environment) builtin-environment))
+;; (define (init-defs) (env-head (null-environment) builtin-environment))
 
 (display (map car (interaction-environment))) (newline)
 
-(define init-environment (null-environment))
+;; (define init-environment (null-environment))
 
