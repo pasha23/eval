@@ -30,8 +30,6 @@
 #define error(s) do { psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
-char errorBuffer[256];
-
 /*
  * storage is managed as a freelist of cells, each potentially containing two pointers
  *
@@ -324,14 +322,17 @@ void deletevector(sexp v) { delete ((Vector*)v)->elements; }
  *
  * sweep all storage, putting unmarked objects on the freelist
  */
-void gc(bool verbose)
+sexp gc(sexp args)
 {
+    bool verbose = isCons(args) && args->car;
     int werefree = MAX-allocated;
     int wereprot = psp-protect;
 
     marked = 0;
     mark(atoms);
     mark(global);
+    mark(inport);
+    mark(outport);
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
 
@@ -366,12 +367,7 @@ void gc(bool verbose)
     ++collected;
     if (!freelist)
         error("error: storage exhausted");
-}
-
-sexp gcf(sexp l)
-{
-    gc(!!l);
-    return 0;
+    return voida;
 }
 
 void assertAtom(sexp s)        { if (!isAtom(s))        error("not symbol"); }
@@ -392,7 +388,7 @@ void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
 sexp newcell(void)
 {
     if (allocated >= MAX)
-        gc(false);
+        gc(0);
 
     ++allocated;
     Cons* p = freelist;
@@ -1426,13 +1422,18 @@ sexp makestring(sexp args)
     return lose(1, newstring(save(newchunk(b))));
 }
 
-char* sstr(char* b, sexp s)
+char* sstr(char* b, int len, sexp s)
 {
-    assertString(s);
+    if (!isString(s))
+        assertAtom(s);
+    if (!isAtom(s))
+        assertString(s);
 
     char *q = b;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
+        if (q >= b+len)
+            break;
         Chunk* t = (Chunk*)(p->car);
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
     }
@@ -1444,7 +1445,8 @@ sexp stringcopyf(sexp s)
 {
     assertString(s);
 
-    return lose(1, newstring(save(newchunk(sstr((char*)alloca(slen(s)+1), s)))));
+    int len = slen(s)+1;
+    return lose(1, newstring(save(newchunk(sstr((char*)alloca(len), len, s)))));
 }
 
 sexp stringappend(sexp p, sexp q)
@@ -1457,9 +1459,8 @@ sexp stringappend(sexp p, sexp q)
 
     char *b = (char*) alloca(pl+ql+1);
 
-    sstr(b, p);
-    sstr(b+pl, q);
-    b[pl+ql+1] = '\0';
+    sstr(b, pl+1, p);
+    sstr(b+pl, ql+1, q);
 
     return lose(1, newstring(save(newchunk(b))));
 }
@@ -1479,10 +1480,24 @@ sexp stringfillf(sexp s, sexp c)
 }
 
 // close-input-port
-sexp clinport(sexp p) { assertOutPort(p); fclose(((OutPort*)p)->file); ((OutPort*)p)->file = 0; }
+sexp clinport(sexp p)
+{
+    assertInPort(p);
+    if (inport == p)
+        inport = 0;
+    fclose(((OutPort*)p)->file);
+    ((OutPort*)p)->file = 0;
+}
 
 // close-output-port
-sexp cloutport(sexp p) { assertInPort(p); fclose(((InPort*)p)->file); ((InPort*)p)->file = 0; }
+sexp cloutport(sexp p)
+{
+    assertOutPort(p);
+    if (outport == p)
+        outport = 0;
+    fclose(((InPort*)p)->file);
+    ((InPort*)p)->file = 0;
+}
 
 // current-input-port
 sexp curinport(sexp p) { return inport ? inport : 0; }
@@ -1494,10 +1509,23 @@ sexp curoutport(sexp p) { return outport ? outport : 0; }
 sexp inportp(sexp p) { return isInPort(p) ? t : 0; }
 
 // open-input-file
-sexp openin(sexp p) { assertString(p); char* b = (char*) alloca(slen(p)+1); sstr(b, p); return newinport(b); }
+sexp openin(sexp p)
+{
+    assertString(p);
+    int len = slen(p)+1;
+    char* b = (char*) alloca(len); sstr(b, len, p);
+    return newinport(b);
+}
 
 // open-output-file
-sexp openout(sexp p) { assertString(p); char* b = (char*) alloca(slen(p)+1); sstr(b, p); return newoutport(b); }
+sexp openout(sexp p)
+{
+    assertString(p);
+    int len = slen(p)+1;
+    char* b = (char*) alloca(slen(p)+1);
+    sstr(b, len, p);
+    return newoutport(b);
+}
 
 // output-port?
 sexp outportp(sexp p) { return isOutPort(p) ? t : 0; }
@@ -1951,7 +1979,9 @@ sexp load(sexp x)
 {
     assertString(x);
 
-    char *name = sstr((char*)alloca(slen(x)+1), x);
+    int len = slen(x)+1;
+
+    char *name = sstr((char*)alloca(len), len, x);
 
     printf("; load: %s\n", name);
 
@@ -2391,49 +2421,39 @@ sexp define(sexp p, sexp r)
     return lose(3, voida);
 }
 
+static char errorBuffer[128];   // used by get and set
+
 sexp get(sexp p, sexp env)
 {
-    //debug("get env", env);
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
             return q->car->cdr;
-#if 1
-    debug("unbound", p);
-    error("get");
-#else
-    char msg[] = "error: get unbound";
+
+    char msg[] = "error: get unbound ";
+    strcpy(errorBuffer, msg);
     int  len = slen(p);
-    char *name = (char *) alloca(slen(p)+1);
-    sstr(name, p);
-    char *buff = (char*) alloca(sizeof(msg)+1+len);
-    sprintf(buff, "%s %s", msg, name);
-    strncpy(errorBuffer, buff, sizeof(errorBuffer));
+    if (len > sizeof(errorBuffer)-sizeof(msg))
+        len = sizeof(errorBuffer)-sizeof(msg);
+    sstr(errorBuffer+sizeof(msg)-1, len, p);
     error(errorBuffer);
-#endif
 }
 
 sexp set(sexp p, sexp r, sexp env)
 {
-    //debug("set env", env);
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
             q->car->cdr = r;
             return voida;
         }
-#if 1
-    debug("unbound", p);
-    error("set");
-#else
-    char msg[] = "error: set! unbound";
+
+    char msg[] = "error: set unbound ";
+    strcpy(errorBuffer, msg);
     int  len = slen(p);
-    char *name = (char*) alloca(slen(p)+1);
-    sstr(name, p);
-    char *buff = (char*) alloca(sizeof(msg)+1+len);
-    sprintf(buff, "%s %s", msg, name);
-    strncpy(errorBuffer, buff, sizeof(errorBuffer));
+    if (len > sizeof(errorBuffer)-sizeof(msg))
+        len = sizeof(errorBuffer)-sizeof(msg);
+    sstr(errorBuffer+sizeof(msg)-1, len, p);
     error(errorBuffer);
-#endif
 }
 
 sexp evlis(sexp p, sexp env)
@@ -3424,7 +3444,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(floora,        1, (void*)floorff);
     define_funct(forcea,        1, (void*)force);
     define_funct(forcedpa,      1, (void*)forcedp);
-    define_funct(gca,           0, (void*)gcf);
+    define_funct(gca,           0, (void*)gc);
     define_funct(gcda,          2, (void*)gcdf);
     define_funct(i2ea,          1, (void*)i2ef);
     define_funct(inexactpa,     1, (void*)inexactp);
@@ -3585,7 +3605,7 @@ int main(int argc, char **argv, char **envp)
                 printf("%ld items remain on protection stack\n", (long)(psp-protect));
             else
                 printf("one item remains on protection stack\n");
-        gc(true);
+        gc(atoms);  // arg makes it verbose
         total = 0;
         collected = 0;
         sexp e = read(stdin, 0);
@@ -3593,11 +3613,9 @@ int main(int argc, char **argv, char **envp)
             break;
         killed = 0;
         sexp v = eval(e, global);
+        display(stdout, v, false);
         if (voida != v)
-        {
-            display(stdout, v, false);
             putchar('\n');
-        }
     }
     return 0;
 }
