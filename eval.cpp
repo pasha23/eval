@@ -560,38 +560,40 @@ sexp orform(sexp p, sexp env)
 
 long asFixnum(sexp p)
 {
-    return isDouble(p) ? (long)((Double*)p)->flonum :
-           isFloat(p)  ? (long)((Float*)p)->flonum :
-                         ((Fixnum*)p)->fixnum;
+    return ((Fixnum*)p)->fixnum;
 }
 
 double asFlonum(sexp p)
 {
-    return isFixnum(p) ? (double)((Fixnum*)p)->fixnum :
-           isDouble(p) ? ((Double*)p)->flonum :
-                         ((Float*)p)->flonum;
+    return isDouble(p) ? ((Double*)p)->flonum : ((Float*)p)->flonum;
+}
+
+double rat2real(sexp x)
+{
+    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
 }
 
 sexp negativep(sexp x)
 {
     if (isFixnum(x)) return asFixnum(x) < 0 ? t : 0;
     if (isFlonum(x)) return asFlonum(x) < 0.0 ? t : 0;
+    if (isRational(x))
+        return asFixnum(x->cdr->car) < 0 && asFixnum(x->cdr->cdr->car) > 0 ||
+               asFixnum(x->cdr->car) > 0 && asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
     error("negative? needs a real number");
 }
 
 sexp positivep(sexp x)
 {
-    if (isFixnum(x)) return asFixnum(x) >= 0 ? t : 0;
-    if (isFlonum(x)) return asFlonum(x) >= 0.0 ? t : 0;
+    if (isFixnum(x)) return asFixnum(x) > 0 ? t : 0;
+    if (isFlonum(x)) return asFlonum(x) > 0.0 ? t : 0;
+    if (isRational(x))
+        return asFixnum(x->cdr->car) > 0 && asFixnum(x->cdr->cdr->car) > 0 ||
+               asFixnum(x->cdr->car) < 0 && asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
     error("positive? needs a real number");
 }
 
 sexp booleanp(sexp x) { return t == x || 0 == x ? t : 0; }
-
-double rat2real(sexp x)
-{
-    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
-}
 
 bool cmplt(sexp x, sexp y)
 {
@@ -1088,7 +1090,7 @@ sexp unidiv(sexp l)
         sexp x = l->car;
         if (isFixnum(product)) {
             if (isFixnum(x)) {
-                product = replace(newrational(asFixnum(product), asFixnum(x)));
+                product = replace(rational_reduce(asFixnum(product), asFixnum(x)));
             } else if (isFlonum(x)) {
                 product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
             } else if (isRational(x)) {

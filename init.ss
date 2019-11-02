@@ -33,9 +33,9 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
-(define (negative? x) (< x 0))
+;; (define (negative? x) (< x 0))
 
-(define (positive? x) (> x 0))
+;; (define (positive? x) (> x 0))
 
 ;; (define (gcd x y) (if (zero? y) x (gcd y (% x y))))
 
@@ -83,6 +83,12 @@
 
 (define (make-polar r theta) (cons 'polar (cons r (cons theta #f))))
 
+(define (complex? z)
+        (and (or (eq? 'rectangular (car z)) (eq? 'polar (car z)))
+             (real? (cadr z))
+             (real? (caddr z))
+             (null? (cdddr z))))
+
 (define (real-part z) (if (rectangular? z) (cadr z) (* (cadr z) (cos (caddr z)))))
 
 (define (imag-part z) (if (rectangular? z) (caddr z) (* (cadr z) (sin (caddr z)))))
@@ -94,8 +100,6 @@
 (define (theta-part z) (if (rectangular? z) (angle z) (caddr z)))
 
 (define (rectangular->polar z) (make-polar (magnitude z) (angle z)))
-
-(define (complex? z) (or (rectangular? z) (polar? z)))
 
 (define (fib x) (if (<= x 0) 1 (+ (fib (- x 2)) (fib (- x 1)))))
 
@@ -116,12 +120,12 @@
             z))
 
 (define (expt x n)
-        (if (= 0 n)
-            1
+        (if (positive? n)
             (if (= 1 (% n 2))
                 (* x (expt x (- n 1)))
                 (let ((y (expt x (/ n 2))))
-                     (* y y)))))
+                     (* y y)))
+            1))
 
 (define (length s) (if s (+ 1 (length (cdr s))) 0))
 
@@ -260,9 +264,9 @@
 (define (list-tail s i)
         (if (null? s)
             #f
-            (if (= 0 i)
-                s
-                (list-tail (cdr s) (- i 1)))))
+            (if (positive? i)
+                (list-tail (cdr s) (- i 1))
+                s)))
 
 (define (list-ref s i) (car (list-tail s i)))
 
