@@ -14,15 +14,18 @@
 #include <libunwind.h>
 #include <cxxabi.h>
 #endif
+#include <assert.h>
 #include <cmath>
 #include <csetjmp>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <set>
 #include <ctype.h>
-#include <assert.h>
+#include <errno.h>
+#include <set>
+#include <termios.h>
+#include <unistd.h>
 
 bool killed = true;
 
@@ -83,7 +86,7 @@ struct Float   { char tags[sizeof(Cons)-sizeof(float)];  float  flonum; };
 struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double flonum; };
 struct Funct   { char tags[sizeof(sexp)]; void*                  funcp; };
 struct Form    { char tags[sizeof(sexp)]; Formp                  formp; };
-struct Char    { char tags[2];            char    text[sizeof(Cons)-2]; };
+struct Char    { char tags[sizeof(sexp)-sizeof(char)];   char       ch; };
 struct InPort  { char tags[sizeof(sexp)]; FILE*                   file; };
 struct OutPort { char tags[sizeof(sexp)]; FILE*                   file; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short length; sexp* elements; };
@@ -432,7 +435,7 @@ sexp newcharacter(char c)
     Char* p = (Char*)newcell();
     p->tags[0] = OTHER;
     p->tags[1] = CHAR;
-    p->text[0] = c;
+    p->ch = c;
     return (sexp)p;
 }
 
@@ -441,6 +444,8 @@ sexp newinport(char* name)
     InPort* p = (InPort*)newcell();
     p->tags[0] = OTHER;
     p->tags[1] = INPORT;
+    p->tags[2] = 0; // char avail flag
+    p->tags[3] = 0; // peeked char
     p->file = fopen(name, "r");
     return (sexp)p;
 }
@@ -1281,7 +1286,7 @@ sexp powff(sexp x, sexp y)
 {
     assertFlonum(x); assertFlonum(y); return newflonum(pow(asFlonum(x), asFlonum(y)));
 }
-sexp truncate(sexp x)
+sexp truncateff(sexp x)
 {
     assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x)));
 }
@@ -1456,7 +1461,9 @@ sexp makestring(sexp args)
     int l = asFixnum(args->car);
     char *b = (char*) alloca(l+1);
     char *q = b;
-    char c = args->cdr && isChar(args->cdr->car) ? ((Char*)(args->cdr->car))->text[0] : ' ';
+    char c = args->cdr &&
+             isChar(args->cdr->car) ?
+             ((Char*)(args->cdr->car))->ch : ' ';
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
@@ -1511,7 +1518,7 @@ sexp stringfillf(sexp s, sexp c)
     assertString(s);
     assertChar(c);
 
-    char k = ((Char*)c)->text[0];
+    char k = ((Char*)c)->ch;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
         Chunk* t = (Chunk*)(p->car);
@@ -1572,16 +1579,44 @@ sexp openout(sexp p)
 sexp outportp(sexp p) { return isOutPort(p) ? t : 0; }
 
 // with-input-from-file
-sexp within(sexp p, sexp f) { sexp t = inport; inport = openin(p); sexp q = apply(f, 0); clinport(inport); inport = t; return q; }
+sexp within(sexp p, sexp f)
+{
+    sexp t = inport;
+    inport = openin(p);
+    sexp q = apply(f, 0);
+    clinport(inport);
+    inport = t;
+    return q;
+}
 
 // with-output-to-file
-sexp without(sexp p, sexp f) { sexp t = outport; outport = openout(p); sexp q = apply(f, 0); cloutport(outport); outport = t; return q; }
+sexp without(sexp p, sexp f)
+{
+    sexp t = outport;
+    outport = openout(p);
+    sexp q = apply(f, 0);
+    cloutport(outport);
+    outport = t;
+    return q;
+}
 
 // call-with-input-file
-sexp callwithin(sexp p, sexp f) { sexp inp = openin(p); sexp q = apply(f, cons(inp, 0)); clinport(inp); return q; }
+sexp callwithin(sexp p, sexp f)
+{
+    sexp inp = openin(p);
+    sexp q = apply(f, cons(inp, 0));
+    clinport(inp);
+    return q;
+}
 
 // call-with-output-file
-sexp callwithout(sexp p) { sexp oup = openout(p); sexp q = apply(f, cons(oup, 0)); cloutport(oup); return q; }
+sexp callwithout(sexp p)
+{
+    sexp oup = openout(p);
+    sexp q = apply(f, cons(oup, 0));
+    cloutport(oup);
+    return q;
+}
 
 sexp vectorp(sexp v)
 {
@@ -1746,37 +1781,62 @@ int scmpi(sexp p, sexp q)
     }
 }
 
-sexp alphap(sexp c) { return isChar(c) && isalpha(((Char*)c)->text[0]) ? t : 0; }
-sexp char2int(sexp c) { assertChar(c); return  newfixnum(((Char*)c)->text[0]); }
-sexp charcieq(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) == tolower(((Char*)q)->text[0]) ? t : 0; }
-sexp charcige(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) >= tolower(((Char*)q)->text[0]) ? t : 0; }
-sexp charcigt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) >  tolower(((Char*)q)->text[0]) ? t : 0; }
-sexp charcile(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) <= tolower(((Char*)q)->text[0]) ? t : 0; }
-sexp charcilt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->text[0]) <  tolower(((Char*)q)->text[0]) ? t : 0; }
-sexp chareq(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] == ((Char*)q)->text[0] ? t : 0; }
-sexp charge(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] >= ((Char*)q)->text[0] ? t : 0; }
-sexp chargt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] >  ((Char*)q)->text[0] ? t : 0; }
-sexp charle(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] <= ((Char*)q)->text[0] ? t : 0; }
-sexp charlt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->text[0] <  ((Char*)q)->text[0] ? t : 0; }
+sexp alphap(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : 0; }
+sexp char2int(sexp c) { assertChar(c); return  newfixnum(((Char*)c)->ch); }
+sexp charcieq(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch) ? t : 0; }
+sexp charcige(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch) ? t : 0; }
+sexp charcigt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch) ? t : 0; }
+sexp charcile(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch) ? t : 0; }
+sexp charcilt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch) ? t : 0; }
+sexp chareq(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch == ((Char*)q)->ch ? t : 0; }
+sexp charge(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >= ((Char*)q)->ch ? t : 0; }
+sexp chargt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >  ((Char*)q)->ch ? t : 0; }
+sexp charle(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <= ((Char*)q)->ch ? t : 0; }
+sexp charlt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <  ((Char*)q)->ch ? t : 0; }
 sexp charp(sexp c) { return isChar(c) ? t : 0; }
-sexp downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->text[0])); }
+sexp downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
 sexp int2char(sexp c) { assertFixnum(c); return newcharacter(asFixnum(c)); }
-sexp lowercasep(sexp c) { return isChar(c) && islower(((Char*)c)->text[0]) ? t : 0; }
-sexp numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->text[0]) ? t : 0; }
-sexp readyp(sexp c) { return 0; }
-sexp upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->text[0])); }
-sexp uppercasep(sexp c) { return isChar(c) && isupper(((Char*)c)->text[0]) ? t : 0; }
-sexp whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->text[0]) ? t : 0; }
+sexp lowercasep(sexp c) { return isChar(c) && islower(((Char*)c)->ch) ? t : 0; }
+sexp numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->ch) ? t : 0; }
+sexp upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)); }
+sexp uppercasep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : 0; }
+sexp whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
 
-sexp peekchar(sexp args)
+// inPort->tags[2] // char avail flag
+// inPort->tags[3] // peeked char
+
+sexp readyp(sexp args)
 {
     sexp port = inport;
     if (args)
         assertInPort(port = args->car);
-    FILE* f = ((InPort*)port)->file;
-    char c = getc(f);
-    ungetc(c, f);
-    return newcharacter(c);
+
+    InPort* inPort = (InPort*)port;
+
+    struct termios original;
+    if (0 == tcgetattr(fileno(inPort->file), &original))
+    {
+        struct termios working;
+
+        if (inPort->tags[2])
+            return t;
+
+        memcpy((void*)&working, (void*)&original, sizeof(struct termios));
+        working.c_cc[VMIN] = 0;
+        working.c_cc[VTIME] = 0;
+        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+        working.c_oflag &= ~OPOST;
+        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        working.c_cflag &= ~(CSIZE | PARENB);
+        working.c_cflag |= CS8;
+        if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
+        {
+            inPort->tags[2] = read(fileno(stdin), &inPort->tags[3], 1) > 0;
+            tcsetattr(fileno(stdin), TCSANOW, &original);
+        }
+        return inPort->tags[2] ? t : 0;
+    } else
+        return t;
 }
 
 sexp readchar(sexp args)
@@ -1784,8 +1844,71 @@ sexp readchar(sexp args)
     sexp port = inport;
     if (args)
         assertInPort(port = args->car);
-    FILE* f = ((InPort*)port)->file;
-    char c = getc(f);
+
+    InPort* inPort = (InPort*)port;
+
+    struct termios original;
+    if (0 == tcgetattr(fileno(stdin), &original))
+    {
+        if (inPort->tags[2])
+        {
+            inPort->tags[2] = false;
+            return newcharacter(inPort->tags[3]);
+        }
+
+        struct termios working;
+        memcpy((void*)&working, (void*)&original, sizeof(struct termios));
+        working.c_cc[VMIN] = 1;
+        working.c_cc[VTIME] = 0;
+        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+        working.c_oflag &= ~OPOST;
+        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        working.c_cflag &= ~(CSIZE | PARENB);
+        working.c_cflag |= CS8;
+        if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
+        {
+            while (0 == read(fileno(stdin), &inPort->tags[3], 1)) {}
+            tcsetattr(fileno(stdin), TCSANOW, &original);
+        }
+        return newcharacter(inPort->tags[3]);
+    }
+    return newcharacter(getc(inPort->file));
+}
+
+sexp peekchar(sexp args)
+{
+    sexp port = inport;
+    if (args)
+        assertInPort(port = args->car);
+
+    InPort* inPort = (InPort*)port;
+
+    struct termios original;
+    if (0 == tcgetattr(fileno(stdin), &original))
+    {
+        if (inPort->tags[2])
+            return newcharacter(inPort->tags[3]);
+
+        struct termios working;
+        memcpy((void*)&working, (void*)&original, sizeof(struct termios));
+        working.c_cc[VMIN] = 1;
+        working.c_cc[VTIME] = 0;
+        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+        working.c_oflag &= ~OPOST;
+        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        working.c_cflag &= ~(CSIZE | PARENB);
+        working.c_cflag |= CS8;
+        if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
+        {
+            while (0 == read(fileno(stdin), &inPort->tags[3], 1)) {}
+            inPort->tags[2] = true;
+            tcsetattr(fileno(stdin), TCSANOW, &original);
+        }
+        return newcharacter(inPort->tags[3]);
+    }
+
+    int c = getc(inPort->file);
+    ungetc(c, inPort->file);
     return newcharacter(c);
 }
 
@@ -1798,7 +1921,7 @@ sexp writechar(sexp args)
         if (args->cdr)
             assertOutPort(port = args->cdr->car);
     }
-    fprintf(((OutPort*)port)->file, "#\\%c", ((Char*)(args->car))->text[0]);
+    fprintf(((OutPort*)port)->file, "#\\%c", ((Char*)(args->car))->ch);
     return voida;
 }
 
@@ -1842,7 +1965,7 @@ sexp stringsetf(sexp s, sexp k, sexp c)
     if (!p)
         error("string-set!: out of bounds");
 
-    *p = ((Char*)c)->text[0];
+    *p = ((Char*)c)->ch;
 
     return s;
 }
@@ -2071,7 +2194,7 @@ sexp displayf(sexp args)
     return voida;
 }
 
-sexp write(sexp args)
+sexp writef(sexp args)
 {
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
@@ -2256,18 +2379,18 @@ void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
     else if (isVector(exp) && safe(seenSet, exp))
         displayVector(fout, exp, seenSet, write);
     else if (isInPort(exp))
-        fprintf(fout, "#<input@%d>", ((InPort*)exp)->file->_fileno);
+        fprintf(fout, "#<input@%d>", fileno(((InPort*)exp)->file));
     else if (isOutPort(exp))
-        fprintf(fout, "#<output@%d>", ((OutPort*)exp)->file->_fileno);
+        fprintf(fout, "#<output@%d>", fileno(((OutPort*)exp)->file));
     else if (isChar(exp)) {
         if (write)
         {
-            char c = ((Char*)exp)->text[0];
+            char c = ((Char*)exp)->ch;
             for (int i = 0; char_names[i]; ++i)
                 if (c == char_codes[i])
                     { fprintf(fout, "#\\%s", char_names[i]); return; }
         }
-        fprintf(fout, write ? "#\\%c" : "%c", ((Char*)exp)->text[0]);
+        fprintf(fout, write ? "#\\%c" : "%c", ((Char*)exp)->ch);
     }
 }
 
@@ -2365,7 +2488,7 @@ sexp list2s(sexp s)
     {
         assertChar(s->car);
 
-        r->text[i++] = ((Char*)(s->car))->text[0];
+        r->text[i++] = ((Char*)(s->car))->ch;
 
         if (i == sizeof(r->text))
         {
@@ -2429,6 +2552,7 @@ bool eqvb(sexp x, sexp y)
     case FLOAT :
     case DOUBLE: return asFlonum(x) == asFlonum(y);
     case VECTOR: return cmpv(x, y);
+    case CHAR:   return ((Char*)x)->ch == ((Char*)y)->ch;
     default:     return 0;
     }
 }
@@ -3144,6 +3268,8 @@ sexp readTail(FILE* fin, int level)
     sexp q = read(fin, level);
     if (rparen == q)
         return 0;
+    if (eofa == q)
+        return 0;
     save(q);
     sexp r = save(readTail(fin, level));
     return lose(2, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
@@ -3156,6 +3282,8 @@ sexp readVector(FILE* fin, int level)
     for (;;)
     {
         sexp s = save(read(fin, level));
+        if (eofa == s)
+            return 0;
         if (rbracket == s)
             return lose(mark, list2vec(save(reverse(q))));
         while (unquote == s->car)
@@ -3595,7 +3723,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(symbolpa,      1, (void*)symbolp);
     define_funct(tana,          1, (void*)tanff);
     define_funct(tilde,         1, (void*)complement);
-    define_funct(truncatea,     1, (void*)truncate);
+    define_funct(truncatea,     1, (void*)truncateff);
     define_funct(upcasea,       1, (void*)upcase);
     define_funct(uppercasepa,   1, (void*)uppercasep);
     define_funct(vec2lista,     1, (void*)vec2list);
@@ -3608,7 +3736,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(whitespacepa,  1, (void*)whitespacep);
     define_funct(withina,       1, (void*)within);
     define_funct(withouta,      1, (void*)without);
-    define_funct(writea,        0, (void*)write);
+    define_funct(writea,        0, (void*)writef);
     define_funct(writechara,    0, (void*)writechar);
     define_funct(xora,          0, (void*)xorf);
     
