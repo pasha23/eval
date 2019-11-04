@@ -3209,9 +3209,7 @@ sexp scan(FILE* fin)
         double floater = strtod(buffer, &nptr);
         //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0'))
-            return lose(mark, cons(rectangulara,
-                              save(cons(save(newflonum(0.0)),
-                              save(cons(save(newflonum(floater)), 0))))));
+            return lose(mark, newrectangular(0.0, floater));
     }
 
     if (FLO_POLAR == rc || INT_POLAR == rc)
@@ -3222,7 +3220,13 @@ sexp scan(FILE* fin)
         //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0')) {
             sexp iv = save(scan(fin));
-            double im = isFixnum(iv) ? (double)asFixnum(iv) : asFlonum(iv);
+            double im = 0.0;
+            if (isFixnum(iv))
+                im = (double)asFixnum(iv);
+            else if (isFlonum(iv))
+                im = (double)asFlonum(iv);
+            else
+                error("not polar");
             return lose(mark, newpolar(floater, im));
         }
     }
@@ -3237,6 +3241,7 @@ sexp scan(FILE* fin)
                 if ('+' == c)
                     c = getc(fin);
                 sexp im = save(scan(fin));
+                assertRectangular(im);
                 im->cdr->car = newflonum(floater);
                 return lose(mark, im);
             } else
