@@ -32,7 +32,8 @@ bool killed = true;
 #ifdef BROKEN
 #define error(s) do { printf("%s\n", s); assert(false); } while(0)
 #else
-#define error(s) do { if (killed) { printf("%s\n", s); assert(false); } psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
+#define error(s) do { if (killed) { printf("%s\n", s); assert(false); }\
+                      psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
 /*
@@ -87,7 +88,7 @@ struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double flonum; };
 struct Funct   { char tags[sizeof(sexp)]; void*                  funcp; };
 struct Form    { char tags[sizeof(sexp)]; Formp                  formp; };
 struct Char    { char tags[sizeof(sexp)-sizeof(char)];   char       ch; };
-struct InPort  { char tags[sizeof(sexp)]; FILE*                   file; };
+struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; FILE*file; };
 struct OutPort { char tags[sizeof(sexp)]; FILE*                   file; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short length; sexp* elements; };
 
@@ -130,7 +131,7 @@ sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
 sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma, nega;
-sexp stdina, stdouta, negativepa, positivepa, booleanpa;
+sexp stdina, stdouta, negativepa, positivepa, booleanpa, tracea;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -188,8 +189,8 @@ bool isRectangular(sexp p)
 bool isPolar(sexp p)
 {
     return isCons(p) && polara == p->car &&     // (polar
-           (p = p->cdr) && p->car &&            //  r
-           (p = p->cdr) && p->car &&            //  theta)
+           isCons(p = p->cdr) && p->car &&      //  r
+           isCons(p = p->cdr) && p->car &&      //  theta)
            !p->cdr;
 }
 
@@ -204,6 +205,7 @@ bool isComplex(sexp p)
 
 jmp_buf the_jmpbuf;
 
+sexp tracing = 0;       // trace calls to eval
 sexp atoms = 0;         // all atoms are linked in a list
 sexp block = 0;         // all the storage starts here
 sexp global = 0;        // this is the global symbol table (a list)
@@ -444,8 +446,8 @@ sexp newinport(char* name)
     InPort* p = (InPort*)newcell();
     p->tags[0] = OTHER;
     p->tags[1] = INPORT;
-    p->tags[2] = 0; // char avail flag
-    p->tags[3] = 0; // peeked char
+    p->avail = 0;
+    p->peek = 0;
     p->file = fopen(name, "r");
     return (sexp)p;
 }
@@ -563,9 +565,26 @@ sexp orform(sexp p, sexp env)
     return lose(2, q);
 }
 
+sexp trace(sexp arg)
+{
+    sexp r = tracing;
+    tracing = arg ? t : 0;
+    return r;
+}
+
 long asFixnum(sexp p)
 {
     return ((Fixnum*)p)->fixnum;
+}
+
+float asFloat(sexp p)
+{
+    return ((Float*)p)->flonum;
+}
+
+double asDouble(sexp p)
+{
+    return ((Double*)p)->flonum;
 }
 
 double asFlonum(sexp p)
@@ -748,8 +767,6 @@ double fmag(sexp z)
         error("fmag: unexpected argument");
 }
 
-// (define (magnitude z) (sqrt (add (square (real-part z)) (square (imag-part z)))))
-
 sexp magnitude(sexp z)
 {
     return newflonum(fmag(z));
@@ -765,8 +782,6 @@ double fangle(sexp z)
         error("fangle: unexpected argument");
 }
 
-// (define (angle z) (atan2 (imag-part z) (real-part z)))
-
 sexp angle(sexp z)
 {
     return newflonum(fangle(z));
@@ -777,8 +792,6 @@ sexp rect2polar(sexp x)
     assertRectangular(x);
     return lose(4, cons(polara, save(cons(save(magnitude(x)), save(cons(save(angle(x)), 0))))));
 }
-
-// (define (gcd x y) (if (zero? y) x (gcd y (mod x y))))
 
 long gcd(long x, long y)
 {
@@ -791,8 +804,6 @@ sexp gcdf(sexp x, sexp y)
     assertFixnum(y);
     return newfixnum(gcd(asFixnum(x), asFixnum(y)));
 }
-
-// (define (lcm x y) (let ((g (gcd x y))) (mul (div x g) (div y g))))
 
 long lcm(long x, long y)
 {
@@ -1396,20 +1407,35 @@ sexp newchunk(const char *t)
     }
 }
 
-void renderFloat(char* b, size_t s, float x)
+size_t renderFloat(char* b, size_t s, float x)
 {
     if ((long)x == x)
-        snprintf(b, s, "%ld.0", (long)x);
+        return snprintf(b, s, "%ld.0", (long)x);
     else
-        snprintf(b, s, "%#.8g", x);
+        return snprintf(b, s, "%#.8g", x);
 }
 
-void renderDouble(char* b, size_t s, double x)
+size_t renderDouble(char* b, size_t s, double x)
 {
     if ((long)x == x)
-        snprintf(b, s, "%ld.0", (long)x);
+        return snprintf(b, s, "%ld.0", (long)x);
     else
-        snprintf(b, s, "%#.15g", x);
+        return snprintf(b, s, "%#.15g", x);
+}
+
+size_t renderFixnum(char* b, size_t s, long x)
+{
+    return snprintf(b, s, "%ld", x);
+}
+
+size_t renderFlonum(char* b, size_t s, double x)
+{
+    if ((long)x == x)
+        return snprintf(b, s, "%ld.0", (long)x);
+    else if (sizeof(double) > sizeof(void*))
+        return snprintf(b, s, "%#.8g", x);
+    else
+        return snprintf(b, s, "%#.15g", x);
 }
 
 sexp num2string(sexp exp)
@@ -1802,8 +1828,17 @@ sexp upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)
 sexp uppercasep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : 0; }
 sexp whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
 
-// inPort->tags[2] // char avail flag
-// inPort->tags[3] // peeked char
+void setTermios(struct termios* p, struct termios* t, int vmin)
+{
+    memcpy((void*)p, (void*)t, sizeof(struct termios));
+    t->c_cc[VMIN] = vmin;
+    t->c_cc[VTIME] = 0;
+    t->c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+    t->c_oflag &= ~OPOST;
+    t->c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    t->c_cflag &= ~(CSIZE | PARENB);
+    t->c_cflag |= CS8;
+}
 
 sexp readyp(sexp args)
 {
@@ -1818,23 +1853,16 @@ sexp readyp(sexp args)
     {
         struct termios working;
 
-        if (inPort->tags[2])
+        if (inPort->avail)
             return t;
 
-        memcpy((void*)&working, (void*)&original, sizeof(struct termios));
-        working.c_cc[VMIN] = 0;
-        working.c_cc[VTIME] = 0;
-        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-        working.c_oflag &= ~OPOST;
-        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        working.c_cflag &= ~(CSIZE | PARENB);
-        working.c_cflag |= CS8;
+        setTermios(&original, &working, 0);
         if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
         {
-            inPort->tags[2] = read(fileno(stdin), &inPort->tags[3], 1) > 0;
+            inPort->avail = read(fileno(stdin), &inPort->peek, 1) > 0;
             tcsetattr(fileno(stdin), TCSANOW, &original);
         }
-        return inPort->tags[2] ? t : 0;
+        return inPort->avail ? t : 0;
     } else
         return t;
 }
@@ -1850,27 +1878,20 @@ sexp readchar(sexp args)
     struct termios original;
     if (0 == tcgetattr(fileno(stdin), &original))
     {
-        if (inPort->tags[2])
+        if (inPort->avail)
         {
-            inPort->tags[2] = false;
-            return newcharacter(inPort->tags[3]);
+            inPort->avail = false;
+            return newcharacter(inPort->peek);
         }
 
         struct termios working;
-        memcpy((void*)&working, (void*)&original, sizeof(struct termios));
-        working.c_cc[VMIN] = 1;
-        working.c_cc[VTIME] = 0;
-        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-        working.c_oflag &= ~OPOST;
-        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        working.c_cflag &= ~(CSIZE | PARENB);
-        working.c_cflag |= CS8;
+        setTermios(&original, &working, 1);
         if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
         {
-            while (0 == read(fileno(stdin), &inPort->tags[3], 1)) {}
+            while (0 == read(fileno(stdin), &inPort->peek, 1)) {}
             tcsetattr(fileno(stdin), TCSANOW, &original);
         }
-        return newcharacter(inPort->tags[3]);
+        return newcharacter(inPort->peek);
     }
     return newcharacter(getc(inPort->file));
 }
@@ -1886,25 +1907,18 @@ sexp peekchar(sexp args)
     struct termios original;
     if (0 == tcgetattr(fileno(stdin), &original))
     {
-        if (inPort->tags[2])
-            return newcharacter(inPort->tags[3]);
+        if (inPort->avail)
+            return newcharacter(inPort->peek);
 
         struct termios working;
-        memcpy((void*)&working, (void*)&original, sizeof(struct termios));
-        working.c_cc[VMIN] = 1;
-        working.c_cc[VTIME] = 0;
-        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-        working.c_oflag &= ~OPOST;
-        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        working.c_cflag &= ~(CSIZE | PARENB);
-        working.c_cflag |= CS8;
+        setTermios(&original, &working, 1);
         if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
         {
-            while (0 == read(fileno(stdin), &inPort->tags[3], 1)) {}
-            inPort->tags[2] = true;
+            while (0 == read(fileno(stdin), &inPort->peek, 1)) {}
+            inPort->avail = true;
             tcsetattr(fileno(stdin), TCSANOW, &original);
         }
-        return newcharacter(inPort->tags[3]);
+        return newcharacter(inPort->peek);
     }
 
     int c = getc(inPort->file);
@@ -2236,8 +2250,8 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
             if (cyclic(seenSet, v->elements[i]))
                 return true;
         return false;
-    } else
-        return true;
+    }
+    return true;
 }
 
 /*
@@ -2257,8 +2271,6 @@ void display(FILE* fout, sexp exp, bool write)
 {
     std::set<sexp> seenSet;
     // ideally: #0=(#1=(b) #1# #1# #1# #1# . #0#)
-    if (cyclic(exp))
-        printf("; cyclic!\n{");
     display(fout, exp, seenSet, write);
 }
 
@@ -2314,15 +2326,13 @@ void displayVector(FILE* fout, sexp v, std::set<sexp>& seenSet, bool write)
 
 const char *char_names[] =
 {
-  "nul","soh","stx","etx","eot","enq","ack","bel","bs", "ht", "nl", "vt", "np", "cr", "so", "si",
-  "dle","dc1","dc2","dc3","dc4","nak","syn","etb","can", "em","sub","esc", "fs", "gs", "rs", "us",
-  "space", "newline", "tab", "backspace", "return", "page", "escape", "del", 0
+       "nul","soh","stx","etx","eot","enq","ack","bell","backspace","tab","newline","vt","ff","return","so","si",
+       "dle","dc1","dc2","dc3","dc4","nak","syn","etb","can","em","sub","esc","fs","gs","rs","us","space","del", 0
 };
 
 static unsigned char char_codes[] =
-    "\000\001\002\003\004\005\006\007\010\011\012\013\014\015\016\017"
-    "\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037"
-    " \n\t\b\r\f\033\177";
+       "\000\001\002\003\004\005\006\007\010\011\012\013\014\015\016\017"
+       "\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037\040\177";
 
 void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
 {
@@ -2912,12 +2922,14 @@ sexp apply(sexp fun, sexp args)
     {
         if (0 == arity(fun))
             return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
-        if (1 == arity(fun) && args)
-            return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(args->car));
+        if (1 == arity(fun))
+                return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : 0));
         if (2 == arity(fun) && args->cdr)
             return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car));
         if (3 == arity(fun) && args->cdr && args->cdr->cdr)
             return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(args->car, args->cdr->car, args->cdr->cdr->car));
+
+        debug("missing args", fun);
     }
 
     if (isClosure(fun))
@@ -2943,9 +2955,9 @@ sexp apply(sexp fun, sexp args)
                 s = eval(r->car, e);
             return lose(mark, s);
         }
-    }
 
-    debug("not fun", fun);
+        debug("bad closure", fun);
+    }
 
     error("apply bad function");
 
@@ -2975,6 +2987,9 @@ sexp polarform(sexp exp, sexp env)
  */
 sexp eval(sexp p, sexp env)
 {
+    if (tracing)
+        debug("eval", p);
+
     if (!p || f == p || t == p || isOther(p) && ATOM != evalType(p))
         return p;
 
@@ -3067,6 +3082,7 @@ enum
  */
 sexp scan(FILE* fin)
 {
+    sexp* mark = psp;
     char buffer[256];
     char *p = buffer;
     char *pend = buffer + sizeof(buffer) - 1;
@@ -3172,17 +3188,13 @@ sexp scan(FILE* fin)
 
         if (INT_NUMERIC == rc && '/' == c)
             rc = INT_RATIONAL;
-
-        if (INT_NUMERIC == rc && 'i' == c)
+        else if (INT_NUMERIC == rc && 'i' == c)
             rc = INT_RECTANGULAR;
-
-        if (FLO_NUMERIC == rc && 'i' == c)
+        else if (FLO_NUMERIC == rc && 'i' == c)
             rc = FLO_RECTANGULAR;
-
-        if (INT_NUMERIC == rc && '@' == c)
+        else if (INT_NUMERIC == rc && '@' == c)
             rc = INT_POLAR;
-
-        if (FLO_NUMERIC == rc && '@' == c)
+        else if (FLO_NUMERIC == rc && '@' == c)
             rc = FLO_POLAR;
 
         ungetc(c, fin);
@@ -3195,10 +3207,11 @@ sexp scan(FILE* fin)
         char *nptr;
         c = getc(fin);
         double floater = strtod(buffer, &nptr);
+        //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0'))
-            return lose(4, cons(rectangulara,
-                                save(cons(save(newflonum(0.0)),
-                                save(cons(save(newflonum(floater)), 0))))));
+            return lose(mark, cons(rectangulara,
+                              save(cons(save(newflonum(0.0)),
+                              save(cons(save(newflonum(floater)), 0))))));
     }
 
     if (FLO_POLAR == rc || INT_POLAR == rc)
@@ -3206,21 +3219,26 @@ sexp scan(FILE* fin)
         char *nptr;
         c = getc(fin);
         double floater = strtod(buffer, &nptr);
-        if (nptr == strchr(buffer, '\0'))
-            return newpolar(floater, asFlonum(scan(fin)));
+        //printf("double %#.15g ", floater);
+        if (nptr == strchr(buffer, '\0')) {
+            sexp iv = save(scan(fin));
+            double im = isFixnum(iv) ? (double)asFixnum(iv) : asFlonum(iv);
+            return lose(mark, newpolar(floater, im));
+        }
     }
 
     if (FLO_NUMERIC == rc)
     {
         char *nptr;
         double floater = strtod(buffer, &nptr);
+        //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0'))
             if ('-' == c || '+' == c) {
                 if ('+' == c)
                     c = getc(fin);
                 sexp im = save(scan(fin));
                 im->cdr->car = newflonum(floater);
-                return lose(1, im);
+                return lose(mark, im);
             } else
                 return newflonum(floater);
     }
@@ -3229,10 +3247,13 @@ sexp scan(FILE* fin)
     {
         char *nptr;
         long fixer = strtol(buffer, &nptr, 10);
+        //printf("long %ld\n", fixer);
         if (nptr == strchr(buffer, '\0'))
             if ('/' == c) {
                 c = getc(fin);
-                return lose(1, rational_reduce(fixer, asFixnum(save(scan(fin)))));
+                sexp dv = save(scan(fin));
+                assertFixnum(dv);
+                return lose(1, rational_reduce(fixer, asFixnum(dv)));
             } else
                 return newfixnum(fixer);
     }
@@ -3241,13 +3262,15 @@ sexp scan(FILE* fin)
     {
         char *nptr;
         long fixer = strtol(buffer, &nptr, 10);
+        //printf("long %ld\n", fixer);
         if (nptr == strchr(buffer, '\0'))
             if ('-' == c || '+' == c) {
                 if ('+' == c)
                     c = getc(fin);
-                sexp im = save(scan(fin));
-                im->cdr->car = newfixnum(fixer);
-                return lose(1, im);
+                sexp iv = save(scan(fin));
+                assertRectangular(iv);
+                iv->cdr->car = newflonum((double)fixer);
+                return lose(1, iv);
             } else
                 return newfixnum(fixer);
     }
@@ -3580,6 +3603,7 @@ int main(int argc, char **argv, char **envp)
     t               = atomize("#t");
     tick            = atomize("`");
     tilde           = atomize("~");
+    tracea          = atomize("trace");
     truncatea       = atomize("truncate");
     unquote         = atomize("unquote");
     unquotesplicing = atomize("unquote-splicing");
@@ -3723,6 +3747,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(symbolpa,      1, (void*)symbolp);
     define_funct(tana,          1, (void*)tanff);
     define_funct(tilde,         1, (void*)complement);
+    define_funct(tracea,        1, (void*)trace);
     define_funct(truncatea,     1, (void*)truncateff);
     define_funct(upcasea,       1, (void*)upcase);
     define_funct(uppercasepa,   1, (void*)uppercasep);
