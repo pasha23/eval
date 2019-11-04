@@ -25,7 +25,6 @@
 #include <errno.h>
 #include <iomanip>
 #include <iostream>
-#include <math.h>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1411,56 +1410,30 @@ sexp newchunk(const char *t)
     }
 }
 
-std::stringstream& renderFlonum(std::stringstream& s, double x)
-{
-    if (sizeof(double) > sizeof(void*))
-        s << std::setprecision(8) << x;
-    else
-        s << std::setprecision(15) << x;
-    return s;
-}
-
 std::stringstream& n2s(std::stringstream& s, sexp exp)
 {
     if (isFixnum(exp))
         s << asFixnum(exp);
     else if (isFlonum(exp))
-        renderFlonum(s, asFlonum(exp));
+        s << asFlonum(exp);
     else if (isRational(exp)) {
-        s << asFixnum(exp->cdr->car);
-        s << '/';
-        s << asFixnum(exp->cdr->cdr->car);
+        s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
     } else if (isRectangular(exp)) {
-        double re = asFlonum(exp->cdr->car);
+        s << asFlonum(exp->cdr->car);
         double im = asFlonum(exp->cdr->cdr->car);
-        if (re) {
-            if (im >= 0.0) {
-                renderFlonum(s, re) << '+';
-                renderFlonum(s, im) << 'i';
-            } else if (im) {
-                renderFlonum(s, re);
-                renderFlonum(s, im) << 'i';
-            } else
-                renderFlonum(s, re);
-        } else if (im >= 0.0) {
-            s << "0.0+";
-            renderFlonum(s, im) << 'i';
-        } else {
-            s << "0.0";
-            renderFlonum(s, im) << 'i';
-        }
-    } else if (isPolar(exp)) {
-        double r = asFlonum(exp->cdr->car);
-        double t = asFlonum(exp->cdr->cdr->car);
-        renderFlonum(s, r) << '@';
-        renderFlonum(s, t);
-    }
+        if (im > 0.0)
+            s << '+' << im << 'i';
+        else if (im < 0.0)
+            s << im << 'i';
+    } else if (isPolar(exp))
+        s << asFlonum(exp->cdr->car) << '@' << asFlonum(exp->cdr->cdr->car);
     return s;
 }
 
 sexp num2string(sexp exp)
 {
     std::stringstream s;
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     n2s(s, exp);
     return lose(1, newstring(save(newchunk(s.str().c_str()))));
 }
@@ -1835,6 +1808,7 @@ sexp readyp(sexp args)
     InPort* inPort = (InPort*)port;
 
     struct termios original;
+
     if (0 == tcgetattr(fileno(inPort->file), &original))
     {
         struct termios working;
@@ -1862,6 +1836,7 @@ sexp readchar(sexp args)
     InPort* inPort = (InPort*)port;
 
     struct termios original;
+
     if (0 == tcgetattr(fileno(stdin), &original))
     {
         if (inPort->avail)
@@ -1871,6 +1846,7 @@ sexp readchar(sexp args)
         }
 
         struct termios working;
+
         setTermios(&original, &working, 1);
         if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
         {
@@ -1891,12 +1867,14 @@ sexp peekchar(sexp args)
     InPort* inPort = (InPort*)port;
 
     struct termios original;
+
     if (0 == tcgetattr(fileno(stdin), &original))
     {
         if (inPort->avail)
             return newcharacter(inPort->peek);
 
         struct termios working;
+
         setTermios(&original, &working, 1);
         if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
         {
@@ -2189,6 +2167,7 @@ sexp eofp(sexp a)
 sexp displayf(sexp args)
 {
     std::stringstream s;
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
@@ -2200,6 +2179,7 @@ sexp displayf(sexp args)
 sexp writef(sexp args)
 {
     std::stringstream s;
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
@@ -2365,6 +2345,7 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
 void debug(const char *label, sexp exp)
 {
     std::stringstream s;
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
     s << label << ':';
     display(s, exp, seenSet, true);
@@ -2603,7 +2584,8 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 {
     if (!actuals || !formals)
         return env;
-    return lose(5, cons(save(cons(formals->car, actuals->car)), save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
+    return lose(5, cons(save(cons(formals->car, actuals->car)),
+                       save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
 }
 
 sexp nulenvform(sexp exp, sexp env)
@@ -2742,15 +2724,12 @@ sexp unquoteform(sexp exp, sexp env)
         return exp;
     else if (unquote == exp->car && isCons(exp->cdr))
         return lose(mark, eval(save(exp)->cdr->car, save(env)));
-    else if (exp->car && unquotesplicing == exp->car->car) {
-        save(exp); save(env);
+    else if (exp->car && unquotesplicing == exp->car->car)
         return lose(mark, save(append(save(eval(exp->car->cdr->car, env)),
-                                      save(unquoteform(exp->cdr, env)))));
-    } else {
-        save(exp); save(env);
+                                      save(unquoteform(save(exp)->cdr, save(env))))));
+    else
         return lose(mark, cons(save(unquoteform(exp->car, env)),
-                               save(unquoteform(exp->cdr, env))));
-    }
+                               save(unquoteform(save(exp)->cdr, save(env)))));
 }
 
 sexp quasiquoteform(sexp exp, sexp env)
@@ -2791,10 +2770,9 @@ sexp setform(sexp exp, sexp env)
 sexp letform(sexp exp, sexp env)
 {
     sexp r;
-    sexp e = env;
     sexp* mark = psp;
-    save(env); save(exp);
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    sexp e = save(env);
+    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
@@ -2804,10 +2782,9 @@ sexp letform(sexp exp, sexp env)
 sexp letstarform(sexp exp, sexp env)
 {
     sexp r;
-    sexp e = env;
     sexp* mark = psp;
-    save(env); save(exp);
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    sexp e = save(env);
+    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
         r = save(eval(p->car, e));
@@ -2817,10 +2794,9 @@ sexp letstarform(sexp exp, sexp env)
 sexp letrecform(sexp exp, sexp env)
 {
     sexp r;
-    sexp e = env;
     sexp* mark = psp;
-    save(env); save(exp);
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    sexp e = save(env);
+    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
@@ -2841,10 +2817,10 @@ sexp doform(sexp exp, sexp env)
     //    set value step
     //    body
     // }
-    sexp e = env;
     sexp* mark = psp;
+    sexp e = save(env);
     // bind all the variables to their values
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     sexp s = save(0);
     for (;;)
@@ -3795,6 +3771,7 @@ int main(int argc, char **argv, char **envp)
         sexp v = eval(e, global);
         {
             std::stringstream s;
+            s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             std::set<sexp> seenSet;
             display(s, v, seenSet, false);
             fwrite(s.str().c_str(), 1, s.str().length(), stdout);
