@@ -23,7 +23,12 @@
 #include <cstring>
 #include <ctype.h>
 #include <errno.h>
+#include <iomanip>
+#include <iostream>
+#include <math.h>
 #include <set>
+#include <sstream>
+#include <string>
 #include <termios.h>
 #include <unistd.h>
 
@@ -92,19 +97,18 @@ struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; FILE*file; };
 struct OutPort { char tags[sizeof(sexp)]; FILE*                   file; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short length; sexp* elements; };
 
+bool cyclic(sexp p);
 sexp scan(FILE* fin);
 sexp set(sexp p, sexp r);
-bool cyclic(sexp p);
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp evlis(sexp p, sexp env);
 sexp apply(sexp fun, sexp args);
 sexp read(FILE* fin, int level);
-void display(FILE* fout, sexp p, bool write);
-void display(FILE* fout, sexp p, std::set<sexp>& seenSet, bool write);
-sexp assoc(sexp formals, sexp actuals, sexp env);
+char* sstr(char* b, int len, sexp s);
 void debug(const char *label, sexp exp);
-void envto(const char *label, sexp e0, sexp e1);
+sexp assoc(sexp formals, sexp actuals, sexp env);
+std::stringstream& display(std::stringstream& s, sexp p, std::set<sexp>& seenSet, bool write);
 
 // these are the built-in atoms
 
@@ -1407,76 +1411,58 @@ sexp newchunk(const char *t)
     }
 }
 
-size_t renderFloat(char* b, size_t s, float x)
+std::stringstream& renderFlonum(std::stringstream& s, double x)
 {
-    if ((long)x == x)
-        return snprintf(b, s, "%ld.0", (long)x);
+    if (sizeof(double) > sizeof(void*))
+        s << std::setprecision(8) << x;
     else
-        return snprintf(b, s, "%#.8g", x);
+        s << std::setprecision(15) << x;
+    return s;
 }
 
-size_t renderDouble(char* b, size_t s, double x)
+std::stringstream& n2s(std::stringstream& s, sexp exp)
 {
-    if ((long)x == x)
-        return snprintf(b, s, "%ld.0", (long)x);
-    else
-        return snprintf(b, s, "%#.15g", x);
-}
-
-size_t renderFixnum(char* b, size_t s, long x)
-{
-    return snprintf(b, s, "%ld", x);
-}
-
-size_t renderFlonum(char* b, size_t s, double x)
-{
-    if ((long)x == x)
-        return snprintf(b, s, "%ld.0", (long)x);
-    else if (sizeof(double) > sizeof(void*))
-        return snprintf(b, s, "%#.8g", x);
-    else
-        return snprintf(b, s, "%#.15g", x);
+    if (isFixnum(exp))
+        s << asFixnum(exp);
+    else if (isFlonum(exp))
+        renderFlonum(s, asFlonum(exp));
+    else if (isRational(exp)) {
+        s << asFixnum(exp->cdr->car);
+        s << '/';
+        s << asFixnum(exp->cdr->cdr->car);
+    } else if (isRectangular(exp)) {
+        double re = asFlonum(exp->cdr->car);
+        double im = asFlonum(exp->cdr->cdr->car);
+        if (re) {
+            if (im >= 0.0) {
+                renderFlonum(s, re) << '+';
+                renderFlonum(s, im) << 'i';
+            } else if (im) {
+                renderFlonum(s, re);
+                renderFlonum(s, im) << 'i';
+            } else
+                renderFlonum(s, re);
+        } else if (im >= 0.0) {
+            s << "0.0+";
+            renderFlonum(s, im) << 'i';
+        } else {
+            s << "0.0";
+            renderFlonum(s, im) << 'i';
+        }
+    } else if (isPolar(exp)) {
+        double r = asFlonum(exp->cdr->car);
+        double t = asFlonum(exp->cdr->cdr->car);
+        renderFlonum(s, r) << '@';
+        renderFlonum(s, t);
+    }
+    return s;
 }
 
 sexp num2string(sexp exp)
 {
-    char b[128];
-    if (isFixnum(exp))
-        snprintf(b, sizeof(b), "%ld", ((Fixnum*)exp)->fixnum);
-    else if (isFloat(exp)) {
-        char b[32];
-        renderFloat(b, sizeof(b), asFlonum(exp));
-        snprintf(b, sizeof(b), "%s", b);
-    } else if (isDouble(exp)) {
-        char b[32];
-        renderDouble(b, sizeof(b), asFlonum(exp));
-        snprintf(b, sizeof(b), "%s", b);
-    } else if (isRational(exp))
-        snprintf(b, sizeof(b), "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
-    else if (isRectangular(exp)) {
-        if (asFlonum(exp->cdr->car)) {
-            char b0[32], b1[32];
-            renderFloat(b0, sizeof(b0), asFlonum(exp->cdr->car));
-            renderFloat(b1, sizeof(b1), asFlonum(exp->cdr->cdr->car));
-            if (asFlonum(exp->cdr->cdr->car) >= 0)
-                snprintf(b, sizeof(b), "%s+%si", b0, b1);
-            else if (asFlonum(exp->cdr->cdr->car) < 0)
-                snprintf(b, sizeof(b), "%s%si", b0, b1);
-            else
-                snprintf(b, sizeof(b), "%s", b0);
-        } else if (asFlonum(exp->cdr->cdr->car)) {
-            char b1[32];
-            renderFloat(b1, sizeof(b1), asFlonum(exp->cdr->cdr->car));
-            snprintf(b, sizeof(b), "%si", b1);
-        } else
-            snprintf(b, sizeof(b), "0.0+0.0i");
-    } else if (isPolar(exp)) {
-        char b0[32], b1[32];
-        renderFloat(b0, sizeof(b0), asFlonum(exp->cdr->car));
-        renderFloat(b1, sizeof(b1), asFlonum(exp->cdr->cdr->car));
-        snprintf(b, sizeof(b), "%s@%s", b0, b1);
-    }
-    return lose(1, newstring(save(newchunk(b))));
+    std::stringstream s;
+    n2s(s, exp);
+    return lose(1, newstring(save(newchunk(s.str().c_str()))));
 }
 
 sexp makestring(sexp args)
@@ -1506,7 +1492,7 @@ char* sstr(char* b, int len, sexp s)
     char *q = b;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
-        if (q >= b+len)
+        if (q >= b+len-1)
             break;
         Chunk* t = (Chunk*)(p->car);
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
@@ -2202,48 +2188,59 @@ sexp eofp(sexp a)
 
 sexp displayf(sexp args)
 {
+    std::stringstream s;
+    std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(((OutPort*)port)->file, args->car, false);
+    display(s, args->car, seenSet, false);
+    fwrite(s.str().c_str(), 1, s.str().length(), ((OutPort*)port)->file);
     return voida;
 }
 
 sexp writef(sexp args)
 {
+    std::stringstream s;
+    std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(((OutPort*)port)->file, args->car, true);
+    display(s, args->car, seenSet, true);
+    fwrite(s.str().c_str(), 1, s.str().length(), ((OutPort*)port)->file);
     return voida;
 }
 
-void displayChunks(FILE* fout, sexp p, bool write)
+std::stringstream& displayChunks(std::stringstream& s, sexp exp, bool write)
 {
     if (write)
-        fputc('"', fout);
-    while (p)
+        s << '"';
+    while (exp)
     {
-        Chunk* t = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(exp->car);
         for (int i = 0; i < sizeof(t->text); ++i)
         {
             char c = t->text[i];
             if (!c)
                 break;
-            putc(c, fout);
+            s << c;
         }
-        p = p->cdr;
+        exp = exp->cdr;
     }
     if (write)
-        fputc('"', fout);
+        s << '"';
+    return s;
 }
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
 {
-    if (!exp || !(isCons(exp) || isVector(exp)) || isClosure(exp) || isPromise(exp))
+    if (!exp || isClosure(exp) || isPromise(exp))
         return false;
-    if (isCons(exp) && seenSet.find(exp) == seenSet.end()) {
+    if (isCons(exp)) {
+        if (seenSet.find(exp) != seenSet.end())
+            return true;
         seenSet.insert(exp);
         return cyclic(seenSet, exp->car) || cyclic(seenSet, exp->cdr);
-    } else if (isVector(exp) && seenSet.find(exp) == seenSet.end()) {
+    } else if (isVector(exp)) {
+        if (seenSet.find(exp) != seenSet.end())
+            return true;
         seenSet.insert(exp);
         Vector* v = (Vector*)exp;
         for (int i = v->length; --i >= 0; )
@@ -2251,7 +2248,7 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
                 return true;
         return false;
     }
-    return true;
+    return false;
 }
 
 /*
@@ -2261,17 +2258,6 @@ bool cyclic(sexp exp)
 {
     std::set<sexp> seenSet;
     return cyclic(seenSet, exp);
-}
-
-/*
- * display an s-expression
- * attempts to deal with cyclic structures are purely defensive
- */
-void display(FILE* fout, sexp exp, bool write)
-{
-    std::set<sexp> seenSet;
-    // ideally: #0=(#1=(b) #1# #1# #1# #1# . #0#)
-    display(fout, exp, seenSet, write);
 }
 
 bool safe(std::set<sexp>& seenSet, sexp exp)
@@ -2284,44 +2270,45 @@ void insert(std::set<sexp>& seenSet, sexp exp)
     seenSet.insert(exp);
 }
 
-void displayList(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
+std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, bool write)
 {
-    putc('(', fout);
+    s << '(';
     while (exp && safe(seenSet, exp)) {
-        display(fout, exp->car, seenSet, write);
+        display(s, exp->car, seenSet, write);
         insert(seenSet, exp);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
             {
                 if (safe(seenSet, exp->cdr))
                 {
-                    putc(' ', fout);
+                    s << ' ';
                     exp = exp->cdr;
                 }
             } else {
-                fprintf(fout, " . ");
+                s << " . ";
                 exp = exp->cdr;
-                display(fout, exp, seenSet, write);
+                display(s, exp, seenSet, write);
                 exp = 0;
             }
         } else
             exp = exp->cdr;
     }
-    putc(')', fout);
+    s << ')';
+    return s;
 }
 
-void displayVector(FILE* fout, sexp v, std::set<sexp>& seenSet, bool write)
+std::stringstream& displayVector(std::stringstream& s, sexp v, std::set<sexp>& seenSet, bool write)
 {
-    putchar('[');
+    s << '[';
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->length; ++i)
     {
-        if (i)
-            fprintf(fout, ", ");
+        s << ", ";
         if (safe(seenSet, vv->elements[i]))
-            display(fout, vv->elements[i], write);
+            display(s, vv->elements[i], seenSet, write);
     }
-    putchar(']');
+    s << ']';
+    return s;
 }
 
 const char *char_names[] =
@@ -2334,81 +2321,55 @@ static unsigned char char_codes[] =
        "\000\001\002\003\004\005\006\007\010\011\012\013\014\015\016\017"
        "\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037\040\177";
 
-void display(FILE* fout, sexp exp, std::set<sexp>& seenSet, bool write)
+std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, bool write)
 {
     if (!exp)
-        fprintf(fout, "%s", "#f");
+        s << "#f";
     else if (isClosure(exp))
-        fprintf(fout, "#<closure@%p>", (void*)exp);
+        s << "#<closure@" << std::hex << (void*)exp << std::dec << '>';
     else if (isPromise(exp))
-        fprintf(fout, "#<promise@%p>", (void*)exp);
-    else if (isRational(exp))
-        fprintf(fout, "%ld/%ld", asFixnum(exp->cdr->car), asFixnum(exp->cdr->cdr->car));
-    else if (isRectangular(exp)) {
-        if (asFlonum(exp->cdr->car)) {
-            char b0[32], b1[32];
-            renderFloat(b0, sizeof(b0), asFlonum(exp->cdr->car));
-            renderFloat(b1, sizeof(b1), asFlonum(exp->cdr->cdr->car));
-            if (asFlonum(exp->cdr->cdr->car) >= 0)
-                fprintf(fout, "%s+%si", b0, b1);
-            else if (asFlonum(exp->cdr->cdr->car) < 0)
-                fprintf(fout, "%s%si", b0, b1);
-            else
-                fprintf(fout, "%s", b0);
-        } else if (asFlonum(exp->cdr->cdr->car)) {
-            char b1[32];
-            renderFloat(b1, sizeof(b1), asFlonum(exp->cdr->cdr->car));
-            fprintf(fout, "%si", b1);
-        } else
-            fprintf(fout, "0.0+0.0i");
-    } else if (isPolar(exp)) {
-        char b0[32], b1[32];
-        renderFloat(b0, sizeof(b0), asFlonum(exp->cdr->car));
-        renderFloat(b1, sizeof(b1), asFlonum(exp->cdr->cdr->car));
-        fprintf(fout, "%s@%s", b0, b1);
-    } else if (isCons(exp) && safe(seenSet, exp))
-        displayList(fout, exp, seenSet, write);
+        s << "#<promise@" << std::hex << (void*)exp << std::dec << '>';
+    else if (isFixnum(exp) || isFlonum(exp) || isRational(exp) || isRectangular(exp) || isPolar(exp))
+        n2s(s, exp);
+    else if (isCons(exp) && safe(seenSet, exp))
+        displayList(s, exp, seenSet, write);
     else if (isString(exp))
-        displayChunks(fout, ((String*)exp)->chunks, write);
+        displayChunks(s, ((String*)exp)->chunks, write);
     else if (isAtom(exp))
-        displayChunks(fout, ((Atom*)exp)->chunks, false);
-    else if (isFixnum(exp))
-        fprintf(fout, "%ld", ((Fixnum*)exp)->fixnum);
-    else if (isFloat(exp)) {
-        char b[32];
-        renderFloat(b, sizeof(b), asFlonum(exp));
-        fprintf(fout, "%s", b);
-    } else if (isDouble(exp)) {
-        char b[32];
-        renderDouble(b, sizeof(b), asFlonum(exp));
-        fprintf(fout, "%s", b);
-    } else if (isFunct(exp))
-        fprintf(fout, "#<function%d@%p>", arity(exp), (void*)((Funct*)exp)->funcp);
+        displayChunks(s, ((Atom*)exp)->chunks, false);
+    else if (isFunct(exp))
+        s << "#<function" << arity(exp) << '@' << std::hex << (void*)((Funct*)exp)->funcp << std::dec << '>';
     else if (isForm(exp))
-        fprintf(fout, "#<form@%p>", (void*)((Form*)exp)->formp);
+        s << "#<form@" << std::hex << (void*)((Form*)exp)->formp << std::dec << '>';
     else if (isVector(exp) && safe(seenSet, exp))
-        displayVector(fout, exp, seenSet, write);
+        displayVector(s, exp, seenSet, write);
     else if (isInPort(exp))
-        fprintf(fout, "#<input@%d>", fileno(((InPort*)exp)->file));
+        s << "#<input@" << fileno(((InPort*)exp)->file) << '>';
     else if (isOutPort(exp))
-        fprintf(fout, "#<output@%d>", fileno(((OutPort*)exp)->file));
+        s << "#<output@" << fileno(((OutPort*)exp)->file) << '>';
     else if (isChar(exp)) {
-        if (write)
-        {
+        if (write) {
             char c = ((Char*)exp)->ch;
             for (int i = 0; char_names[i]; ++i)
-                if (c == char_codes[i])
-                    { fprintf(fout, "#\\%s", char_names[i]); return; }
-        }
-        fprintf(fout, write ? "#\\%c" : "%c", ((Char*)exp)->ch);
+                if (c == char_codes[i]) {
+                    s << "#\\" << char_names[i];
+                    return s;
+                }
+            s << "#\\" << ((Char*)exp)->ch;;
+        } else
+            s << ((Char*)exp)->ch;
     }
+    return s;
 }
 
 void debug(const char *label, sexp exp)
 {
-    printf("%s: ", label);
-    display(stdout, exp, true);
-    putchar('\n');
+    std::stringstream s;
+    std::set<sexp> seenSet;
+    s << label << ':';
+    display(s, exp, seenSet, true);
+    s << '\n';
+    fwrite(s.str().c_str(), 1, s.str().length(), stdout);
 }
 
 /*
@@ -2827,14 +2788,6 @@ sexp setform(sexp exp, sexp env)
     return lose(3, set(exp->cdr->car, save(eval(save(exp)->cdr->cdr->car, env)), save(env)));
 }
 
-void envto(const char *label, sexp e0, sexp e1)
-{
-    printf("%s: ", label);
-    for (sexp e = e1; e && e != e0; e = e->cdr)
-        display(stdout, e->car, true);
-    putchar('\n');
-}
-
 sexp letform(sexp exp, sexp env)
 {
     sexp r;
@@ -3220,13 +3173,7 @@ sexp scan(FILE* fin)
         //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0')) {
             sexp iv = save(scan(fin));
-            double im = 0.0;
-            if (isFixnum(iv))
-                im = (double)asFixnum(iv);
-            else if (isFlonum(iv))
-                im = (double)asFlonum(iv);
-            else
-                error("not polar");
+            double im = isFixnum(iv) ? (double)asFixnum(iv) : asFlonum(iv);
             return lose(mark, newpolar(floater, im));
         }
     }
@@ -3241,7 +3188,6 @@ sexp scan(FILE* fin)
                 if ('+' == c)
                     c = getc(fin);
                 sexp im = save(scan(fin));
-                assertRectangular(im);
                 im->cdr->car = newflonum(floater);
                 return lose(mark, im);
             } else
@@ -3847,7 +3793,12 @@ int main(int argc, char **argv, char **envp)
             break;
         killed = 0;
         sexp v = eval(e, global);
-        display(stdout, v, false);
+        {
+            std::stringstream s;
+            std::set<sexp> seenSet;
+            display(s, v, seenSet, false);
+            fwrite(s.str().c_str(), 1, s.str().length(), stdout);
+        }
         if (voida != v)
             putchar('\n');
     }
