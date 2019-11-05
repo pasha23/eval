@@ -31,73 +31,33 @@
 (define (cdddar x) (cdr (cdr (cdr (car x)))))
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
-;; (define (negative? x) (< x 0))
-
-;; (define (positive? x) (> x 0))
-
-;; (define (gcd x y) (if (zero? y) x (gcd y (% x y))))
-
-;; (define (lcm x y) (let ((g (gcd x y))) (* (/ x g) (/ y g))))
-
-(define (make-rational n d) (cons 'rational (cons n (cons d #f))))
-
+(define (make-rational n d)
+   (cons 'rational (cons n (cons d #f))))
+ 
 (define (rationalize real)
-        (let ((maxden 268435456)
-              (t 0) (x real)
-              (m00 1) (m11 1) (m01 0) (m10 0)
-              (ai (inexact->exact real)))
-             (while (<= (+ (* m10 ai) m11) maxden)
-                    (set! t (+ (* m00 ai) m01)) (set! m01 m00) (set! m00 t)
-                    (set! t (+ (* m10 ai) m11)) (set! m11 m10) (set! m10 t)
-                    (set! x (/ 1.0 (- x (exact->inexact ai))))
-                    (set! ai (inexact->exact x)))
-             (make-rational m00 m10)))
-
-(define (rational? r)
-        (and (eq? 'rational (car r))
-             (integer? (cadr r))
-             (integer? (caddr r))
-             (null? (cdddr r))))
-
+   (let ((maxden 268435456)
+         (t 0) (x real)
+         (m00 1) (m11 1)
+         (m01 0) (m10 0)
+         (ai (inexact->exact real)))
+     (while (<= (+ (* m10 ai) m11) maxden)
+       (set! t (+ (* m00 ai) m01)) (set! m01 m00) (set! m00 t)
+       (set! t (+ (* m10 ai) m11)) (set! m11 m10) (set! m10 t)
+       (set! x (/ 1 (- x (exact->inexact ai))))
+       (set! ai (inexact->exact x)))
+     (make-rational m00 m10)))
+ 
 (define numerator cadr)
 
 (define denominator caddr)
 
 (define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
 
-(define (rectangular? z)
-        (and (eq? 'rectangular (car z))
-             (real? (cadr z))
-             (real? (caddr z))
-             (null? (cdddr z))))
+(define (make-complex re im) (cons 'rectangular (cons re (cons im #f))))
 
-(define (make-rectangular re im) (cons 'rectangular (cons re (cons im #f))))
+(define real-part cadr)
 
-(define (polar? z)
-        (and (eq? 'polar (car z))
-             (real? (cadr z))
-             (real? (caddr z))
-             (null? (cdddr z))))
-
-(define (make-polar r theta) (cons 'polar (cons r (cons theta #f))))
-
-(define (complex? z)
-        (and (or (eq? 'rectangular (car z)) (eq? 'polar (car z)))
-             (real? (cadr z))
-             (real? (caddr z))
-             (null? (cdddr z))))
-
-(define (real-part z) (if (rectangular? z) (cadr z) (* (cadr z) (cos (caddr z)))))
-
-(define (imag-part z) (if (rectangular? z) (caddr z) (* (cadr z) (sin (caddr z)))))
-
-(define (polar->rectangular z) (make-rectangular (* (cadr z) (cos (caddr z))) (* (cadr z) (sin (caddr z)))))
-
-(define (mag-part z) (if (rectangular? z) (magnitude z) (cadr z)))
-
-(define (theta-part z) (if (rectangular? z) (angle z) (caddr z)))
-
-(define (rectangular->polar z) (make-polar (magnitude z) (angle z)))
+(define imag-part caddr)
 
 (define (fib x) (if (<= x 0) 1 (+ (fib (- x 2)) (fib (- x 1)))))
 
@@ -201,16 +161,16 @@
 (define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
 
 (define (iota n)
-        (letrec ((riot
-                  (lambda (n m)
-                          (if (> n 0)
-                              (cons (- m n) (riot (- n 1) m))
-                              #f))))
-                 (riot n n)))
+    (let ((s #f)
+          (i (- n 1)))
+         (while (>= i 0)
+                (set! s (cons i s))
+                (set! i (- i 1)))
+         s))
 
 (define (pairs a b)
         (if b
-            (cons (cons a (cons (car b) '())) (pairs a (cdr b)))
+            (cons (cons a (cons (car b) #f)) (pairs a (cdr b)))
             b))
 
 (define (cross a b)
@@ -245,15 +205,14 @@
                 (minx l)))
 
 (define (reverse! s)
-        (let ((p s)
-              (q '())
-              (u '()))
-             (begin (while p
-                           (set! u (cdr p))
-                           (set-cdr! p q)
-                           (set! q p)
-                           (set! p u))
-                    q)))
+   (let ((p s)
+         (q #f)
+         (u #f))
+        (while p (set! u (cdr p))
+                 (set-cdr! p q)
+                 (set! q p)
+                 (set! p u))
+         q))
 
 (define (list-tail s i)
         (if (null? s)
@@ -266,7 +225,9 @@
 
 (define (map* i f s) (if s (cons (f (car s)) (map* i f (cdr s)))  i))
 
-(define (for-each f s) (while s (f (car s)) (set! s (cdr s))))
+(define (for-each f s)
+        (while s (f (car s))
+                 (set! s (cdr s))))
 
 (define (map f s) (if s (cons (f (car s)) (map f (cdr s))) s))
 

@@ -77,7 +77,6 @@ typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
-
 /*
  * setting up union declarations isn't all that fun but casts are ugly and error-prone.
  */
@@ -107,34 +106,58 @@ sexp read(FILE* fin, int level);
 char* sstr(char* b, int len, sexp s);
 void debug(const char *label, sexp exp);
 sexp assoc(sexp formals, sexp actuals, sexp env);
-std::stringstream& display(std::stringstream& s, sexp p, std::set<sexp>& seenSet, bool write);
+
+/*
+ * not pretty yet
+ */
+class ugly
+{
+    static const int tabs = 4;
+    static const int eol = 70;
+
+    std::stringstream& s;
+    std::streampos pos;
+    int level;
+public:
+    ugly(std::stringstream& s) : s(s) { level = 0; pos = s.tellp(); }
+    void enter() { level += tabs; if (s.tellp() - pos > eol) newline(); }
+    void leave() { level -= tabs; }
+    void wrapminor() { if (s.tellp() - pos > eol) newline(); else space(); }
+    void wrapmajor() { if (s.tellp() - pos > eol-tabs-tabs) newline(); else space(); }
+    void newline() { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
+    void space() { s << ' '; }
+};
+
+std::stringstream& display(std::stringstream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, bool write);
 
 // these are the built-in atoms
 
-sexp acosa, alphapa, ampera, anda, anglea, appenda, applya, asina, atana;
-sexp ata, atompa, atomsa, begin, callwithina, callwithouta, cara, cdra, ceilinga;
-sexp char2ia, char2inta, charcieqa, charcigea, charcigta, charcilea, charcilta;
-sexp chareqa, chargea, chargta, charlea, charlta, charpa, clinporta, closurea;
-sexp cloutporta, comma, commaat, complexa, cond, consa, cosa, curinporta;
-sexp curoutporta, cyclicpa, definea, delaya, displaya, doa, dot, downcasea;
-sexp e2ia, elsea, eofa, eofobjp, eqa, eqna, equalpa, eqva, evala, exactpa;
-sexp expa, f, floora, forcea, forcedpa, gca, gea, gta, i2ea, ifa, inexactpa;
-sexp inportpa, int2chara, integerpa, intenva, lambda, lea, let, letrec, letstar;
-sexp list2sa, list2vector, listpa, loada, loga, lowercasepa, lparen, lsha, lta;
-sexp makestringa, makevector, minus, newlinea, nil, nota, star, percent, slash;
-sexp nulenva, nullpa, num2stringa, numberpa, numericpa, openina, openouta, ora;
-sexp outportpa, pairpa, peekchara, pipea, plus, powa, procedurepa, promisea;
-sexp promisepa, promiseva, qchar, quasiquote, quote, rationala, reada, readchara;
-sexp readypa, realpa, reversea, rounda, rparen, rsha, s2lista, s2numa, s2sya;
-sexp seta, setcara, setcdra, sina, spacea, sqrta, stringa, stringappenda;
-sexp stringcieq, stringcige, stringcigt, stringcile, stringcilt, stringcopy;
-sexp stringeq, stringfill, stringge, stringgt, stringle, stringlength, stringlt;
-sexp stringpa, stringref, stringset, substringa, sy2sa, symbolpa, t, tana, tick;
-sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
-sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
-sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
-sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma, nega;
-sexp stdina, stdouta, negativepa, positivepa, booleanpa, tracea, boundpa;
+sexp acosa, alphapa, ampera, anda, anglea, appenda, applya, asina, ata, atana;
+sexp atompa, atomsa, begin, booleanpa, boundpa, callwithina, callwithouta;
+sexp cara, cdra, ceilinga, char2ia, char2inta, charcieqa, charcigea;
+sexp charcigta, charcilea, charcilta, chareqa, chargea, chargta, charlea;
+sexp charlta, charpa, clinporta, closurea, closurepa, cloutporta, comma;
+sexp commaat, complexa, complexpa, cond, consa, cosa, curinporta, curoutporta;
+sexp cyclicpa, definea, delaya, displaya, doa, dot, downcasea, e2ia, elsea;
+sexp eofa, eofobjp, eqa, eqna, equalpa, eqva, evala, exactpa, expa, f, floora;
+sexp forcea, forcedpa, gca, gcda, gea, gta, i2ea, ifa, inexactpa, inportpa;
+sexp int2chara, integerpa, intenva, lambda, lbracket, lcma, lea, let, letrec;
+sexp letstar, list2sa, list2vector, listpa, loada, loga, lowercasepa, lparen;
+sexp lsha, lta, magnitudea, makestringa, makevector, minus, nega, negativepa;
+sexp newlinea, nil, nota, nulenva, nullpa, num2stringa, numberpa, numericpa;
+sexp openina, openouta, ora, outportpa, pairpa, peekchara, percent, pipea;
+sexp plus, positivepa, powa, procedurepa, promisea, promisepa, promiseva;
+sexp qchar, quasiquote, quote, rationala, rationalpa, rbracket, reada;
+sexp readchara, readypa, realpa, reversea, rounda, rparen, rsha, s2lista;
+sexp s2numa, s2sya, seta, setcara, setcdra, sina, slash, spacea, sqrta;
+sexp star, stdina, stdouta, stringa, stringappenda, stringcieq, stringcige;
+sexp stringcigt, stringcile, stringcilt, stringcopy, stringeq, stringfill;
+sexp stringge, stringgt, stringle, stringlength, stringlt, stringpa, stringref;
+sexp stringset, substringa, sy2sa, symbolpa, t, tana, tick, tilde, times;
+sexp tracea, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
+sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref;
+sexp vectorset, voida, whilea, whitespacepa, withina, withouta, writea;
+sexp writechara, xora;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -163,6 +186,8 @@ bool isClosure(sexp p)
            !p->cdr;
 }
 
+sexp closurep(sexp s) { return isClosure(s) ? t : 0; }
+
 bool isPromise(sexp p)
 {
     return isCons(p) && promisea == p->car &&   // (promise
@@ -173,38 +198,27 @@ bool isPromise(sexp p)
           !p->cdr;
 }
 
-bool isRational(sexp exp)
-{
-    return isCons(exp) && rationala == exp->car &&  // (rational
-           isCons(exp = exp->cdr) && exp->car &&    //  real
-           isCons(exp = exp->cdr) && exp->car &&    //  imag)
-           !exp->cdr;
-}
+sexp promisep(sexp s) { return isPromise(s) ? t : 0; }
 
-bool isRectangular(sexp p)
+bool isRational(sexp p)
 {
-    return isCons(p) && rectangulara == p->car &&   // (rectangular
-           isCons(p = p->cdr) && p->car &&          //  real
-           isCons(p = p->cdr) && p->car &&          //  imaginary)
+    return isCons(p) && rationala == p->car &&
+           isCons(p = p->cdr) && isFixnum(p->car) &&
+           isCons(p = p->cdr) && isFixnum(p->car) &&
            !p->cdr;
 }
 
-bool isPolar(sexp p)
-{
-    return isCons(p) && polara == p->car &&     // (polar
-           isCons(p = p->cdr) && p->car &&      //  r
-           isCons(p = p->cdr) && p->car &&      //  theta)
-           !p->cdr;
-}
+sexp rationalp(sexp s) { return isRational(s) ? t : 0; }
 
 bool isComplex(sexp p)
 {
-    return isCons(p) &&
-           (rectangulara == p->car || polara == p->car) &&
-           isCons(p = p->cdr) && p->car &&
-           isCons(p = p->cdr) && p->car &&
+    return isCons(p) && complexa == p->car &&
+           isCons(p = p->cdr) && isFlonum(p->car) &&
+           isCons(p = p->cdr) && isFlonum(p->car) &&
            !p->cdr;
 }
+
+sexp complexp(sexp s) { return isComplex(s) ? t : 0; }
 
 jmp_buf the_jmpbuf;
 
@@ -381,9 +395,7 @@ sexp gc(sexp args)
 
 void assertAtom(sexp s)        { if (!isAtom(s))        error("not symbol"); }
 void assertChar(sexp c)        { if (!isChar(c))        error("not a character"); }
-void assertRectangular(sexp s) { if (!isRectangular(s)) error("not rectangular"); }
 void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
-void assertPolar(sexp s)       { if (!isPolar(s))       error("not polar"); }
 void assertFixnum(sexp i)      { if (!isFixnum(i))      error("not an integer"); }
 void assertFlonum(sexp i)      { if (!isFlonum(i))      error("not real"); }
 void assertRational(sexp s)    { if (!isRational(s))    error("not rational"); }
@@ -701,21 +713,9 @@ sexp newrational(long n, long d)
     return lose(4, cons(rationala, save(cons(save(newfixnum(n)), save(cons(save(newfixnum(d)), 0))))));
 }
 
-sexp newrectangular(double re, double im)
+sexp newcomplex(double re, double im)
 {
-    return lose(4, cons(rectangulara, save(cons(save(newflonum(re)), save(cons(save(newflonum(im)), 0))))));
-}
-
-sexp newpolar(double r, double theta)
-{
-    return lose(4, cons(polara, save(cons(save(newflonum(r)), save(cons(save(newflonum(theta)), 0))))));
-}
-
-sexp polar_neg(sexp x)
-{
-    double re = -asFlonum(x->cdr->car) * cos(asFlonum(x->cdr->cdr->car));
-    double im = -asFlonum(x->cdr->cdr) * sin(asFlonum(x->cdr->cdr->car));
-    return newpolar(re*re + im*im, atan2(im, re));
+    return lose(4, cons(complexa, save(cons(save(newflonum(re)), save(cons(save(newflonum(im)), 0))))));
 }
 
 sexp negf(sexp x)
@@ -726,10 +726,8 @@ sexp negf(sexp x)
         return newflonum(-asFlonum(x));
     if (isRational(x))
         return newrational(-asFixnum(x->cdr->car), asFixnum(x->cdr->cdr->car));
-    if (isRectangular(x))
-        return newrectangular(-asFlonum(x->cdr->car), -asFlonum(x->cdr->cdr->car));
-    if (isPolar(x))
-        return polar_neg(x);
+    if (isComplex(x))
+        return newcomplex(-asFlonum(x->cdr->car), -asFlonum(x->cdr->cdr->car));
     error("neg: not a number");
 }
 
@@ -743,27 +741,9 @@ double imagpart(sexp x)
     return asFlonum(x->cdr->cdr->car);
 }
 
-double radius(sexp x)
-{
-    return asFlonum(x->cdr->car);
-}
-
-double theta(sexp x)
-{
-    return asFlonum(x->cdr->cdr->car);
-}
-
-sexp polar2rect(sexp x)
-{
-    assertPolar(x);
-    return newrectangular(radius(x)*cos(theta(x)), radius(x)*sin(theta(x)));
-}
-
 double fmag(sexp z)
 {
-    if (isPolar(z))
-        return asFlonum(z->cdr->car);
-    else if (isRectangular(z))
+    if (isComplex(z))
         return sqrt(asFlonum(z->cdr->car) * asFlonum(z->cdr->car) +
                     asFlonum(z->cdr->cdr->car) * asFlonum(z->cdr->cdr->car));
     else
@@ -777,9 +757,7 @@ sexp magnitude(sexp z)
 
 double fangle(sexp z)
 {
-    if (isPolar(z))
-        return asFlonum(z->cdr->cdr->car);
-    else if (isRectangular(z))
+    if (isComplex(z))
         return atan2(asFlonum(z->cdr->cdr->car), asFlonum(z->cdr->car));
     else
         error("fangle: unexpected argument");
@@ -788,12 +766,6 @@ double fangle(sexp z)
 sexp angle(sexp z)
 {
     return newflonum(fangle(z));
-}
-
-sexp rect2polar(sexp x)
-{
-    assertRectangular(x);
-    return lose(4, cons(polara, save(cons(save(magnitude(x)), save(cons(save(angle(x)), 0))))));
 }
 
 long gcd(long x, long y)
@@ -872,21 +844,21 @@ sexp rational_div(sexp x, sexp y)
     return rational_reduce(num(x) * den(y) / g, den(x) * num(y) / g);
 }
 
-sexp rectangular_add(sexp z, sexp w)
+sexp complex_add(sexp z, sexp w)
 {
     double re = realpart(z)+realpart(w);
     double im = imagpart(z)+imagpart(w);
-    return 0.0 == im ? newflonum(re) : newrectangular(re, im);
+    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
-sexp rectangular_sub(sexp z, sexp w)
+sexp complex_sub(sexp z, sexp w)
 {
     double re = realpart(z)-realpart(w);
     double im = imagpart(z)-imagpart(w);
-    return 0.0 == im ? newflonum(re) : newrectangular(re, im);
+    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
-sexp rectangular_mul(sexp z, sexp w)
+sexp complex_mul(sexp z, sexp w)
 {
     double x = realpart(z);
     double y = imagpart(z);
@@ -894,10 +866,10 @@ sexp rectangular_mul(sexp z, sexp w)
     double v = imagpart(w);
     double re = x*u - y*v;
     double im = x*v + y*u;
-    return 0.0 == im ? newflonum(re) : newrectangular(re, im);
+    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
-sexp rectangular_div(sexp z, sexp w)
+sexp complex_div(sexp z, sexp w)
 {
     double x = realpart(z);
     double y = imagpart(z);
@@ -906,25 +878,7 @@ sexp rectangular_div(sexp z, sexp w)
     double d = u*u + v*v;
     double re = (x*u + y*v) / d;
     double im = (y*u - x*v) / d;
-    return 0.0 == im ? newflonum(re) : newrectangular(re, im);
-}
-
-sexp polar_mul(sexp z, sexp w)
-{
-    assertPolar(z);
-    assertPolar(w);
-    double r = fmag(z) * fmag(w);
-    double theta = fangle(z) + fangle(w);
-    return 0.0 == r ? newflonum(0.0) : newpolar(r, theta);
-}
-
-sexp polar_div(sexp z, sexp w)
-{
-    assertPolar(z);
-    assertPolar(w);
-    double r = fmag(z) / fmag(w);
-    double theta = fangle(z) - fangle(w);
-    return 0.0 == r ? newflonum(0.0) : newpolar(r, theta);
+    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
 sexp uniadd(sexp l)
@@ -935,69 +889,48 @@ sexp uniadd(sexp l)
     while (l = l->cdr) {
         sexp x = l->car;
         if (isFixnum(sum)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 sum = replace(newfixnum(asFixnum(sum) + asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 sum = replace(newflonum((double)asFixnum(sum) + asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 sum = replace(rational_add(newrational(asFixnum(sum), 1), x));
-            } else if (isRectangular(x)) {
-                sum = replace(rectangular_add(newrectangular((double)asFixnum(sum), 0.0), x));
-            } else if (isPolar(x)) {
-                sum = replace(rectangular_add(newrectangular((double)asFixnum(sum), 0.0), polar2rect(x)));
-            } else
+            else if (isComplex(x))
+                sum = replace(complex_add(newcomplex((double)asFixnum(sum), 0.0), x));
+            else
                 error("not a number");
         } else if (isFlonum(sum)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 sum = replace(newflonum(asFlonum(sum) + (double)asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 sum = replace(newflonum(asFlonum(sum) + asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 sum = replace(newflonum(asFlonum(sum) + rat2real(x)));
-            } else if (isRectangular(x)) {
-                sum = replace(rectangular_add(newrectangular(asFlonum(sum), 0.0), x));
-            } else if (isPolar(x)) {
-                sum = replace(rectangular_add(newrectangular(asFlonum(sum), 0.0), polar2rect(x)));
-            } else
+            else if (isComplex(x))
+                sum = replace(complex_add(newcomplex(asFlonum(sum), 0.0), x));
+            else
                 error("not a number");
         } else if (isRational(sum)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 sum = replace(rational_add(sum, newrational(asFixnum(x), 1)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 sum = replace(newflonum(rat2real(sum) + asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 sum = replace(rational_add(sum, x));
-            } else if (isRectangular(x)) {
-                sum = replace(rectangular_add(newrectangular(rat2real(sum), 0.0), x));
-            } else if (isPolar(x)) {
-                sum = replace(rectangular_add(newrectangular(rat2real(sum), 0.0), polar2rect(x)));
-            } else
+            else if (isComplex(x))
+                sum = replace(complex_add(newcomplex(rat2real(sum), 0.0), x));
+            else
                 error("not a number");
-        } else if (isRectangular(sum)) {
-            if (isFixnum(x)) {
-                sum = replace(rectangular_add(sum, newrectangular((double)asFixnum(x), 0.0)));
-            } else if (isFlonum(x)) {
-                sum = replace(rectangular_add(sum, newrectangular(asFlonum(x), 0.0)));
-            } else if (isRational(x)) {
-                sum = replace(rectangular_add(sum, newrectangular(rat2real(x), 0.0)));
-            } else if (isRectangular(x)) {
-                sum = replace(rectangular_add(sum, x));
-            } else if (isPolar(x)) {
-                sum = replace(rectangular_add(sum, polar2rect(x)));
-            } else
-                error("not a number");
-        } else if (isPolar(sum)) {
-            if (isFixnum(x)) {
-                sum = replace(rectangular_add(polar2rect(sum), newrectangular((double)asFixnum(x), 0.0)));
-            } else if (isFlonum(x)) {
-                sum = replace(rectangular_add(polar2rect(sum), newrectangular(asFlonum(x), 0.0)));
-            } else if (isRational(x)) {
-                sum = replace(rectangular_add(polar2rect(sum), newrectangular(rat2real(x), 0.0)));
-            } else if (isRectangular(x)) {
-                sum = replace(rectangular_add(polar2rect(sum), x));
-            } else if (isPolar(x)) {
-                sum = replace(rectangular_add(polar2rect(sum), polar2rect(x)));
-            } else
+        } else if (isComplex(sum)) {
+            if (isFixnum(x))
+                sum = replace(complex_add(sum, newcomplex((double)asFixnum(x), 0.0)));
+            else if (isFlonum(x))
+                sum = replace(complex_add(sum, newcomplex(asFlonum(x), 0.0)));
+            else if (isRational(x))
+                sum = replace(complex_add(sum, newcomplex(rat2real(x), 0.0)));
+            else if (isComplex(x))
+                sum = replace(complex_add(sum, x));
+            else
                 error("not a number");
         } else
             error("not a number");
@@ -1023,75 +956,54 @@ sexp unimul(sexp l)
     while (l = l->cdr) {
         sexp x = l->car;
         if (isFixnum(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(newfixnum(asFixnum(product) * asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum((double)asFixnum(product) * asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(rational_mul(newrational(asFixnum(product), 1), x));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_mul(newrectangular((double)asFixnum(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_mul(newpolar((double)asFlonum(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_mul(newcomplex((double)asFixnum(product), 0.0), x));
+            else
                 error("not a number");
         } else if (isFlonum(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(newflonum(asFlonum(product) * (double)asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(asFlonum(product) * asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(newflonum(asFlonum(product) * rat2real(x)));
-            } else if (isRectangular(x)) {
-                product = replace(newrectangular(asFlonum(product)*realpart(x), asFlonum(product)*imagpart(x)));
-            } else if (isPolar(x)) {
-                product = replace(polar_mul(newpolar(asFlonum(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(newcomplex(asFlonum(product)*realpart(x), asFlonum(product)*imagpart(x)));
+            else
                 error("not a number");
         } else if (isRational(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(rational_mul(product, newrational(asFixnum(x), 1)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(rat2real(product) * asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(rational_mul(product, x));
-            } else if (isRectangular(x)) {
-                product = replace(newrectangular(rat2real(product)*realpart(x), rat2real(product)*imagpart(x)));
-            } else if (isPolar(x)) {
-                product = replace(polar_mul(newpolar(rat2real(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(newcomplex(rat2real(product)*realpart(x), rat2real(product)*imagpart(x)));
+            else
                 error("not a number");
-        } else if (isRectangular(product)) {
+        } else if (isComplex(product)) {
             if (isFixnum(x)) {
                 double re = realpart(product) * (double)asFixnum(x);
                 double im = realpart(product) * (double)asFixnum(x);
-                return 0.0 == im ? newflonum(re) : newrectangular(re, im);
+                return 0.0 == im ? newflonum(re) : newcomplex(re, im);
             } else if (isFlonum(x)) {
                 double re = realpart(product) * asFlonum(x);
                 double im = realpart(product) * asFlonum(x);
-                return 0.0 == im ? newflonum(re) : newrectangular(re, im);
+                return 0.0 == im ? newflonum(re) : newcomplex(re, im);
             } else if (isRational(x)) {
                 double re = realpart(product) * rat2real(x);
                 double im = realpart(product) * rat2real(x);
-                return 0.0 == im ? newflonum(re) : newrectangular(re, im);
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_mul(product, x));
-            } else if (isPolar(x)) {
-                product = replace(polar_mul(rect2polar(product), x));
-            } else
-                error("not a number");
-        } else if (isPolar(product)) {
-            if (isFixnum(x)) {
-                product = replace(polar_mul(product, newpolar((double)asFixnum(x), 0.0)));
-            } else if (isFlonum(x)) {
-                product = replace(polar_mul(product, newpolar(asFlonum(x), 0.0)));
-            } else if (isRational(x)) {
-                product = replace(polar_mul(product, newpolar(rat2real(x), 0.0)));
-            } else if (isRectangular(x)) {
-                product = replace(polar_mul(product, rect2polar(x)));
-            } else if (isPolar(x)) {
-                product = replace(polar_mul(product, x));
-            } else
+                return 0.0 == im ? newflonum(re) : newcomplex(re, im);
+            } else if (isComplex(x))
+                product = replace(complex_mul(product, x));
+            else
                 error("not a number");
         } else
             error("not a number");
@@ -1108,81 +1020,53 @@ sexp unidiv(sexp l)
     while (l = l->cdr) {
         sexp x = l->car;
         if (isFixnum(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(rational_reduce(asFixnum(product), asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(rational_div(newrational(asFixnum(product), 1), x));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_div(newrectangular((double)asFixnum(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_div(newpolar((double)asFixnum(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_div(newcomplex((double)asFixnum(product), 0.0), x));
+            else
                 error("not a number");
         } else if (isFlonum(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(newflonum(asFlonum(product) / (double)asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(asFlonum(product) / asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(newflonum(asFlonum(product) / rat2real(x)));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_div(newrectangular(asFlonum(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_div(newpolar(asFlonum(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_div(newcomplex(asFlonum(product), 0.0), x));
+            else
                 error("not a number");
         } else if (isRational(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(rational_div(product, newrational(asFixnum(x), 1)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(rat2real(product) / asFlonum(x)));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(rational_div(product, x));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_div(newrectangular(rat2real(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_div(newpolar(rat2real(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_div(newcomplex(rat2real(product), 0.0), x));
+            else
                 error("not a number");
-        } else if (isRectangular(product)) {
-            if (isFixnum(x)) {
-                product = replace(rectangular_div(product, newrectangular((double)asFixnum(x), 0.0)));
-            } else if (isFlonum(x)) {
-                product = replace(rectangular_div(product, newrectangular(asFlonum(x), 0.0)));
-            } else if (isRational(x)) {
-                product = replace(newrectangular(realpart(product)/rat2real(x), imagpart(product)/rat2real(x)));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_div(product, x));
-            } else if (isPolar(x)) {
-                product = replace(polar_div(rect2polar(product), x));
-            } else
-                error("not a number");
-        } else if (isPolar(product)) {
-            if (isFixnum(x)) {
-                product = replace(polar_div(product, newpolar((double)asFixnum(x), 0.0)));
-            } else if (isFlonum(x)) {
-                product = replace(polar_div(product, newpolar(asFlonum(x), 0.0)));
-            } else if (isRational(x)) {
-                product = replace(polar_div(product, newpolar(rat2real(x), 0.0)));
-            } else if (isRectangular(x)) {
-                product = replace(polar_div(product, rect2polar(x)));
-            } else if (isPolar(x)) {
-                product = replace(polar_div(product, x));
-            } else
+        } else if (isComplex(product)) {
+            if (isFixnum(x))
+                product = replace(complex_div(product, newcomplex((double)asFixnum(x), 0.0)));
+            else if (isFlonum(x))
+                product = replace(complex_div(product, newcomplex(asFlonum(x), 0.0)));
+            else if (isRational(x))
+                product = replace(newcomplex(realpart(product)/rat2real(x), imagpart(product)/rat2real(x)));
+            else if (isComplex(x))
+                product = replace(complex_div(product, x));
+            else
                 error("not a number");
         } else
             error("not a number");
     }
     return lose(mark, product);
-}
-
-sexp polar_mod(sexp x, sexp y)
-{
-    if (0.0 == theta(x) && 0.0 == theta(y))
-        return newflonum(fmod(radius(x), radius(y)));
-    error("polar_mod: not implemented");
 }
 
 sexp rational_mod(sexp x, sexp y)
@@ -1193,11 +1077,9 @@ sexp rational_mod(sexp x, sexp y)
     return rational_reduce(xn % yn, d);
 }
 
-sexp rectangular_mod(sexp x, sexp y)
+sexp complex_mod(sexp x, sexp y)
 {
-    if (0.0 == imagpart(x) && 0.0 == imagpart(y))
-        return newflonum(fmod(radius(x), radius(y)));
-    error("rectangular_mod: not implemented");
+    error("complex_mod: not implemented");
 }
 
 sexp unimod(sexp l)
@@ -1209,72 +1091,51 @@ sexp unimod(sexp l)
     while (l = l->cdr) {
         sexp x = l->car;
         if (isFixnum(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(newfixnum(asFixnum(product) % asFixnum(x)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(fmod((double)asFixnum(product), asFlonum(x))));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(rational_mod(newrational(asFixnum(product), 1), x));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_mod(newrectangular((double)asFixnum(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_mod(newpolar((double)asFixnum(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_mod(newcomplex((double)asFixnum(product), 0.0), x));
+            else
                 error("not a number");
         } else if (isFlonum(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(newflonum(fmod(asFlonum(product), (double)asFixnum(x))));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(fmod(asFlonum(product), asFlonum(x))));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(newflonum(fmod(asFlonum(product), rat2real(x))));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_mod(newrectangular(asFlonum(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_mod(newpolar(asFlonum(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_mod(newcomplex(asFlonum(product), 0.0), x));
+            else
                 error("not a number");
         } else if (isRational(product)) {
-            if (isFixnum(x)) {
+            if (isFixnum(x))
                 product = replace(rational_mod(product, newrational(asFixnum(x), 1)));
-            } else if (isFlonum(x)) {
+            else if (isFlonum(x))
                 product = replace(newflonum(fmod(rat2real(product), asFlonum(x))));
-            } else if (isRational(x)) {
+            else if (isRational(x))
                 product = replace(rational_mod(product, x));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_mod(newrectangular(rat2real(product), 0.0), x));
-            } else if (isPolar(x)) {
-                product = replace(polar_mod(newpolar(rat2real(product), 0.0), x));
-            } else
+            else if (isComplex(x))
+                product = replace(complex_mod(newcomplex(rat2real(product), 0.0), x));
+            else
                 error("not a number");
-        } else if (isRectangular(product)) {
-            if (isFixnum(x)) {
-                product = replace(newrectangular(fmod(realpart(product), (double)asFixnum(x)),
-                                         fmod(imagpart(product), (double)asFixnum(x))));
-            } else if (isFlonum(x)) {
-                product = replace(newrectangular(fmod(realpart(product), asFlonum(x)),
-                                         fmod(imagpart(product), asFlonum(x))));
-            } else if (isRational(x)) {
-                product = replace(newrectangular(fmod(realpart(product), rat2real(x)),
-                                         fmod(imagpart(product), rat2real(x))));
-            } else if (isRectangular(x)) {
-                product = replace(rectangular_mod(product, x));
-            } else if (isPolar(x)) {
-                product = replace(polar_mod(rect2polar(product), x));
-            } else
-                error("not a number");
-        } else if (isPolar(product)) {
-            if (isFixnum(x)) {
-                product = replace(polar_mod(product, newpolar((double)asFixnum(x), 0.0)));
-            } else if (isFlonum(x)) {
-                product = replace(polar_mod(product, newpolar(asFlonum(x), 0.0)));
-            } else if (isRational(x)) {
-                product = replace(polar_mod(product, newpolar(rat2real(x), 0.0)));
-            } else if (isRectangular(x)) {
-                product = replace(polar_mod(product, rect2polar(x)));
-            } else if (isPolar(x)) {
-                product = replace(polar_mod(product, x));
-            } else
+        } else if (isComplex(product)) {
+            if (isFixnum(x))
+                product = replace(newcomplex(fmod(realpart(product), (double)asFixnum(x)),
+                                             fmod(imagpart(product), (double)asFixnum(x))));
+            else if (isFlonum(x))
+                product = replace(newcomplex(fmod(realpart(product), asFlonum(x)),
+                                             fmod(imagpart(product), asFlonum(x))));
+            else if (isRational(x))
+                product = replace(newcomplex(fmod(realpart(product), rat2real(x)),
+                                             fmod(imagpart(product), rat2real(x))));
+            else if (isComplex(x))
+                product = replace(complex_mod(product, x));
+            else
                 error("not a number");
         } else
             error("not a number");
@@ -1307,9 +1168,9 @@ sexp truncateff(sexp x)
 
 // exact, inexact
 sexp exactp(sexp x) { return isFixnum(x) ? t : 0; }
-sexp integerp(sexp x) { return isFixnum(x) ? t : 0; }
+sexp integerp(sexp x) { return isFixnum(x) ? t : isFlonum(x) && (long)asFlonum(x) == asFlonum(x) ? t : 0; }
 sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
-sexp realp(sexp x) { return isFlonum(x) ? t : 0; }
+sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : 0; }
 sexp i2ef(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
 sexp e2if(sexp x) { assertFixnum(x); return newflonum((double)asFixnum(x)); }
 
@@ -1418,15 +1279,14 @@ std::stringstream& n2s(std::stringstream& s, sexp exp)
         s << asFlonum(exp);
     else if (isRational(exp)) {
         s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
-    } else if (isRectangular(exp)) {
+    } else if (isComplex(exp)) {
         s << asFlonum(exp->cdr->car);
         double im = asFlonum(exp->cdr->cdr->car);
         if (im > 0.0)
             s << '+' << im << 'i';
         else if (im < 0.0)
             s << im << 'i';
-    } else if (isPolar(exp))
-        s << asFlonum(exp->cdr->car) << '@' << asFlonum(exp->cdr->cdr->car);
+    }
     return s;
 }
 
@@ -2001,19 +1861,22 @@ sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
 // numeric equality =
 sexp eqnp(sexp x, sexp y)
 {
-    if (isFixnum(x) && isFixnum(y))
-        return asFixnum(x) == asFixnum(y) ? t : 0;
-    else if (isFlonum(x) && isFlonum(y))
-        return asFlonum(x) == asFlonum(y) ? t : 0;
-    else if (isRational(x) && isRational(y))
-        return asFixnum(x->cdr->car) == asFixnum(y->cdr->car) &&
-               asFixnum(x->cdr->car) == asFixnum(y->cdr->car) ? t : 0;
-    else if (isRectangular(x) && isRectangular(y))
-        return asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
-               asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car) ? t : 0;
-    else if (isPolar(x) && isPolar(y))
-        return asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
-               asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car) ? t : 0;
+    if (isFixnum(x)) {
+        if (isFixnum(y))
+            return asFixnum(x) == asFixnum(y) ? t : 0;
+        else if (isFlonum(y))
+            return asFixnum(x) == asFlonum(y) ? t : 0;
+    } else if (isFlonum(x)) {
+        if (isFixnum(y))
+            return asFlonum(x) == asFixnum(y) ? t : 0;
+        else if (isFlonum(y))
+            return asFlonum(x) == asFlonum(y) ? t : 0;
+    } else if (isRational(x) && isRational(y))
+        return (asFixnum(x->cdr->car) == asFixnum(y->cdr->car) &&
+                asFixnum(x->cdr->car) == asFixnum(y->cdr->car)) ? t : 0;
+    else if (isComplex(x) && isComplex(y))
+        return (asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
+                asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car)) ? t : 0;
     else
         return 0;
 }
@@ -2033,8 +1896,7 @@ sexp allfixnums(sexp args)
 
 sexp andf(sexp args)
 {
-    save(args);
-    if (allfixnums(args)) {
+    if (allfixnums(save(args))) {
         long result = ~0;
         for (sexp p = args; p; p = p->cdr)
             result = result & asFixnum(p->car);
@@ -2045,8 +1907,7 @@ sexp andf(sexp args)
 
 sexp orf(sexp args)
 {
-    save(args);
-    if (allfixnums(args)) {
+    if (allfixnums(save(args))) {
         long result = 0;
         for (sexp p = args; p; p = p->cdr)
             result = result | asFixnum(p->car);
@@ -2057,8 +1918,7 @@ sexp orf(sexp args)
 
 sexp xorf(sexp args)
 {
-    save(args);
-    if (allfixnums(args)) {
+    if (allfixnums(save(args))) {
         long result = 0;
         for (sexp p = args; p; p = p->cdr)
             result = result ^ asFixnum(p->car);
@@ -2077,11 +1937,6 @@ sexp delayform(sexp exp, sexp env)
                         save(cons(0,
                         save(cons(exp->cdr->car,
                         save(cons(env, 0))))))))));
-}
-
-sexp promisep(sexp p)
-{
-    return isPromise(p) ? t : 0;
 }
 
 sexp force(sexp p)
@@ -2167,11 +2022,12 @@ sexp eofp(sexp a)
 sexp displayf(sexp args)
 {
     std::stringstream s;
+    ugly ugly(s);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(s, args->car, seenSet, false);
+    display(s, args->car, seenSet, ugly, false);
     fwrite(s.str().c_str(), 1, s.str().length(), ((OutPort*)port)->file);
     return voida;
 }
@@ -2179,11 +2035,12 @@ sexp displayf(sexp args)
 sexp writef(sexp args)
 {
     std::stringstream s;
+    ugly ugly(s);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(s, args->car, seenSet, true);
+    display(s, args->car, seenSet, ugly, true);
     fwrite(s.str().c_str(), 1, s.str().length(), ((OutPort*)port)->file);
     return voida;
 }
@@ -2250,44 +2107,55 @@ void insert(std::set<sexp>& seenSet, sexp exp)
     seenSet.insert(exp);
 }
 
-std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, bool write)
+std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
+    ugly.enter();
     s << '(';
     while (exp && safe(seenSet, exp)) {
-        display(s, exp->car, seenSet, write);
+        display(s, exp->car, seenSet, ugly, write);
         insert(seenSet, exp);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
             {
                 if (safe(seenSet, exp->cdr))
                 {
-                    s << ' ';
                     exp = exp->cdr;
+                    if (isCons(exp->car) || isVector(exp->car))
+                        ugly.wrapmajor();
+                    else
+                        ugly.wrapminor();
                 }
             } else {
                 s << " . ";
                 exp = exp->cdr;
-                display(s, exp, seenSet, write);
+                display(s, exp, seenSet, ugly, write);
                 exp = 0;
             }
         } else
             exp = exp->cdr;
     }
     s << ')';
+    ugly.leave();
     return s;
 }
 
-std::stringstream& displayVector(std::stringstream& s, sexp v, std::set<sexp>& seenSet, bool write)
+std::stringstream& displayVector(std::stringstream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
+    ugly.enter();
     s << '[';
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->length; ++i)
     {
-        s << ", ";
+        s << ',';
+        if (isCons(vv->elements[i]) || isVector(vv->elements[i]))
+            ugly.wrapmajor();
+        else
+            ugly.wrapminor();
         if (safe(seenSet, vv->elements[i]))
-            display(s, vv->elements[i], seenSet, write);
+            display(s, vv->elements[i], seenSet, ugly, write);
     }
     s << ']';
+    ugly.leave();
     return s;
 }
 
@@ -2301,7 +2169,7 @@ static unsigned char char_codes[] =
        "\000\001\002\003\004\005\006\007\010\011\012\013\014\015\016\017"
        "\020\021\022\023\024\025\026\027\030\031\032\033\034\035\036\037\040\177";
 
-std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, bool write)
+std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     if (!exp)
         s << "#f";
@@ -2309,10 +2177,10 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
         s << "#<closure@" << std::hex << (void*)exp << std::dec << '>';
     else if (isPromise(exp))
         s << "#<promise@" << std::hex << (void*)exp << std::dec << '>';
-    else if (isFixnum(exp) || isFlonum(exp) || isRational(exp) || isRectangular(exp) || isPolar(exp))
+    else if (isFixnum(exp) || isFlonum(exp) || isRational(exp) || isComplex(exp))
         n2s(s, exp);
     else if (isCons(exp) && safe(seenSet, exp))
-        displayList(s, exp, seenSet, write);
+        displayList(s, exp, seenSet, ugly, write);
     else if (isString(exp))
         displayChunks(s, ((String*)exp)->chunks, write);
     else if (isAtom(exp))
@@ -2322,7 +2190,7 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
     else if (isForm(exp))
         s << "#<form@" << std::hex << (void*)((Form*)exp)->formp << std::dec << '>';
     else if (isVector(exp) && safe(seenSet, exp))
-        displayVector(s, exp, seenSet, write);
+        displayVector(s, exp, seenSet, ugly, write);
     else if (isInPort(exp))
         s << "#<input@" << fileno(((InPort*)exp)->file) << '>';
     else if (isOutPort(exp))
@@ -2345,10 +2213,11 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
 void debug(const char *label, sexp exp)
 {
     std::stringstream s;
+    ugly ugly(s);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
     s << label << ':';
-    display(s, exp, seenSet, true);
+    display(s, exp, seenSet, ugly, true);
     s << '\n';
     fwrite(s.str().c_str(), 1, s.str().length(), stdout);
 }
@@ -2389,9 +2258,9 @@ sexp s2num(sexp s)
 
     double x, y; long z, w;
     if (2 == sscanf(b, "%lf%lfi", &x, &y))
-        return lose(4, cons(rectangulara, save(cons(save(newflonum(x)), save(cons(save(newflonum(y)), 0))))));
+        return newcomplex(x, y);
     if (2 == sscanf(b, "%lf@%lf", &x, &y))
-        return lose(4, cons(polara, save(cons(save(newflonum(x)), save(cons(save(newflonum(y)), 0))))));
+        return newcomplex(x * cos(y), x * sin(y));
     if (2 == sscanf(b, "%ld/%ld", &z, &w))
         return rational_reduce(z, w);
     if ((strchr(b, '.') || strchr(b, 'e') || strchr(b, 'E')) && (1 == sscanf(b, "%lf", &x)))
@@ -2464,9 +2333,9 @@ sexp string(sexp args)
     return list2s(args);
 }
 
-bool eqvb(sexp x, sexp y);
+bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
 
-bool cmpv(sexp p, sexp q)
+bool cmpv(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp p, sexp q)
 {
     Vector* pv = (Vector*)p;
     Vector* qv = (Vector*)q;
@@ -2475,16 +2344,13 @@ bool cmpv(sexp p, sexp q)
         return false;
 
     for (int i = pv->length; --i >= 0; )
-        if (!eqvb(pv->elements[i], qv->elements[i]))
+        if (!eqvb(seenx, seeny, pv->elements[i], qv->elements[i]))
             return false;
 
     return true;
 }
 
-/*
- * vulnerable to cycles, unreasonable to fix
- */
-bool eqvb(sexp x, sexp y)
+bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 {
     if (x == y)
         return true;
@@ -2493,7 +2359,14 @@ bool eqvb(sexp x, sexp y)
     if (isAtom(x) || isAtom(y))
         return false;
     if (isCons(x) && isCons(y))
-        return eqvb(x->car, y->car) && eqvb(x->cdr, y->cdr);
+    {
+        if (seenx.find(x) != seenx.end() &&
+            seeny.find(y) != seeny.end())
+            return true;
+        seenx.insert(x);
+        seeny.insert(y);
+        return eqvb(seenx, seeny, x->car, y->car) && eqvb(seenx, seeny, x->cdr, y->cdr);
+    }
     if (evalType(x) != evalType(y))
         return false;
     switch (evalType(x)) 
@@ -2503,7 +2376,7 @@ bool eqvb(sexp x, sexp y)
     case FIXNUM: return asFixnum(x) == asFixnum(y);
     case FLOAT :
     case DOUBLE: return asFlonum(x) == asFlonum(y);
-    case VECTOR: return cmpv(x, y);
+    case VECTOR: return cmpv(seenx, seeny, x, y);
     case CHAR:   return ((Char*)x)->ch == ((Char*)y)->ch;
     default:     return 0;
     }
@@ -2511,12 +2384,16 @@ bool eqvb(sexp x, sexp y)
 
 sexp eqv(sexp x, sexp y)
 {
-    return eqvb(x, y) ? t : 0;
+    std::set<sexp> seenx;
+    std::set<sexp> seeny;
+    return eqvb(seenx, seeny, x, y) ? t : 0;
 }
 
 sexp equalp(sexp x, sexp y)
 {
-    return eqvb(x, y) ? t : 0;
+    std::set<sexp> seenx;
+    std::set<sexp> seeny;
+    return eqvb(seenx, seeny, x, y) ? t : 0;
 }
 
 void fixenvs(sexp env)
@@ -2907,15 +2784,9 @@ sexp rationalform(sexp exp, sexp env)
     return exp;
 }
 
-sexp rectangularform(sexp exp, sexp env)
+sexp complexform(sexp exp, sexp env)
 {
-    assertRectangular(exp);
-    return exp;
-}
-
-sexp polarform(sexp exp, sexp env)
-{
-    assertPolar(exp);
+    assertComplex(exp);
     return exp;
 }
 
@@ -3146,19 +3017,21 @@ sexp scan(FILE* fin)
         double floater = strtod(buffer, &nptr);
         //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0'))
-            return lose(mark, newrectangular(0.0, floater));
+            return lose(mark, newcomplex(0.0, floater));
     }
 
     if (FLO_POLAR == rc || INT_POLAR == rc)
     {
         char *nptr;
         c = getc(fin);
-        double floater = strtod(buffer, &nptr);
+        double r = strtod(buffer, &nptr);
         //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0')) {
-            sexp iv = save(scan(fin));
-            double im = isFixnum(iv) ? (double)asFixnum(iv) : asFlonum(iv);
-            return lose(mark, newpolar(floater, im));
+            sexp tv = save(scan(fin));
+            double theta = isFixnum(tv) ? (double)asFixnum(tv) : asFlonum(tv);
+            double re = r * cos(theta);
+            double im = r * sin(theta);
+            return lose(mark, newcomplex(re, im));
         }
     }
 
@@ -3203,7 +3076,8 @@ sexp scan(FILE* fin)
                 if ('+' == c)
                     c = getc(fin);
                 sexp iv = save(scan(fin));
-                assertRectangular(iv);
+                if (isFixnum(iv->cdr->cdr->car))
+                    iv->cdr->cdr->car = newflonum((double)asFixnum(iv->cdr->cdr->car));
                 iv->cdr->car = newflonum((double)fixer);
                 return lose(1, iv);
             } else
@@ -3385,6 +3259,7 @@ int main(int argc, char **argv, char **envp)
     atompa          = atomize("atom?");
     atomsa          = atomize("atoms");
     begin           = atomize("begin");
+    booleanpa       = atomize("boolean?");
     boundpa         = atomize("bound?");
     callwithina     = atomize("call-with-input-file");
     callwithouta    = atomize("call-with-output-file");
@@ -3405,10 +3280,12 @@ int main(int argc, char **argv, char **envp)
     charpa          = atomize("char?");
     clinporta       = atomize("close-input-port");
     closurea        = atomize("closure");
+    closurepa       = atomize("closure?");
     cloutporta      = atomize("close-output-port");
-    comma           = atomize(",");
     commaat         = atomize(",@");
+    comma           = atomize(",");
     complexa        = atomize("complex");
+    complexpa       = atomize("complex?");
     cond            = atomize("cond");
     consa           = atomize("cons");
     cosa            = atomize("cos");
@@ -3468,6 +3345,7 @@ int main(int argc, char **argv, char **envp)
     makevector      = atomize("make-vector");
     minus           = atomize("-");
     nega            = atomize("neg");
+    negativepa      = atomize("negative?");
     newlinea        = atomize("newline");
     nil             = atomize("#f");
     nota            = atomize("not");
@@ -3482,8 +3360,10 @@ int main(int argc, char **argv, char **envp)
     outportpa       = atomize("output-port?");
     pairpa          = atomize("pair?");
     peekchara       = atomize("peek-char");
+    percent         = atomize("%");
     pipea           = atomize("|");
-    polara          = atomize("polar");
+    plus            = atomize("+");
+    positivepa      = atomize("positive?");
     powa            = atomize("pow");
     procedurepa     = atomize("procedure?");
     promisea        = atomize("promise");
@@ -3493,17 +3373,16 @@ int main(int argc, char **argv, char **envp)
     quasiquote      = atomize("quasiquote");
     quote           = atomize("quote");
     rationala       = atomize("rational");
+    rationalpa      = atomize("rational?");
     rbracket        = atomize("]");
     reada           = atomize("read");
     readchara       = atomize("read-char");
     readypa         = atomize("char-ready?");
     realpa          = atomize("real?");
-    rectangulara    = atomize("rectangular");
     reversea        = atomize("reverse");
     rounda          = atomize("round");
     rparen          = atomize(")");
     rsha            = atomize(">>");
-    stringa         = atomize("string");
     s2lista         = atomize("string->list");
     s2numa          = atomize("string->number");
     s2sya           = atomize("string->symbol");
@@ -3514,8 +3393,10 @@ int main(int argc, char **argv, char **envp)
     slash           = atomize("/");
     spacea          = atomize("space");
     sqrta           = atomize("sqrt");
+    star            = atomize("*");
     stdina          = atomize("stdin");
     stdouta         = atomize("stdout");
+    stringa         = atomize("string");
     stringcieq      = atomize("string-ci=?");
     stringcige      = atomize("string-ci>=?");
     stringcigt      = atomize("string-ci>?");
@@ -3559,14 +3440,7 @@ int main(int argc, char **argv, char **envp)
     withouta        = atomize("with-output-to-file");
     writea          = atomize("write");
     writechara      = atomize("write-char");
-    booleanpa       = atomize("boolean?");
-    negativepa      = atomize("negative?");
-    positivepa      = atomize("positive?");
     xora            = atomize("^");
-    plus            = atomize("+");
-    minus           = atomize("-");
-    star            = atomize("*");
-    percent         = atomize("%");
 
     define(stdina,  inport);
     define(stdouta, outport);
@@ -3598,7 +3472,9 @@ int main(int argc, char **argv, char **envp)
     define_funct(charlta,       2, (void*)charlt);
     define_funct(charpa,        1, (void*)charp);
     define_funct(clinporta,     1, (void*)clinport);
+    define_funct(closurepa,     1, (void*)closurep);
     define_funct(cloutporta,    1, (void*)cloutport);
+    define_funct(complexpa,     1, (void*)complexp);
     define_funct(cosa,          1, (void*)cosff);
     define_funct(curinporta,    0, (void*)curinport);
     define_funct(curoutporta,   0, (void*)curoutport);
@@ -3646,6 +3522,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(procedurepa,   1, (void*)procedurep);
     define_funct(promisepa,     1, (void*)promisep);
     define_funct(promiseva,     1, (void*)promisev);
+    define_funct(rationalpa,    1, (void*)rationalp);
     define_funct(reada,         0, (void*)readf);
     define_funct(readchara,     0, (void*)readchar);
     define_funct(readypa,       0, (void*)readyp);
@@ -3743,9 +3620,8 @@ int main(int argc, char **argv, char **envp)
     define_form(ifa,          ifform);
     define_form(quote,        quoteform);
     define_form(lambda,       lambdaform);
+    define_form(complexa,     complexform);
     define_form(rationala,    rationalform);
-    define_form(rectangulara, rectangularform);
-    define_form(polara,       polarform);
 
     load(newstring(newchunk("init.ss")));
 
@@ -3764,6 +3640,9 @@ int main(int argc, char **argv, char **envp)
         printf("%s\n", s);
 
     // read evaluate display ...
+
+    gc(atoms);
+
     for (;;)
     {
         if (psp > protect)
@@ -3771,9 +3650,10 @@ int main(int argc, char **argv, char **envp)
                 printf("%ld items remain on protection stack\n", (long)(psp-protect));
             else
                 printf("one item remains on protection stack\n");
-        gc(atoms);  // arg makes it verbose
         total = 0;
         collected = 0;
+        printf("> ");
+        fflush(stdout);
         sexp e = read(stdin, 0);
         if (eofa == e)
             break;
@@ -3781,13 +3661,14 @@ int main(int argc, char **argv, char **envp)
         sexp v = eval(e, global);
         {
             std::stringstream s;
+            ugly ugly(s);
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             std::set<sexp> seenSet;
-            display(s, v, seenSet, false);
+            display(s, v, seenSet, ugly, false);
             fwrite(s.str().c_str(), 1, s.str().length(), stdout);
+            if (voida != v)
+                putchar('\n');
         }
-        if (voida != v)
-            putchar('\n');
     }
     return 0;
 }
