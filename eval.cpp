@@ -1,7 +1,7 @@
 /*
  * this is kind of a lisp interpreter for my own amusement
  * not at all standards compliant or industrial strength
- * dynamically scoped, without tail call optimization
+ * needs tail call optimization
  * 
  * Robert Kelley October 2019
  */
@@ -134,7 +134,7 @@ sexp tilde, times, truncatea, unquote, unquotesplicing, upcasea, uppercasepa;
 sexp vec2lista, vectora, vectorfill, vectorlength, vectorpa, vectorref, vectorset;
 sexp voida, whilea, whitespacepa, withina, withouta, writea, writechara, xora;
 sexp lbracket, rbracket, polara, magnitudea, rectangulara, gcda, lcma, nega;
-sexp stdina, stdouta, negativepa, positivepa, booleanpa, tracea;
+sexp stdina, stdouta, negativepa, positivepa, booleanpa, tracea, boundpa;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -2540,6 +2540,14 @@ sexp define(sexp p, sexp r)
 
 static char errorBuffer[128];   // used by get and set
 
+sexp boundp(sexp p, sexp env)
+{
+    for (sexp q = env; q; q = q->cdr)
+        if (q->car && p->cdr->car == q->car->car)
+            return t;
+    return 0;
+}
+
 sexp get(sexp p, sexp env)
 {
     for (sexp q = env; q; q = q->cdr)
@@ -3377,6 +3385,7 @@ int main(int argc, char **argv, char **envp)
     atompa          = atomize("atom?");
     atomsa          = atomize("atoms");
     begin           = atomize("begin");
+    boundpa         = atomize("bound?");
     callwithina     = atomize("call-with-input-file");
     callwithouta    = atomize("call-with-output-file");
     cara            = atomize("car");
@@ -3716,6 +3725,7 @@ int main(int argc, char **argv, char **envp)
 
     // set the definitions (special forms)
     define_form(begin,        beginform);
+    define_form(boundpa,      boundp);
     define_form(cond,         condform);
     define_form(definea,      defineform);
     define_form(delaya,       delayform);

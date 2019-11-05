@@ -9,13 +9,11 @@ I could point you to some excellent implementations if you care about that.
 
 It's more of a reconstruction of classic practice in a more modern style.  We use lists for everything.  We use recursion for everything.
 
-It's easy to break it with malformed constructs. If you go looking for the caddar of a list, it had better be there.  That's not the point.
-
 It only took a few hours to write.  It just had to come out.  
 
 To make it better would not be all that successful and would obscure its essence.  
 
-This would really benefit from lexical scoping, closures, and tail call optimization.
+This would really benefit from tail call optimization.
 
 Well, we could make it a little better by fixing a few things.  We could achieve more fidelity to ancient work.
 Some examples would be nice.  But there is so much missing.  Adding those things would be so much bloat.
