@@ -34,6 +34,12 @@
 (define (make-rational n d)
    (cons 'rational (cons n (cons d #f))))
  
+(define numerator cadr)
+
+(define denominator caddr)
+
+(define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
+
 (define (rationalize real)
    (let ((maxden 268435456)
          (t 0) (x real)
@@ -47,13 +53,8 @@
        (set! ai (inexact->exact x)))
      (make-rational m00 m10)))
  
-(define numerator cadr)
-
-(define denominator caddr)
-
-(define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
-
-(define (make-complex re im) (cons 'rectangular (cons re (cons im #f))))
+(define (make-complex re im)
+    (cons 'rectangular (cons re (cons im #f))))
 
 (define real-part cadr)
 

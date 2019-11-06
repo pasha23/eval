@@ -2181,9 +2181,10 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
         s << "#<closure@" << std::hex << (void*)exp << std::dec << '>';
     else if (isPromise(exp))
         s << "#<promise@" << std::hex << (void*)exp << std::dec << '>';
-    else if (isCons(exp) && safe(seenSet, exp))
-        displayList(s, exp, seenSet, ugly, write);
-    else if (isString(exp))
+    else if (isCons(exp)) {
+        if (safe(seenSet, exp))
+            displayList(s, exp, seenSet, ugly, write);
+    } else if (isString(exp))
         displayChunks(s, ((String*)exp)->chunks, write);
     else if (isAtom(exp))
         displayChunks(s, ((Atom*)exp)->chunks, false);
@@ -2208,7 +2209,8 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
             s << "#\\" << ((Char*)exp)->ch;;
         } else
             s << ((Char*)exp)->ch;
-    }
+    } else
+        error("display: unknown object");
     return s;
 }
 
