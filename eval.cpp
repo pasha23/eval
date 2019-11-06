@@ -2662,8 +2662,15 @@ sexp readf(sexp args)
  */
 sexp ifform(sexp exp, sexp env)
 {
-    return lose(2, eval(save(exp)->cdr->car, save(env)) ?
-                          eval(exp->cdr->cdr->car, env) : eval(exp->cdr->cdr->cdr->car, env));
+    if (!exp->cdr)
+        error("if: missing predicate");
+    if (!exp->cdr->cdr)
+        error("if: missing consequent");
+    if (exp->cdr->cdr->cdr)
+        return lose(2, eval(save(exp)->cdr->car, save(env)) ?
+                              eval(exp->cdr->cdr->car, env) : eval(exp->cdr->cdr->cdr->car, env));
+    else
+        return lose(2, eval(save(exp)->cdr->car, save(env)) ? eval(exp->cdr->cdr->car, env) : voida);
 }
 
 /*

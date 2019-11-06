@@ -13,6 +13,5 @@ eval32: eval.cpp
 	g++ -m32 -std=c++17 -ggdb3 -o eval32 eval.cpp
 
 eval: eval.cpp
-#	g++ -std=c++17 -ggdb3 -o eval eval.cpp
 	g++ -DUNWIND -std=c++17 -ggdb3 -O1 -o eval eval.cpp -lunwind
 
