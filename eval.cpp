@@ -515,6 +515,7 @@ sexp newflonum(double number)
 
 sexp define_form(sexp name, Formp f)
 {
+    assert(name);
     Form* p = (Form*)save(newcell());
     p->tags[0] = OTHER;
     p->tags[1] = FORM;
@@ -524,6 +525,7 @@ sexp define_form(sexp name, Formp f)
 
 sexp define_funct(sexp name, int arity, void* f)
 {
+    assert(name);
     Funct* p = (Funct*)save(newcell());
     p->tags[0] = OTHER;
     p->tags[1] = FUNCT;
@@ -2178,6 +2180,48 @@ const char *character_table[] =
     "\040space",     "\177del", 0
 };
 
+std::stringstream& displayAtom(std::stringstream& s, sexp exp)
+{
+    displayChunks(s, ((Atom*)exp)->chunks, false);
+}
+
+std::stringstream& displayString(std::stringstream& s, sexp exp)
+{
+    displayChunks(s, ((Atom*)exp)->chunks, true);
+}
+
+sexp getName(sexp exp)
+{
+    for (sexp p = global; p; p = p->cdr)
+        if (exp == p->car->cdr)
+            return p->car->car;
+    return 0;
+}
+
+std::stringstream& displayFunction(std::stringstream& s, sexp exp)
+{
+    s << "#<function" << arity(exp) << '@';
+    sexp name = getName(exp);
+    if (name)
+        displayAtom(s, name);
+    else
+        s << std::hex << (void*)exp << std::dec;
+    s << '>';
+    return s;
+}
+
+std::stringstream& displayNamed(std::stringstream& s, const char *kind, sexp exp)
+{
+    s << "#<" << kind << '@';
+    sexp name = getName(exp);
+    if (name)
+        displayAtom(s, name);
+    else
+        s << std::hex << (void*)exp << std::dec;
+    s << '>';
+    return s;
+}
+
 std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     if (!exp)
@@ -2195,24 +2239,24 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
             s << '+' << im << 'i';
         else if (im < 0.0)
             s << im << 'i';
-    } else if (isClosure(exp))
-        s << "#<closure@" << std::hex << (void*)exp << std::dec << '>';
-    else if (isPromise(exp))
-        s << "#<promise@" << std::hex << (void*)exp << std::dec << '>';
+    } else if (isClosure(exp)) {
+        displayNamed(s, "closure", exp);
+    } else if (isPromise(exp))
+        displayNamed(s, "promise", exp);
     else if (isCons(exp)) {
         if (safe(seenSet, exp))
             displayList(s, exp, seenSet, ugly, write);
     } else if (isString(exp))
-        displayChunks(s, ((String*)exp)->chunks, write);
+        displayString(s, exp);
     else if (isAtom(exp))
-        displayChunks(s, ((Atom*)exp)->chunks, false);
+        displayAtom(s, exp);
     else if (isVector(exp) && safe(seenSet, exp))
         displayVector(s, exp, seenSet, ugly, write);
-    else if (isFunct(exp))
-        s << "#<function" << arity(exp) << '@' << std::hex << (void*)((Funct*)exp)->funcp << std::dec << '>';
-    else if (isForm(exp))
-        s << "#<form@" << std::hex << (void*)((Form*)exp)->formp << std::dec << '>';
-    else if (isInPort(exp))
+    else if (isFunct(exp)) {
+        displayFunction(s, exp);
+    } else if (isForm(exp)) {
+        displayNamed(s, "form", exp);
+    } else if (isInPort(exp))
         s << "#<input@" << fileno(((InPort*)exp)->file) << '>';
     else if (isOutPort(exp))
         s << "#<output@" << fileno(((OutPort*)exp)->file) << '>';
@@ -3441,6 +3485,7 @@ int main(int argc, char **argv, char **envp)
     stdina          = atomize("stdin");
     stdouta         = atomize("stdout");
     stringa         = atomize("string");
+    stringappenda   = atomize("string-append");
     stringcieq      = atomize("string-ci=?");
     stringcige      = atomize("string-ci>=?");
     stringcigt      = atomize("string-ci>?");
