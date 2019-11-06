@@ -7,7 +7,7 @@
  */
 #define PSIZE   16384
 #define MAX     262144
-#undef  BROKEN
+#define BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -337,8 +337,26 @@ void mark(sexp p)
         markCell(p);
 }
 
-void deleteinport(sexp v) { fclose(((InPort*)v)->file); }
-void deleteoutport(sexp v) { fclose(((OutPort*)v)->file); }
+void deleteinport(sexp v)
+{
+    FILE* f = ((InPort*)v)->file;
+    if (f)
+    {
+        ((InPort*)v)->file = 0;
+        fclose(f);
+    }
+}
+
+void deleteoutport(sexp v)
+{
+    FILE* f = ((OutPort*)v)->file;
+    if (f)
+    {
+        ((OutPort*)v)->file = 0;
+        fclose(f);
+    }
+}
+
 void deletevector(sexp v) { delete ((Vector*)v)->e; }
 
 /*
@@ -1367,8 +1385,8 @@ sexp clinport(sexp p)
     assertInPort(p);
     if (inport == p)
         inport = 0;
-    fclose(((OutPort*)p)->file);
-    ((OutPort*)p)->file = 0;
+    fclose(((InPort*)p)->file);
+    ((InPort*)p)->file = 0;
 }
 
 // close-output-port
@@ -1377,8 +1395,8 @@ sexp cloutport(sexp p)
     assertOutPort(p);
     if (outport == p)
         outport = 0;
-    fclose(((InPort*)p)->file);
-    ((InPort*)p)->file = 0;
+    fclose(((OutPort*)p)->file);
+    ((OutPort*)p)->file = 0;
 }
 
 // current-input-port
@@ -1444,7 +1462,7 @@ sexp callwithin(sexp p, sexp f)
 }
 
 // call-with-output-file
-sexp callwithout(sexp p)
+sexp callwithout(sexp p, sexp f)
 {
     sexp oup = openout(p);
     sexp q = apply(f, cons(oup, 0));
@@ -2220,7 +2238,7 @@ void debug(const char *label, sexp exp)
     ugly ugly(s);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     std::set<sexp> seenSet;
-    s << label << ':';
+    s << label << ": ";
     display(s, exp, seenSet, ugly, true);
     s << '\n';
     fwrite(s.str().c_str(), 1, s.str().length(), stdout);
@@ -2736,6 +2754,12 @@ sexp apply(sexp fun, sexp args)
     save(fun);
     save(args);
 
+    if (tracing)
+    {
+        debug("apply-fun", fun);
+        debug("apply-args", args);
+    }
+
     if (isFunct(fun))
     {
         if (0 == arity(fun))
@@ -2776,6 +2800,8 @@ sexp apply(sexp fun, sexp args)
 
         debug("bad closure", fun);
     }
+
+    debug("apply function", fun);
 
     error("apply bad function");
 
@@ -3468,8 +3494,8 @@ int main(int argc, char **argv, char **envp)
     define_funct(atana,         1, (void*)atanff);
     define_funct(atomsa,        0, (void*)atomsf);
     define_funct(booleanpa,     1, (void*)booleanp);
-    define_funct(callwithina,   1, (void*)callwithin);
-    define_funct(callwithouta,  1, (void*)callwithout);
+    define_funct(callwithina,   2, (void*)callwithin);
+    define_funct(callwithouta,  2, (void*)callwithout);
     define_funct(ceilinga,      1, (void*)ceilingff);
     define_funct(char2ia,       1, (void*)char2int);
     define_funct(charcieqa,     2, (void*)charcieq);
@@ -3584,8 +3610,8 @@ int main(int argc, char **argv, char **envp)
     define_funct(vectorref,     2, (void*)vecref);
     define_funct(vectorset,     3, (void*)vecset);
     define_funct(whitespacepa,  1, (void*)whitespacep);
-    define_funct(withina,       1, (void*)within);
-    define_funct(withouta,      1, (void*)without);
+    define_funct(withina,       2, (void*)within);
+    define_funct(withouta,      2, (void*)without);
     define_funct(writea,        0, (void*)writef);
     define_funct(writechara,    0, (void*)writechar);
     define_funct(xora,          0, (void*)xorf);
