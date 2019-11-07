@@ -1,7 +1,5 @@
 /*
- * this is kind of a lisp interpreter for my own amusement
- * not at all standards compliant or industrial strength
- * needs tail call optimization
+ * this aspires to be a scheme interpreter
  * 
  * Robert Kelley October 2019
  */
@@ -293,21 +291,23 @@ void mark(sexp p)
     if (!p || isMarked(p))
         return;
 
-    if (isCons(p)) {
+    if (isCons(p))
+    {
         std::set<sexp> seenSet;
         markCons(p, seenSet);
-    } else if (isAtom(p)) {
-        mark(((Atom*)p)->chunks);
-        markCell(p);
-    } else if (isString(p)) {
-        mark(((String*)p)->chunks);
-        markCell(p);
-    } else if (isVector(p)) {
+        return;
+    }
+
+    switch (((Other*)p)->tags[1]) {
+    case ATOM:
+    case STRING:
+            mark(((Atom*)p)->chunks);
+        break;
+    case VECTOR:
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
-        markCell(p);
-    } else
-        markCell(p);
+    }
+    markCell(p);
 }
 
 void deleteinport(sexp v)
@@ -360,12 +360,17 @@ sexp gc(sexp args)
     {
         if (!isMarked(p))
         {
-            if (isOutPort(p))
-                deleteoutport(p);
-            else if (isInPort(p))
-                deleteinport(p);
-            else if (isVector(p))
-                deletevector(p);
+            if (OTHER & ((Other*)p)->tags[0])
+                switch (((Other*)p)->tags[1]) {
+                case OUTPORT:
+                    deleteoutport(p);
+                    break;
+                case INPORT:
+                    deleteinport(p);
+                    break;
+                case VECTOR:
+                    deletevector(p);
+                }
             p->car = 0;
             p->cdr = freelist;
             freelist = p;
@@ -2384,57 +2389,64 @@ std::stringstream& displayNamed(std::stringstream& s, const char *kind, sexp exp
     return s;
 }
 
+std::stringstream& displayChar(std::stringstream& s, sexp exp, bool write)
+{
+    if (write)
+    {
+        char c = ((Char*)exp)->ch;
+        for (int i = 0; character_table[i]; ++i)
+            if (c == *character_table[i]) {
+                s << "#\\" << 1+character_table[i];
+                return s;
+            }
+        s << "#\\" << ((Char*)exp)->ch;;
+    } else
+        s << ((Char*)exp)->ch;
+    return s;
+}
+
 std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     if (!exp)
+    {
         s << "#f";
-    else if (isFixnum(exp))
-        s << asFixnum(exp);
-    else if (isFlonum(exp))
-        s << asFlonum(exp);
-    else if (isRational(exp))
-        s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
-    else if (isComplex(exp)) {
-        s << asFlonum(exp->cdr->car);
-        double im = asFlonum(exp->cdr->cdr->car);
-        if (im > 0.0)
-            s << '+' << im << 'i';
-        else if (im < 0.0)
-            s << im << 'i';
-    } else if (isClosure(exp)) {
-        displayNamed(s, "closure", exp, write);
-    } else if (isPromise(exp))
-        displayNamed(s, "promise", exp, write);
-    else if (isCons(exp)) {
-        if (safe(seenSet, exp))
+        return s;
+    } else if (isCons(exp)) {
+        if (isRational(exp))
+            s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
+        else if (isClosure(exp))
+            displayNamed(s, "closure", exp, write);
+        else if (isPromise(exp))
+            displayNamed(s, "promise", exp, write);
+        else if (isComplex(exp)) {
+            s << asFlonum(exp->cdr->car);
+            double im = asFlonum(exp->cdr->cdr->car);
+            if (im > 0.0)
+                s << '+' << im << 'i';
+            else if (im < 0.0)
+                s << im << 'i';
+        } else if (safe(seenSet, exp))
             displayList(s, exp, seenSet, ugly, write);
-    } else if (isString(exp))
-        displayString(s, exp, write);
-    else if (isAtom(exp))
-        displayAtom(s, exp, write);
-    else if (isVector(exp) && safe(seenSet, exp))
-        displayVector(s, exp, seenSet, ugly, write);
-    else if (isFunct(exp)) {
-        displayFunction(s, exp, write);
-    } else if (isForm(exp)) {
-        displayNamed(s, "form", exp, write);
-    } else if (isInPort(exp))
-        s << "#<input@" << fileno(((InPort*)exp)->file) << '>';
-    else if (isOutPort(exp))
-        s << "#<output@" << fileno(((OutPort*)exp)->file) << '>';
-    else if (isChar(exp)) {
-        if (write) {
-            char c = ((Char*)exp)->ch;
-            for (int i = 0; character_table[i]; ++i)
-                if (c == *character_table[i]) {
-                    s << "#\\" << 1+character_table[i];
-                    return s;
-                }
-            s << "#\\" << ((Char*)exp)->ch;;
-        } else
-            s << ((Char*)exp)->ch;
-    } else
-        error("display: unknown object");
+        return s;
+    }
+
+    switch (((Other*)exp)->tags[1])
+    {
+    default:      error("display: unknown object");
+    case CHUNK:   s << "#<chunk>";                                          break;
+    case FIXNUM:  s << asFixnum(exp);                                       break;
+    case FLOAT: 
+    case DOUBLE:  s << asFlonum(exp);                                       break;
+    case STRING:  displayString(s, exp, write);                             break;
+    case ATOM:    displayAtom(s, exp, write);                               break;
+    case VECTOR:  if (safe(seenSet, exp))
+                    displayVector(s, exp, seenSet, ugly, write);            break;
+    case FUNCT:   displayFunction(s, exp, write);                           break;
+    case FORM:    displayNamed(s, "form", exp, write);                      break;
+    case INPORT:  s << "#<input@" << fileno(((InPort*)exp)->file) << '>';   break;
+    case OUTPORT: s << "#<output@" << fileno(((OutPort*)exp)->file) << '>'; break;
+    case CHAR:    displayChar(s, exp, write);                               break;
+    }
     return s;
 }
 
@@ -3174,46 +3186,38 @@ sexp scans(FILE* fin)
     if (c < 0)
         return eof;
 
-    if ('(' == c)
-        return lparen;
-    else if ('.' == c)
-        return dot;
-    else if (')' == c)
-        return rparen;
-    else if ('\'' == c)
-        return qchar;
-    else if ('`' == c)
-        return tick;
-    else if ('[' == c)
-        return lbracket;
-    else if (']' == c)
-        return rbracket;
-    else if (',' == c) {
-        c = getc(fin);
-        if ('@' != c) {
-            ungetc(c, fin);
-            return comma;
-        } else
-            return commaat;
-    } else if ('#' == c) {
-        c = getc(fin);
-        if ('f' == c)
-            return 0;
-        if ('t' == c)
-            return t;
-        if ('\\' == c)
-        {
-            c = getc(fin);
-            while (!isspace(c) && ')' != c && ']' != c && ',' != c)
-                { *p++ = c; c = getc(fin); }
-            ungetc(c, fin);
-            *p = 0;
-            for (int i = 0; character_table[i]; ++i)
-                if (!strcmp(buffer, 1+character_table[i]))
-                    return newcharacter(*character_table[i]);
-            return newcharacter(*buffer);
-        }
-    } else if ('-' == c) {
+    switch (c)
+    {
+    case '(':  return lparen;
+    case '.':  return dot;
+    case ')':  return rparen;
+    case '\'': return qchar;
+    case '`':  return tick;
+    case '[':  return lbracket;
+    case ']':  return rbracket;
+    case ',':  c = getc(fin);
+               if ('@' != c) {
+                    ungetc(c, fin);
+                    return comma;
+               } else
+                    return commaat;
+    case '#':  c = getc(fin);
+               switch (c)
+               {
+               case 'f': return 0;
+               case 't': return t;
+               case '\\':
+                    c = getc(fin);
+                    while (!isspace(c) && ')' != c && ']' != c && ',' != c)
+                        { *p++ = c; c = getc(fin); }
+                    ungetc(c, fin);
+                    *p = 0;
+                    for (int i = 0; character_table[i]; ++i)
+                        if (!strcmp(buffer, 1+character_table[i]))
+                            return newcharacter(*character_table[i]);
+                    return newcharacter(*buffer);
+                }
+    case '-':
         c = getc(fin);
         if ('.' == c || isdigit(c))
             *p++ = '-';
@@ -3229,24 +3233,13 @@ sexp scans(FILE* fin)
             c = getc(fin);
 
         while (p < pend && isdigit(c))
-        {
-            rc = INT_NUMERIC;
-            *p++ = c;
-            c = getc(fin);
-        }
+            { rc = INT_NUMERIC; *p++ = c; c = getc(fin); }
 
         if (p < pend && '.' == c)
-        {
-            rc = FLO_NUMERIC;
-            *p++ = c;
-            c = getc(fin);
-        }
+            { rc = FLO_NUMERIC; *p++ = c; c = getc(fin); }
 
         while (p < pend && isdigit(c))
-        {
-            *p++ = c;
-            c = getc(fin);
-        }
+            { *p++ = c; c = getc(fin); }
 
         if (p < pend && NON_NUMERIC != rc && ('e' == c || 'E' == c))
         {
@@ -3268,89 +3261,105 @@ sexp scans(FILE* fin)
             }
         }
 
-        if (INT_NUMERIC == rc && '/' == c)
-            rc = INT_RATIONAL;
-        else if (INT_NUMERIC == rc && 'i' == c)
-            rc = INT_RECTANGULAR;
-        else if (FLO_NUMERIC == rc && 'i' == c)
-            rc = FLO_RECTANGULAR;
-        else if (INT_NUMERIC == rc && '@' == c)
-            rc = INT_POLAR;
-        else if (FLO_NUMERIC == rc && '@' == c)
-            rc = FLO_POLAR;
+        switch (rc)
+        {
+        case INT_NUMERIC:
+            switch (c)
+            {
+            case '/': rc = INT_RATIONAL;    break;
+            case 'i': rc = INT_RECTANGULAR; break;
+            case '@': rc = INT_POLAR;       break;
+            }
+            break;
+        case FLO_NUMERIC:
+            switch (c)
+            {
+            case 'i': rc = FLO_RECTANGULAR; break;
+            case '@': rc = FLO_POLAR;       break;
+            }
+        }
 
         ungetc(c, fin);
         *p++ = 0;
         break;
     }
 
-    if (FLO_RECTANGULAR == rc || INT_RECTANGULAR == rc)
+    switch (rc)
     {
-        char *nptr;
-        c = getc(fin);
-        double floater = strtod(buffer, &nptr);
-        if (nptr == strchr(buffer, '\0'))
-            return lose(mark, newcomplex(0.0, floater));
-    }
-
-    if (FLO_POLAR == rc || INT_POLAR == rc)
-    {
-        char *nptr;
-        c = getc(fin);
-        double r = strtod(buffer, &nptr);
-        if (nptr == strchr(buffer, '\0')) {
-            sexp tv = save(scan(fin));
-            double theta = isFixnum(tv) ? (double)asFixnum(tv) : asFlonum(tv);
-            double re = r * cos(theta);
-            double im = r * sin(theta);
-            return lose(mark, newcomplex(re, im));
+    case FLO_RECTANGULAR:
+    case INT_RECTANGULAR:
+        {
+            char *nptr;
+            c = getc(fin);
+            double floater = strtod(buffer, &nptr);
+            if (nptr == strchr(buffer, '\0'))
+                return lose(mark, newcomplex(0.0, floater));
         }
-    }
+        break;
 
-    if (FLO_NUMERIC == rc)
-    {
-        char *nptr;
-        double floater = strtod(buffer, &nptr);
-        if (nptr == strchr(buffer, '\0'))
-            if ('-' == c || '+' == c) {
-                if ('+' == c)
+    case FLO_POLAR:
+    case INT_POLAR:
+        {
+            char *nptr;
+            c = getc(fin);
+            double r = strtod(buffer, &nptr);
+            if (nptr == strchr(buffer, '\0')) {
+                sexp tv = save(scan(fin));
+                double theta = isFixnum(tv) ? (double)asFixnum(tv) : asFlonum(tv);
+                double re = r * cos(theta);
+                double im = r * sin(theta);
+                return lose(mark, newcomplex(re, im));
+            }
+        }
+        break;
+
+    case FLO_NUMERIC:
+        {
+            char *nptr;
+            double floater = strtod(buffer, &nptr);
+            if (nptr == strchr(buffer, '\0'))
+                if ('-' == c || '+' == c) {
+                    if ('+' == c)
+                        c = getc(fin);
+                    sexp im = save(scan(fin));
+                    im->cdr->car = newflonum(floater);
+                    return lose(mark, im);
+                } else
+                    return newflonum(floater);
+        }
+        break;
+
+    case INT_RATIONAL:
+        {
+            char *nptr;
+            long fixer = strtol(buffer, &nptr, 10);
+            if (nptr == strchr(buffer, '\0'))
+                if ('/' == c) {
                     c = getc(fin);
-                sexp im = save(scan(fin));
-                im->cdr->car = newflonum(floater);
-                return lose(mark, im);
-            } else
-                return newflonum(floater);
-    }
+                    sexp dv = save(scan(fin));
+                    assertFixnum(dv);
+                    return lose(1, rational_reduce(fixer, asFixnum(dv)));
+                } else
+                    return newfixnum(fixer);
+        }
+        break;
 
-    if (INT_RATIONAL == rc)
-    {
-        char *nptr;
-        long fixer = strtol(buffer, &nptr, 10);
-        if (nptr == strchr(buffer, '\0'))
-            if ('/' == c) {
-                c = getc(fin);
-                sexp dv = save(scan(fin));
-                assertFixnum(dv);
-                return lose(1, rational_reduce(fixer, asFixnum(dv)));
-            } else
-                return newfixnum(fixer);
-    }
-
-    if (INT_NUMERIC == rc)
-    {
-        char *nptr;
-        long fixer = strtol(buffer, &nptr, 10);
-        if (nptr == strchr(buffer, '\0'))
-            if ('-' == c || '+' == c) {
-                if ('+' == c)
-                    c = getc(fin);
-                sexp iv = save(scan(fin));
-                if (isFixnum(iv->cdr->cdr->car))
-                    iv->cdr->cdr->car = newflonum((double)asFixnum(iv->cdr->cdr->car));
-                iv->cdr->car = newflonum((double)fixer);
-                return lose(1, iv);
-            } else
-                return newfixnum(fixer);
+    case INT_NUMERIC:
+        {
+            char *nptr;
+            long fixer = strtol(buffer, &nptr, 10);
+            if (nptr == strchr(buffer, '\0'))
+                if ('-' == c || '+' == c) {
+                    if ('+' == c)
+                        c = getc(fin);
+                    sexp iv = save(scan(fin));
+                    if (isFixnum(iv->cdr->cdr->car))
+                        iv->cdr->cdr->car = newflonum((double)asFixnum(iv->cdr->cdr->car));
+                    iv->cdr->car = newflonum((double)fixer);
+                    return lose(1, iv);
+                } else
+                    return newfixnum(fixer);
+        }
     }
 
     if ('"' == c)
