@@ -124,10 +124,9 @@ public:
 
 std::stringstream& display(std::stringstream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, bool write);
 
-sexp ata, closurea, comma, commaat, complexa, dot, elsea, eofa, f, lambda; 
-sexp lbracket, lparen, minus, nil, promisea, qchar, quasiquote, quote; 
-sexp rationala, rbracket, rparen, stderra, stdina, stdouta, t, tick, unquote; 
-sexp unquotesplicing, voida; 
+sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda, lbracket;
+sexp lparen, minus, nil, promise, qchar, quasiquote, quote, rational, rbracket;
+sexp rparen, stderra, stdina, stdouta, t, tick, unquote, unquotesplicing, voida;
 
 static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
 static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
@@ -150,7 +149,7 @@ static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);  
 bool isClosure(sexp p)
 {
     return isCons(p) &&
-           closurea == p->car &&                        // (closure
+           closure == p->car &&                         // (closure
            isCons(p = p->cdr) && p->car &&              //  exp
            isCons(p = p->cdr) && p->car &&              //  env)
            !p->cdr;
@@ -161,11 +160,11 @@ sexp closurep(sexp s) { return isClosure(s) ? t : 0; }
 
 bool isPromise(sexp p)
 {
-    return isCons(p) && promisea == p->car &&           // (promise
-           isCons(p = p->cdr) &&                        // forced
-           isCons(p = p->cdr) &&                        // value
-           isCons(p = p->cdr) &&                        // exp
-           isCons(p = p->cdr) &&                        // env)
+    return isCons(p) && promise == p->car &&            // (promise
+           isCons(p = p->cdr) &&                        //  forced
+           isCons(p = p->cdr) &&                        //  value
+           isCons(p = p->cdr) &&                        //  exp
+           isCons(p = p->cdr) &&                        //  env)
           !p->cdr;
 }
 
@@ -174,10 +173,10 @@ sexp promisep(sexp s) { return isPromise(s) ? t : 0; }
 
 bool isRational(sexp p)
 {
-    return isCons(p) && rationala == p->car &&          // (rational
-           isCons(p = p->cdr) && isFixnum(p->car) &&    // numerator
-           isCons(p = p->cdr) && isFixnum(p->car) &&    // denominator
-           !p->cdr;                                     // )
+    return isCons(p) && rational == p->car &&          // (rational
+           isCons(p = p->cdr) && isFixnum(p->car) &&   //  numerator
+           isCons(p = p->cdr) && isFixnum(p->car) &&   //  denominator
+           !p->cdr;                                    // )
 }
 
 // rational?
@@ -185,9 +184,9 @@ sexp rationalp(sexp s) { return isRational(s) ? t : 0; }
 
 bool isComplex(sexp p)
 {
-    return isCons(p) && complexa == p->car &&           // (complex
-           isCons(p = p->cdr) && isFlonum(p->car) &&    // real-part
-           isCons(p = p->cdr) && isFlonum(p->car) &&    // imag-part
+    return isCons(p) && complex == p->car &&            // (complex
+           isCons(p = p->cdr) && isFlonum(p->car) &&    //  real-part
+           isCons(p = p->cdr) && isFlonum(p->car) &&    //  imag-part
            !p->cdr;                                     // )
 }
 
@@ -196,7 +195,7 @@ sexp complexp(sexp s) { return isComplex(s) ? t : 0; }
 
 jmp_buf the_jmpbuf;
 
-sexp tracing = 0;       // trace calls to eval
+sexp tracing = 0;       // trace everything
 sexp atoms = 0;         // all atoms are linked in a list
 sexp block = 0;         // all the storage starts here
 sexp global = 0;        // this is the global symbol table (a list)
@@ -722,12 +721,12 @@ sexp gt(sexp x, sexp y)
 
 sexp newrational(long n, long d)
 {
-    return lose(4, cons(rationala, save(cons(save(newfixnum(n)), save(cons(save(newfixnum(d)), 0))))));
+    return lose(4, cons(rational, save(cons(save(newfixnum(n)), save(cons(save(newfixnum(d)), 0))))));
 }
 
 sexp newcomplex(double re, double im)
 {
-    return lose(4, cons(complexa, save(cons(save(newflonum(re)), save(cons(save(newflonum(im)), 0))))));
+    return lose(4, cons(complex, save(cons(save(newflonum(re)), save(cons(save(newflonum(im)), 0))))));
 }
 
 double realpart(sexp x)
@@ -1231,7 +1230,6 @@ sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
 sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : 0; }
 
 // length of String or Atom
-
 int slen(sexp s)
 {
     if (!isString(s) && !isAtom(s))
@@ -1256,6 +1254,7 @@ sexp stringlengthf(sexp s)
     return newfixnum(slen(s));
 }
 
+// index a character in a string
 char* sref(sexp s, int i)
 {
     assertString(s);
@@ -1381,6 +1380,7 @@ sexp makestring(sexp args)
     return lose(1, newstring(save(newchunk(b))));
 }
 
+// copy characters from a String or Atom into a buffer
 char* sstr(char* b, int len, sexp s)
 {
     if (!isString(s))
@@ -1624,7 +1624,7 @@ sexp vecref(sexp vector, sexp index)
     return ((Vector*)vector)->e[asFixnum(index)];
 }
 
-// vector
+// (vector e0 e1 e2 ...)
 sexp vector(sexp args)
 {
     save(args);
@@ -1764,6 +1764,7 @@ sexp uppercasep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : 0; }
 // char-whitespace?
 sexp whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
 
+// copy the original termios then modify it for cbreak style input
 void setTermios(struct termios* original, struct termios* working, int vmin)
 {
     memcpy((void*)working, (void*)original, sizeof(struct termios));
@@ -1993,7 +1994,6 @@ sexp substringf(sexp s, sexp i, sexp j)
 }
 
 // (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
-
 sexp append(sexp p, sexp q)
 {
     return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q;
@@ -2031,6 +2031,7 @@ sexp eqnp(sexp x, sexp y)
 // ~ fixnum
 sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : 0; }
 
+// all arguments must be fixnums for these logical operations
 sexp allfixnums(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
@@ -2078,7 +2079,7 @@ sexp xorf(sexp args)
 // delay
 sexp delayform(sexp exp, sexp env)
 {
-    return lose(4, cons(promisea,
+    return lose(4, cons(promise,
                         save(cons(0,
                         save(cons(0,
                         save(cons(exp->cdr->car,
@@ -2135,7 +2136,7 @@ sexp load(sexp x)
         while (!feof(fin))
         {
             sexp input = read(fin, 0);
-            if (eofa == input)
+            if (eof == input)
                 break;
             if (tracing)
                 debug("load", input);
@@ -2168,7 +2169,7 @@ sexp newlinef(sexp args)
 // eof?
 sexp eofp(sexp a)
 {
-    return eofa == a ? t : 0;
+    return eof == a ? t : 0;
 }
 
 // display
@@ -2199,8 +2200,7 @@ sexp writef(sexp args)
     return voida;
 }
 
-std::stringstream& displayChunks(std::stringstream& s,
-                                 sexp exp, bool atom, bool write)
+std::stringstream& displayChunks(std::stringstream& s, sexp exp, bool atom, bool write)
 {
     if (write && !atom)
         s << '"';
@@ -2265,10 +2265,7 @@ void insert(std::set<sexp>& seenSet, sexp exp)
     seenSet.insert(exp);
 }
 
-std::stringstream& displayList(std::stringstream& s,
-                               sexp exp,
-                               std::set<sexp>& seenSet,
-                               ugly& ugly, bool write)
+std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     ugly.enter();
     s << '(';
@@ -2300,23 +2297,23 @@ std::stringstream& displayList(std::stringstream& s,
     return s;
 }
 
-std::stringstream& displayVector(std::stringstream& s,
-                                 sexp v,
-                                 std::set<sexp>& seenSet,
-                                 ugly& ugly, bool write)
+std::stringstream& displayVector(std::stringstream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     ugly.enter();
     s << '[';
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        s << ',';
-        if (isCons(vv->e[i]) || isVector(vv->e[i]))
-            ugly.wrapmajor();
-        else
-            ugly.wrapminor();
         if (safe(seenSet, vv->e[i]))
             display(s, vv->e[i], seenSet, ugly, write);
+        if (i < vv->l-1)
+        {
+            s << ",";
+            if (isCons(vv->e[i]) || isVector(vv->e[i]))
+                ugly.wrapmajor();
+            else
+                ugly.wrapminor();
+        }
     }
     s << ']';
     ugly.leave();
@@ -2342,6 +2339,7 @@ std::stringstream& displayString(std::stringstream& s, sexp exp, bool write)
     displayChunks(s, ((Atom*)exp)->chunks, false, write);
 }
 
+// used for displaying functions, forms. and closures by name
 sexp getName(sexp exp)
 {
     for (sexp p = global; p; p = p->cdr)
@@ -2350,8 +2348,7 @@ sexp getName(sexp exp)
     return 0;
 }
 
-std::stringstream& displayFunction(std::stringstream& s,
-                                   sexp exp, bool write)
+std::stringstream& displayFunction(std::stringstream& s, sexp exp, bool write)
 {
     s << "#<function" << arity(exp) << '@';
     sexp name = getName(exp);
@@ -2363,9 +2360,7 @@ std::stringstream& displayFunction(std::stringstream& s,
     return s;
 }
 
-std::stringstream& displayNamed(std::stringstream& s,
-                                const char *kind,
-                                sexp exp, bool write)
+std::stringstream& displayNamed(std::stringstream& s, const char *kind, sexp exp, bool write)
 {
     s << "#<" << kind << '@';
     sexp name = getName(exp);
@@ -2377,10 +2372,7 @@ std::stringstream& displayNamed(std::stringstream& s,
     return s;
 }
 
-std::stringstream& display(std::stringstream& s,
-                           sexp exp,
-                           std::set<sexp>& seenSet,
-                           ugly& ugly, bool write)
+std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     if (!exp)
         s << "#f";
@@ -2434,6 +2426,7 @@ std::stringstream& display(std::stringstream& s,
     return s;
 }
 
+// usual way to see what is happening
 void debug(const char *label, sexp exp)
 {
     std::stringstream s;
@@ -2449,9 +2442,7 @@ void debug(const char *label, sexp exp)
     fwrite(s.str().c_str(), 1, s.str().length(), stdout);
 }
 
-/*
- * every atom must be unique and saved in the atoms list
- */
+// every atom must be unique and saved in the atoms list
 sexp intern(sexp p)
 {
     for (sexp q = atoms; q; q = q->cdr)
@@ -2625,6 +2616,8 @@ sexp equalp(sexp x, sexp y)
     return eqvb(seenx, seeny, x, y) ? t : 0;
 }
 
+// update all the closures in an environment so they reference
+// that environment instead of earlier ones for init.ss
 void fixenvs(sexp env)
 {
     for (sexp f = env; f; f = f->cdr)
@@ -2656,6 +2649,7 @@ sexp boundp(sexp p, sexp env)
     return 0;
 }
 
+// retrieve the value of a variable in an environment
 sexp get(sexp p, sexp env)
 {
     for (sexp q = env; q; q = q->cdr)
@@ -2690,6 +2684,7 @@ sexp set(sexp p, sexp r, sexp env)
     error(errorBuffer);
 }
 
+// evaluate a list of arguments in an environment
 sexp evlis(sexp p, sexp env)
 {
     if (!p)
@@ -2697,6 +2692,7 @@ sexp evlis(sexp p, sexp env)
     return lose(4, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env)))));
 }
 
+// associate a list of formal parameters and actual parameters in an environment
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
     if (!actuals || !formals)
@@ -2759,12 +2755,10 @@ sexp condform(sexp exp, sexp env)
     return lose(2, r);
 }
 
-/*
- * (lambda ...) should evaluate to a procedure
- */
+// lambda creates a closure
 sexp lambdaform(sexp exp, sexp env)
 {
-    return lose(4, cons(closurea, save(cons(save(exp), save(cons(save(env), 0))))));
+    return lose(4, cons(closure, save(cons(save(exp), save(cons(save(env), 0))))));
 }
 
 /*
@@ -3119,6 +3113,7 @@ sexp readChunks(FILE* fin, const char *ends)
     }
 }
 
+// ignore white space and comments
 char whitespace(FILE* fin, char c)
 {
     if (c > 0)
@@ -3153,7 +3148,6 @@ enum
 /*
  * read an atom, number or string from the input stream
  */
-
 sexp scan(FILE* fin);
 
 sexp scans(FILE* fin)
@@ -3166,7 +3160,7 @@ sexp scans(FILE* fin)
     char c = whitespace(fin, getc(fin));
 
     if (c < 0)
-        return eofa;
+        return eof;
 
     if ('(' == c)
         return lparen;
@@ -3358,6 +3352,7 @@ sexp scans(FILE* fin)
     return lose(2, intern(save(newatom(save(readChunks(fin, "( )[,]\t\r\n"))))));
 }
 
+// stub to enable tracing of scans()
 sexp scan(FILE* fin)
 {
     sexp r = scans(fin);
@@ -3366,18 +3361,20 @@ sexp scan(FILE* fin)
     return r;
 }
 
+// finish reading a list
 sexp readTail(FILE* fin, int level)
 {
     sexp q = read(fin, level);
     if (rparen == q)
         return 0;
-    if (eofa == q)
+    if (eof == q)
         return 0;
     save(q);
     sexp r = save(readTail(fin, level));
     return lose(2, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
 }
 
+// finish reading a vector
 sexp readVector(FILE* fin, int level)
 {
     sexp q = 0;
@@ -3385,7 +3382,7 @@ sexp readVector(FILE* fin, int level)
     for (;;)
     {
         sexp s = save(read(fin, level));
-        if (eofa == s)
+        if (eof == s)
             return 0;
         if (rbracket == s)
             return lose(mark, list2vec(save(reverse(q))));
@@ -3408,7 +3405,7 @@ sexp read(FILE* fin, int level)
     sexp p = scan(fin);
     if (nil == p)
         return 0;
-    if (eofa == p)
+    if (eof == p)
         return p;
     if (lparen == p)
         return readTail(fin, level+1);
@@ -3427,11 +3424,13 @@ sexp read(FILE* fin, int level)
     return p;
 }
 
+// construct an atom and keep a unique copy
 sexp atomize(const char *s)
 {
     return lose(2, intern(save(newatom(save(newchunk(s))))));
 }
 
+// the first interrupt will stop everything. the second will exit.
 void intr_handler(int sig, siginfo_t *si, void *ctx)
 {
     if (killed++)
@@ -3440,6 +3439,7 @@ void intr_handler(int sig, siginfo_t *si, void *ctx)
         error("SIGINT");
 }
 
+// do a traceback upon a segmentation violation
 void segv_handler(int sig, siginfo_t *si, void *ctx)
 {
     putchar('\n');
@@ -3510,39 +3510,24 @@ int main(int argc, char **argv, char **envp)
     r->file = stderr;
     errport = (sexp)r;
 
-    struct sigaction intr_action;
-    intr_action.sa_flags = SA_SIGINFO;
-    intr_action.sa_sigaction = intr_handler;
-    struct sigaction segv_action;
-    segv_action.sa_flags = SA_SIGINFO;
-    segv_action.sa_sigaction = segv_handler;
-
-    char *s = (char*) sigsetjmp(the_jmpbuf, 1);
-    if (s)
-        printf("%s\n", s);
-
-    sigaction(SIGSEGV, &segv_action, NULL);
-    sigaction(SIGINT,  &intr_action, NULL);
-
-    ata             = atomize("@");
-    closurea        = atomize("closure");
+    closure         = atomize("closure");
     commaat         = atomize(",@");
     comma           = atomize(",");
-    complexa        = atomize("complex");
+    complex         = atomize("complex");
     dot             = atomize(".");
     elsea           = atomize("else");
-    eofa            = atomize("#eof");
+    eof             = atomize("#eof");
     f               = atomize("#f");
     lambda          = atomize("lambda");
     lbracket        = atomize("[");
     lparen          = atomize("(");
     minus           = atomize("-");
     nil             = atomize("#f");
-    promisea        = atomize("promise");
+    promise         = atomize("promise");
     qchar           = atomize("'");
     quasiquote      = atomize("quasiquote");
     quote           = atomize("quote");
-    rationala       = atomize("rational");
+    rational        = atomize("rational");
     rbracket        = atomize("]");
     rparen          = atomize(")");
     t               = atomize("#t");
@@ -3731,6 +3716,20 @@ int main(int argc, char **argv, char **envp)
     define_form(atomize("complex"), complexform);
     define_form(atomize("rational"), rationalform);
 
+    struct sigaction intr_action;
+    intr_action.sa_flags = SA_SIGINFO;
+    intr_action.sa_sigaction = intr_handler;
+    struct sigaction segv_action;
+    segv_action.sa_flags = SA_SIGINFO;
+    segv_action.sa_sigaction = segv_handler;
+
+    char *s = (char*) sigsetjmp(the_jmpbuf, 1);
+    if (s)
+        printf("%s\n", s);
+
+    sigaction(SIGSEGV, &segv_action, NULL);
+    sigaction(SIGINT,  &intr_action, NULL);
+
     load(newstring(newchunk("init.ss")));
 
     fixenvs(global);
@@ -3763,7 +3762,7 @@ int main(int argc, char **argv, char **envp)
         printf("> ");
         fflush(stdout);
         sexp e = read(stdin, 0);
-        if (eofa == e)
+        if (eof == e)
             break;
         killed = 0;
         sexp v = eval(e, global);
