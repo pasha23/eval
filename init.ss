@@ -41,9 +41,7 @@
 (define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
 
 (define (rationalize real)
-   (let (
-         ;; (maxden 268435456)
-         (maxden 131072)
+   (let ((maxden 268435456)
          (t 0) (x real)
          (m00 1) (m11 1)
          (m01 0) (m10 0)
