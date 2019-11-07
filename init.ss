@@ -41,7 +41,9 @@
 (define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
 
 (define (rationalize real)
-   (let ((maxden 268435456)
+   (let (
+         ;; (maxden 268435456)
+         (maxden 131072)
          (t 0) (x real)
          (m00 1) (m11 1)
          (m01 0) (m10 0)
@@ -235,6 +237,9 @@
 (define (make-counter i)
         (let ((n i))
              (lambda (j) (begin (set! n (+ n 1)) n))))
+
+(define (polar->rectangular r theta)
+    (cons 'complex (cons (* r (cos theta)) (cons (* r (sin theta)) #f))))
 
 (define (env-head l t) (if (eq? l t) #f (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
 

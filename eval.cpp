@@ -95,17 +95,10 @@ struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; FILE*  file; };
 struct OutPort { char tags[sizeof(sexp)]; FILE*                     file; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp* e; };
 
-bool cyclic(sexp p);
-sexp scan(FILE* fin);
-sexp set(sexp p, sexp r);
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
-sexp evlis(sexp p, sexp env);
 sexp apply(sexp fun, sexp args);
 sexp read(FILE* fin, int level);
-char* sstr(char* b, int len, sexp s);
-void debug(const char *label, sexp exp);
-sexp assoc(sexp formals, sexp actuals, sexp env);
 
 /*
  * not pretty yet
@@ -668,7 +661,7 @@ bool cmplt(sexp x, sexp y)
         if (isFixnum(y))
             return asFixnum(x) < asFixnum(y);
         if (isFlonum(y))
-            return (double)asFixnum(x) < asFixnum(y);
+            return (double)asFixnum(x) < asFlonum(y);
         if (isRational(y))
             return asFixnum(x) < rat2real(y);
     } else if (isRational(x)) {
@@ -695,7 +688,7 @@ bool cmple(sexp x, sexp y)
         if (isFixnum(y))
             return asFixnum(x) <= asFixnum(y);
         if (isFlonum(y))
-            return (double)asFixnum(x) <= asFixnum(y);
+            return (double)asFixnum(x) <= asFlonum(y);
         if (isRational(y))
             return asFixnum(x) <= rat2real(y);
     } else if (isRational(x)) {
@@ -752,7 +745,7 @@ double imagpart(sexp x)
 sexp magnitude(sexp z)
 {
     assertComplex(z);
-    return newflonum(sqrt(asFlonum(z->cdr->car) * asFlonum(z->cdr->car) +
+    return newflonum(sqrt(asFlonum(z->cdr->car)      * asFlonum(z->cdr->car) +
                           asFlonum(z->cdr->cdr->car) * asFlonum(z->cdr->cdr->car)));
 }
 
@@ -1189,7 +1182,6 @@ sexp rsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(as
 // list structure predicates
 sexp isnot(sexp x) { return x ? 0 : t; }
 sexp nullp(sexp x) { return x ? 0 : t; }
-sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
 sexp listp(sexp x) { return !isCons(x) ? 0 : listp(x->cdr) ? t : 0; }
 sexp pairp(sexp x) { return isCons(x) ? t : 0; }
 sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : 0; }
@@ -1238,6 +1230,24 @@ char* sref(sexp s, int i)
     return 0;
 }
 
+const char* escapes[] = { "\007a", "\010b", "\011t", "\012n", "\015r", "\"\"", "\\\\", 0 };
+
+char decodeEscape(char c)
+{
+    for (const char** p = escapes; *p; ++p)
+        if ((*p)[1] == c)
+            return (*p)[0];
+    return c;
+}
+
+char encodeEscape(char c)
+{
+    for (const char** p = escapes; *p; ++p)
+        if ((*p)[0] == c)
+            return (*p)[1];
+    return c;
+}
+
 /*
  * construct a linked list of chunks of characters
  */
@@ -1257,6 +1267,9 @@ sexp newchunk(const char *t)
     for (;;)
     {
         char c = *t++;
+
+        if ('\\' == c)
+            c = decodeEscape(*t++);
 
         if (!c)
         {
@@ -2057,9 +2070,10 @@ sexp writef(sexp args)
     return voida;
 }
 
-std::stringstream& displayChunks(std::stringstream& s, sexp exp, bool write)
+std::stringstream& displayChunks(std::stringstream& s,
+                                 sexp exp, bool atom, bool write)
 {
-    if (write)
+    if (write && !atom)
         s << '"';
     while (exp)
     {
@@ -2069,11 +2083,14 @@ std::stringstream& displayChunks(std::stringstream& s, sexp exp, bool write)
             char c = t->text[i];
             if (!c)
                 break;
-            s << c;
+            if (write && strchr("\007\b\t\n\r\"\\", c))
+                s << '\\' << encodeEscape(c);
+            else
+                s << c;
         }
         exp = exp->cdr;
     }
-    if (write)
+    if (write && !atom)
         s << '"';
     return s;
 }
@@ -2109,6 +2126,8 @@ bool cyclic(sexp exp)
     return cyclic(seenSet, exp);
 }
 
+sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
+
 bool safe(std::set<sexp>& seenSet, sexp exp)
 {
     return seenSet.find(exp) == seenSet.end();
@@ -2119,7 +2138,10 @@ void insert(std::set<sexp>& seenSet, sexp exp)
     seenSet.insert(exp);
 }
 
-std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::stringstream& displayList(std::stringstream& s,
+                               sexp exp,
+                               std::set<sexp>& seenSet,
+                               ugly& ugly, bool write)
 {
     ugly.enter();
     s << '(';
@@ -2151,7 +2173,10 @@ std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& s
     return s;
 }
 
-std::stringstream& displayVector(std::stringstream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::stringstream& displayVector(std::stringstream& s,
+                                 sexp v,
+                                 std::set<sexp>& seenSet,
+                                 ugly& ugly, bool write)
 {
     ugly.enter();
     s << '[';
@@ -2180,14 +2205,14 @@ const char *character_table[] =
     "\040space",     "\177del", 0
 };
 
-std::stringstream& displayAtom(std::stringstream& s, sexp exp)
+std::stringstream& displayAtom(std::stringstream& s, sexp exp, bool write)
 {
-    displayChunks(s, ((Atom*)exp)->chunks, false);
+    displayChunks(s, ((Atom*)exp)->chunks, true, write);
 }
 
-std::stringstream& displayString(std::stringstream& s, sexp exp)
+std::stringstream& displayString(std::stringstream& s, sexp exp, bool write)
 {
-    displayChunks(s, ((Atom*)exp)->chunks, true);
+    displayChunks(s, ((Atom*)exp)->chunks, false, write);
 }
 
 sexp getName(sexp exp)
@@ -2198,31 +2223,37 @@ sexp getName(sexp exp)
     return 0;
 }
 
-std::stringstream& displayFunction(std::stringstream& s, sexp exp)
+std::stringstream& displayFunction(std::stringstream& s,
+                                   sexp exp, bool write)
 {
     s << "#<function" << arity(exp) << '@';
     sexp name = getName(exp);
     if (name)
-        displayAtom(s, name);
+        displayAtom(s, name, write);
     else
         s << std::hex << (void*)exp << std::dec;
     s << '>';
     return s;
 }
 
-std::stringstream& displayNamed(std::stringstream& s, const char *kind, sexp exp)
+std::stringstream& displayNamed(std::stringstream& s,
+                                const char *kind,
+                                sexp exp, bool write)
 {
     s << "#<" << kind << '@';
     sexp name = getName(exp);
     if (name)
-        displayAtom(s, name);
+        displayAtom(s, name, write);
     else
         s << std::hex << (void*)exp << std::dec;
     s << '>';
     return s;
 }
 
-std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::stringstream& display(std::stringstream& s,
+                           sexp exp,
+                           std::set<sexp>& seenSet,
+                           ugly& ugly, bool write)
 {
     if (!exp)
         s << "#f";
@@ -2240,22 +2271,22 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
         else if (im < 0.0)
             s << im << 'i';
     } else if (isClosure(exp)) {
-        displayNamed(s, "closure", exp);
+        displayNamed(s, "closure", exp, write);
     } else if (isPromise(exp))
-        displayNamed(s, "promise", exp);
+        displayNamed(s, "promise", exp, write);
     else if (isCons(exp)) {
         if (safe(seenSet, exp))
             displayList(s, exp, seenSet, ugly, write);
     } else if (isString(exp))
-        displayString(s, exp);
+        displayString(s, exp, write);
     else if (isAtom(exp))
-        displayAtom(s, exp);
+        displayAtom(s, exp, write);
     else if (isVector(exp) && safe(seenSet, exp))
         displayVector(s, exp, seenSet, ugly, write);
     else if (isFunct(exp)) {
-        displayFunction(s, exp);
+        displayFunction(s, exp, write);
     } else if (isForm(exp)) {
-        displayNamed(s, "form", exp);
+        displayNamed(s, "form", exp, write);
     } else if (isInPort(exp))
         s << "#<input@" << fileno(((InPort*)exp)->file) << '>';
     else if (isOutPort(exp))
@@ -2921,6 +2952,9 @@ sexp readChunks(FILE* fin, const char *ends)
             return lose(1, p);
         }
 
+        if ('\\' == c)
+            c = decodeEscape(getc(fin));
+
         r->text[i++] = c;
 
         if (i == sizeof(r->text))
@@ -3096,7 +3130,6 @@ sexp scan(FILE* fin)
         char *nptr;
         c = getc(fin);
         double floater = strtod(buffer, &nptr);
-        //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0'))
             return lose(mark, newcomplex(0.0, floater));
     }
@@ -3106,7 +3139,6 @@ sexp scan(FILE* fin)
         char *nptr;
         c = getc(fin);
         double r = strtod(buffer, &nptr);
-        //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0')) {
             sexp tv = save(scan(fin));
             double theta = isFixnum(tv) ? (double)asFixnum(tv) : asFlonum(tv);
@@ -3120,7 +3152,6 @@ sexp scan(FILE* fin)
     {
         char *nptr;
         double floater = strtod(buffer, &nptr);
-        //printf("double %#.15g ", floater);
         if (nptr == strchr(buffer, '\0'))
             if ('-' == c || '+' == c) {
                 if ('+' == c)
@@ -3136,7 +3167,6 @@ sexp scan(FILE* fin)
     {
         char *nptr;
         long fixer = strtol(buffer, &nptr, 10);
-        //printf("long %ld\n", fixer);
         if (nptr == strchr(buffer, '\0'))
             if ('/' == c) {
                 c = getc(fin);
@@ -3151,7 +3181,6 @@ sexp scan(FILE* fin)
     {
         char *nptr;
         long fixer = strtol(buffer, &nptr, 10);
-        //printf("long %ld\n", fixer);
         if (nptr == strchr(buffer, '\0'))
             if ('-' == c || '+' == c) {
                 if ('+' == c)
@@ -3324,6 +3353,7 @@ int main(int argc, char **argv, char **envp)
     struct sigaction segv_action;
     segv_action.sa_flags = SA_SIGINFO;
     segv_action.sa_sigaction = segv_handler;
+
     char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
         printf("%s\n", s);
@@ -3598,14 +3628,12 @@ int main(int argc, char **argv, char **envp)
     define_funct(makestringa,   0, (void*)makestring);
     define_funct(makevector,    0, (void*)makevec);
     define_funct(newlinea,      0, (void*)newlinef);
-    define_funct(nullpa,        1, (void*)nullp);
     define_funct(num2stringa,   1, (void*)number2string);
     define_funct(numberpa,      1, (void*)numberp);
     define_funct(numericpa,     1, (void*)numericp);
     define_funct(openina,       1, (void*)openin);
     define_funct(openouta,      1, (void*)openout);
     define_funct(outportpa,     1, (void*)outportp);
-    define_funct(pairpa,        1, (void*)pairp);
     define_funct(peekchara,     0, (void*)peekchar);
     define_funct(pipea,         0, (void*)orf);
     define_funct(powa,          2, (void*)powff);
@@ -3669,6 +3697,8 @@ int main(int argc, char **argv, char **envp)
     define_funct(xora,          0, (void*)xorf);
     
     // moved here because of frequent use
+    define_funct(nullpa,        1, (void*)nullp);
+    define_funct(pairpa,        1, (void*)pairp);
     define_funct(negativepa,    1, (void*)negativep);
     define_funct(positivepa,    1, (void*)positivep);
     define_funct(percent,       0, (void*)unimod);
