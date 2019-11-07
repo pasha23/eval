@@ -7,7 +7,7 @@
  */
 #define PSIZE   16384
 #define MAX     262144
-#define BROKEN
+#undef  BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -390,11 +390,16 @@ void assertAtom(sexp s)        { if (!isAtom(s))        error("not symbol"); }
 void assertChar(sexp c)        { if (!isChar(c))        error("not a character"); }
 void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
 void assertFixnum(sexp i)      { if (!isFixnum(i))      error("not an integer"); }
-void assertFlonum(sexp i)      { if (!isFlonum(i))      error("not real"); }
 void assertRational(sexp s)    { if (!isRational(s))    error("not rational"); }
 void assertInPort(sexp s)      { if (!isInPort(s))      error("not an input port"); }
 void assertOutPort(sexp s)     { if (!isOutPort(s))     error("not an output port"); }
 void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
+
+void assertFlonum(sexp s)
+{
+    if (!isFlonum(s) && !isFixnum(s) && !isRational(s))
+        error("not a real number");
+}
 
 /*
  * allocate a cell from the freelist
@@ -599,6 +604,11 @@ long asFixnum(sexp p)
     error("asFixnum: not a fixnum");
 }
 
+double rat2real(sexp x)
+{
+    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
+}
+
 double asFlonum(sexp p)
 {
     if (sizeof(double) > sizeof(void*)) {
@@ -608,12 +618,14 @@ double asFlonum(sexp p)
         if (isDouble(p))
             return ((Double*)p)->flonum;
     }
-    error("asFlonum: not a flonum");
-}
 
-double rat2real(sexp x)
-{
-    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
+    if (isFixnum(p))
+        return (double) asFixnum(p);
+
+    if (isRational(p))
+        return rat2real(p);
+
+    error("asFlonum: not a flonum");
 }
 
 // negative?
@@ -1153,18 +1165,18 @@ sexp unimod(sexp l)
 }
 
 // functions on real numbers
-sexp sinff(sexp x) { assertFlonum(x); return newflonum(sin(asFlonum(x))); }         // sin
-sexp cosff(sexp x) { assertFlonum(x); return newflonum(cos(asFlonum(x))); }         // cos
-sexp tanff(sexp x) { assertFlonum(x); return newflonum(tan(asFlonum(x))); }         // tan
-sexp expff(sexp x) { assertFlonum(x); return newflonum(exp(asFlonum(x))); }         // exp
-sexp logff(sexp x) { assertFlonum(x); return newflonum(log(asFlonum(x))); }         // log
-sexp asinff(sexp x) { assertFlonum(x); return newflonum(asin(asFlonum(x))); }       // asin
-sexp acosff(sexp x) { assertFlonum(x); return newflonum(acos(asFlonum(x))); }       // acos
-sexp atanff(sexp x) { assertFlonum(x); return newflonum(atan(asFlonum(x))); }       // atan
-sexp ceilingff(sexp x) { assertFlonum(x); return newflonum(ceil(asFlonum(x))); }    // ceiling
-sexp floorff(sexp x) { assertFlonum(x); return newflonum(floor(asFlonum(x))); }     // floor
-sexp roundff(sexp x) { assertFlonum(x); return newflonum(round(asFlonum(x))); }     // round
-sexp sqrtff(sexp x) { assertFlonum(x); return newflonum(sqrt(asFlonum(x))); }       // sqrt
+sexp sinff(sexp x)     { assertFlonum(x); return newflonum(sin(asFlonum(x)));   } // sin
+sexp cosff(sexp x)     { assertFlonum(x); return newflonum(cos(asFlonum(x)));   } // cos
+sexp tanff(sexp x)     { assertFlonum(x); return newflonum(tan(asFlonum(x)));   } // tan
+sexp expff(sexp x)     { assertFlonum(x); return newflonum(exp(asFlonum(x)));   } // exp
+sexp logff(sexp x)     { assertFlonum(x); return newflonum(log(asFlonum(x)));   } // log
+sexp asinff(sexp x)    { assertFlonum(x); return newflonum(asin(asFlonum(x)));  } // asin
+sexp acosff(sexp x)    { assertFlonum(x); return newflonum(acos(asFlonum(x)));  } // acos
+sexp atanff(sexp x)    { assertFlonum(x); return newflonum(atan(asFlonum(x)));  } // atan
+sexp sqrtff(sexp x)    { assertFlonum(x); return newflonum(sqrt(asFlonum(x)));  } // sqrt
+sexp floorff(sexp x)   { assertFlonum(x); return newflonum(floor(asFlonum(x))); } // floor
+sexp roundff(sexp x)   { assertFlonum(x); return newflonum(round(asFlonum(x))); } // round
+sexp ceilingff(sexp x) { assertFlonum(x); return newflonum(ceil(asFlonum(x)));  } // ceiling
 
 // pow
 sexp powff(sexp x, sexp y)
