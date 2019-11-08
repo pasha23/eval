@@ -3260,8 +3260,8 @@ sexp scans(FILE* fin)
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
-            c = scanChar(fin);
             double re, im;
+            c = scanChar(fin);
             s >> re >> im;
             return newcomplex(re, im);
         }
@@ -3270,23 +3270,23 @@ sexp scans(FILE* fin)
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
-            c = scanChar(fin);
             double re, im;
+            c = scanChar(fin);
             s >> re >> im;
             return newcomplex(re, im);
         }
     } else if (status > NON_NUMERIC && '@' == c) {
+        double r, theta;
         c = scanChar(fin);
         s << ' ';
         c = scanNumber(s, fin, status);
-        double r, theta;
         s >> r >> theta;
         return newcomplex(r * cos(theta), r * sin(theta));
     } else if (status > NON_NUMERIC && '/' == c) {
+        long num, den;
         c = scanChar(fin);
         s << ' ';
         c = scanNumber(s, fin, status);
-        long num, den;
         s >> num >> den;
         return newrational(num, den);
     }
