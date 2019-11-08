@@ -17,7 +17,6 @@
 #include <csetjmp>
 #include <csignal>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <ctype.h>
 #include <errno.h>
@@ -32,9 +31,9 @@
 bool killed = true;
 
 #ifdef BROKEN
-#define error(s) do { printf("%s\n", s); assert(false); } while(0)
+#define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
 #else
-#define error(s) do { if (killed) { printf("%s\n", s); assert(false); }\
+#define error(s) do { if (killed) { std::cout << s << std::endl; assert(false); }\
                       psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
@@ -108,11 +107,11 @@ class ugly
     static const int tabs = 4;
     static const int eol = 70;
 
-    std::stringstream& s;
+    std::ostream& s;
     std::streampos pos;
     int level;
 public:
-    ugly(std::stringstream& s) : s(s) { level = 0; pos = s.tellp(); }
+    ugly(std::ostream& s) : s(s) { level = 0; pos = s.tellp(); }
     void enter() { level += tabs; if (s.tellp() - pos > eol) newline(); }
     void leave() { level -= tabs; }
     void wrapminor() { if (s.tellp() - pos > eol) newline(); else space(); }
@@ -121,7 +120,7 @@ public:
     void space() { s << ' '; }
 };
 
-std::stringstream& display(std::stringstream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, bool write);
+std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, bool write);
 
 sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda, lbracket;
 sexp lparen, minus, nil, promise, qchar, quasiquote, quote, rational, rbracket;
@@ -380,8 +379,12 @@ sexp gc(sexp args)
     }
 
     if (verbose)
-        printf("gc: allocated: %d protected: %d marked: %d reclaimed: %d collections: %d allocation: %d\n",
-               allocated, wereprot, weremark, reclaimed, collected, total);
+        std::cout << "gc: allocated: " << allocated
+                  << " protected: " << wereprot
+                  << " marked: " << weremark
+                  << " reclaimed: " << reclaimed
+                  << " collections: " << collected
+                  << " allocation: " << total << std::endl;
 
     allocated -= reclaimed-werefree;
     total += allocated;
@@ -1335,7 +1338,7 @@ sexp newchunk(const char *t)
     }
 }
 
-std::stringstream& num2string(std::stringstream& s, sexp exp)
+std::ostream& num2string(std::ostream& s, sexp exp)
 {
     if (isFixnum(exp))
         s << asFixnum(exp);
@@ -1885,7 +1888,7 @@ sexp writechar(sexp args)
         if (args->cdr)
             assertOutPort(port = args->cdr->car);
     }
-    fprintf(((OutPort*)port)->file, "#\\%c", ((Char*)(args->car))->ch);
+    fputc(((Char*)(args->car))->ch, ((OutPort*)port)->file);
     return voida;
 }
 
@@ -2120,6 +2123,19 @@ sexp promisev(sexp p)
         error("promise not forced yet");
 }
 
+int scanChar(FILE* fin)
+{
+    char c = getc(fin);
+//  std::cerr << "scanChar: " << c << std::endl;
+    return c;
+}
+
+void unscanChar(char c, FILE* fin)
+{
+//  std::cerr << "unscanChar: " << c << std::endl;
+    ungetc(c, fin);
+}
+
 // load
 sexp load(sexp x)
 {
@@ -2129,7 +2145,7 @@ sexp load(sexp x)
 
     char *name = sstr((char*)alloca(len), len, x);
 
-    printf("; load: %s\n", name);
+    std::cout << ";; load: " << name << std::endl;
 
     FILE* fin = fopen(name, "r");
     if (fin)
@@ -2201,7 +2217,7 @@ sexp writef(sexp args)
     return voida;
 }
 
-std::stringstream& displayChunks(std::stringstream& s, sexp exp, bool atom, bool write)
+std::ostream& displayChunks(std::ostream& s, sexp exp, bool atom, bool write)
 {
     if (write && !atom)
         s << '"';
@@ -2266,7 +2282,7 @@ void insert(std::set<sexp>& seenSet, sexp exp)
     seenSet.insert(exp);
 }
 
-std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     ugly.enter();
     s << '(';
@@ -2298,7 +2314,7 @@ std::stringstream& displayList(std::stringstream& s, sexp exp, std::set<sexp>& s
     return s;
 }
 
-std::stringstream& displayVector(std::stringstream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     ugly.enter();
     s << '[';
@@ -2330,12 +2346,12 @@ const char *character_table[] =
     "\040space",     "\177del", 0
 };
 
-std::stringstream& displayAtom(std::stringstream& s, sexp exp, bool write)
+std::ostream& displayAtom(std::ostream& s, sexp exp, bool write)
 {
     displayChunks(s, ((Atom*)exp)->chunks, true, write);
 }
 
-std::stringstream& displayString(std::stringstream& s, sexp exp, bool write)
+std::ostream& displayString(std::ostream& s, sexp exp, bool write)
 {
     displayChunks(s, ((Atom*)exp)->chunks, false, write);
 }
@@ -2349,7 +2365,7 @@ sexp getName(sexp exp)
     return 0;
 }
 
-std::stringstream& displayFunction(std::stringstream& s, sexp exp, bool write)
+std::ostream& displayFunction(std::ostream& s, sexp exp, bool write)
 {
     s << "#<function" << arity(exp) << '@';
     sexp name = getName(exp);
@@ -2361,7 +2377,7 @@ std::stringstream& displayFunction(std::stringstream& s, sexp exp, bool write)
     return s;
 }
 
-std::stringstream& displayNamed(std::stringstream& s, const char *kind, sexp exp, bool write)
+std::ostream& displayNamed(std::ostream& s, const char *kind, sexp exp, bool write)
 {
     s << "#<" << kind << '@';
     sexp name = getName(exp);
@@ -2373,7 +2389,7 @@ std::stringstream& displayNamed(std::stringstream& s, const char *kind, sexp exp
     return s;
 }
 
-std::stringstream& displayChar(std::stringstream& s, sexp exp, bool write)
+std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
 {
     if (write)
     {
@@ -2389,7 +2405,7 @@ std::stringstream& displayChar(std::stringstream& s, sexp exp, bool write)
     return s;
 }
 
-std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
     if (!exp)
     {
@@ -2984,7 +3000,7 @@ sexp apply(sexp fun, sexp args)
     save(fun);
     save(args);
 
-    if (tracing)
+    if (false && tracing)
     {
         debug("apply-fun", fun);
         debug("apply-args", args);
@@ -3091,18 +3107,18 @@ sexp readChunks(FILE* fin, const char *ends)
 
     for (int i = 0; ; )
     {
-        char c = getc(fin);
+        char c = scanChar(fin);
 
         if (strchr(ends, c))
         {
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
-            ungetc(c, fin);
+            unscanChar(c, fin);
             return lose(1, p);
         }
 
         if ('\\' == c)
-            c = decodeEscape(getc(fin));
+            c = decodeEscape(scanChar(fin));
 
         r->text[i++] = c;
 
@@ -3123,17 +3139,58 @@ char whitespace(FILE* fin, char c)
     if (c > 0)
     {
         while (strchr(" \t\r\n", c))
-            c = getc(fin);
+            c = scanChar(fin);
 
         while (';' == c)
         {
             while ('\n' != c)
-                c = getc(fin);
+                c = scanChar(fin);
             while (strchr(" \t\r\n", c))
-                c = getc(fin);
+                c = scanChar(fin);
         }
     }
 
+    return c;
+}
+
+enum NumStatus { NON_NUMERIC, FIXED, FLOATING };
+
+// scan a number from fin, copy it to s, set status, return next character
+int scanNumber(std::stringstream& s, FILE* fin, NumStatus& status)
+{
+    char c = scanChar(fin);
+    status = NON_NUMERIC;
+    while (isspace(c))
+        c = scanChar(fin);
+    if ('-' == c)
+        { s.put(c); c = scanChar(fin); }
+    while (isdigit(c))
+        { status = FIXED; s.put(c); c = scanChar(fin); }
+    if ('.' == c)
+        { status = FLOATING; s.put(c); c = scanChar(fin); }
+    while (isdigit(c))
+        { status = FLOATING; s.put(c); c = scanChar(fin); }
+    if (status > NON_NUMERIC && ('e' == c || 'E' == c))
+    {
+        status = NON_NUMERIC;
+        s.put(c);
+        c = scanChar(fin);
+        if ('-' == c) {
+            s.put(c);
+            c = scanChar(fin);
+        } else if ('+' == c) {
+            s.put(c);
+            c = scanChar(fin);
+        }
+        while (isdigit(c))
+        {
+            status = FLOATING;
+            s.put(c);
+            c = scanChar(fin);
+        }
+    }
+    unscanChar(c, fin);
+//  std::cerr << "scanNumber: " << s.str() << std::endl;
     return c;
 }
 
@@ -3144,14 +3201,11 @@ sexp scan(FILE* fin);
 
 sexp scans(FILE* fin)
 {
-    enum { NON_NUMERIC, INT_NUMERIC, INT_RATIONAL, FLO_NUMERIC, FLO_RECTANGULAR, INT_RECTANGULAR, INT_POLAR, FLO_POLAR };
-
     sexp* mark = psp;
-    char buffer[256];
-    char *p = buffer;
-    char *pend = buffer + sizeof(buffer) - 1;
 
-    char c = whitespace(fin, getc(fin));
+    std::stringstream s;
+
+    char c = whitespace(fin, scanChar(fin));
 
     if (c < 0)
         return eof;
@@ -3165,179 +3219,96 @@ sexp scans(FILE* fin)
     case '`':  return tick;
     case '[':  return lbracket;
     case ']':  return rbracket;
-    case ',':  c = getc(fin);
+    case ',':  c = scanChar(fin);
                if ('@' != c) {
-                    ungetc(c, fin);
+                    unscanChar(c, fin);
                     return comma;
                } else
                     return commaat;
-    case '#':  c = getc(fin);
+    case '#':  c = scanChar(fin);
                switch (c)
                {
                case 'f': return 0;
                case 't': return t;
                case '\\':
-                    c = getc(fin);
+                    c = scanChar(fin);
                     while (!isspace(c) && ')' != c && ']' != c && ',' != c)
-                        { *p++ = c; c = getc(fin); }
-                    ungetc(c, fin);
-                    *p = 0;
+                        { s.put(c); c = scanChar(fin); }
+                    unscanChar(c, fin);
+                    const char* buf = s.str().c_str();
                     for (int i = 0; character_table[i]; ++i)
-                        if (!strcmp(buffer, 1+character_table[i]))
+                        if (!strcmp(buf, 1+character_table[i]))
                             return newcharacter(*character_table[i]);
-                    return newcharacter(*buffer);
+                    return newcharacter(*buf);
                 }
     case '-':
-        c = getc(fin);
+        c = scanChar(fin);
         if ('.' == c || isdigit(c))
-            *p++ = '-';
+            s.put('-');
         else
-            { ungetc(c, fin); return minus; } 
+            { unscanChar(c, fin); return minus; } 
     }
 
-    int rc = NON_NUMERIC;
+    unscanChar(c, fin);
 
-    for (;;)
-    {
-        while (isspace(c))
-            c = getc(fin);
+    NumStatus status;
+    c = scanNumber(s, fin, status);
 
-        while (p < pend && isdigit(c))
-            { rc = INT_NUMERIC; *p++ = c; c = getc(fin); }
-
-        if (p < pend && '.' == c)
-            { rc = FLO_NUMERIC; *p++ = c; c = getc(fin); }
-
-        while (p < pend && isdigit(c))
-            { *p++ = c; c = getc(fin); }
-
-        if (p < pend && NON_NUMERIC != rc && ('e' == c || 'E' == c))
+    if (status > NON_NUMERIC && '+' == c) {
+        c = scanChar(fin);
+        s << ' ';
+        c = scanNumber(s, fin, status);
+        if ('i' == c)
         {
-            rc = NON_NUMERIC;
-            *p++ = c;
-            c = getc(fin);
-            if (p < pend && '-' == c) {
-                *p++ = c;
-                c = getc(fin);
-            } else if (p < pend && '+' == c) {
-                *p++ = c;
-                c = getc(fin);
-            }
-            while (p < pend && isdigit(c))
-            {
-                rc = FLO_NUMERIC;
-                *p++ = c;
-                c = getc(fin);
-            }
+            c = scanChar(fin);
+            double re, im;
+            s >> re >> im;
+            return newcomplex(re, im);
         }
-
-        switch (rc)
+    } else if (status > NON_NUMERIC && '-' == c) {
+        s << ' ';
+        c = scanNumber(s, fin, status);
+        if ('i' == c)
         {
-        case INT_NUMERIC:
-            switch (c)
-            {
-            case '/': rc = INT_RATIONAL;    break;
-            case 'i': rc = INT_RECTANGULAR; break;
-            case '@': rc = INT_POLAR;       break;
-            }
-            break;
-        case FLO_NUMERIC:
-            switch (c)
-            {
-            case 'i': rc = FLO_RECTANGULAR; break;
-            case '@': rc = FLO_POLAR;       break;
-            }
+            c = scanChar(fin);
+            double re, im;
+            s >> re >> im;
+            return newcomplex(re, im);
         }
-
-        ungetc(c, fin);
-        *p++ = 0;
-        break;
-    }
-
-    switch (rc)
-    {
-    case FLO_RECTANGULAR:
-    case INT_RECTANGULAR:
-        {
-            char *nptr;
-            c = getc(fin);
-            double floater = strtod(buffer, &nptr);
-            if (nptr == strchr(buffer, '\0'))
-                return lose(mark, newcomplex(0.0, floater));
-        }
-        break;
-
-    case FLO_POLAR:
-    case INT_POLAR:
-        {
-            char *nptr;
-            c = getc(fin);
-            double r = strtod(buffer, &nptr);
-            if (nptr == strchr(buffer, '\0')) {
-                sexp tv = save(scan(fin));
-                double theta = isFixnum(tv) ? (double)asFixnum(tv) : asFlonum(tv);
-                double re = r * cos(theta);
-                double im = r * sin(theta);
-                return lose(mark, newcomplex(re, im));
-            }
-        }
-        break;
-
-    case FLO_NUMERIC:
-        {
-            char *nptr;
-            double floater = strtod(buffer, &nptr);
-            if (nptr == strchr(buffer, '\0'))
-                if ('-' == c || '+' == c) {
-                    if ('+' == c)
-                        c = getc(fin);
-                    sexp im = save(scan(fin));
-                    im->cdr->car = newflonum(floater);
-                    return lose(mark, im);
-                } else
-                    return newflonum(floater);
-        }
-        break;
-
-    case INT_RATIONAL:
-        {
-            char *nptr;
-            long fixer = strtol(buffer, &nptr, 10);
-            if (nptr == strchr(buffer, '\0'))
-                if ('/' == c) {
-                    c = getc(fin);
-                    sexp dv = save(scan(fin));
-                    assertFixnum(dv);
-                    return lose(1, rational_reduce(fixer, asFixnum(dv)));
-                } else
-                    return newfixnum(fixer);
-        }
-        break;
-
-    case INT_NUMERIC:
-        {
-            char *nptr;
-            long fixer = strtol(buffer, &nptr, 10);
-            if (nptr == strchr(buffer, '\0'))
-                if ('-' == c || '+' == c) {
-                    if ('+' == c)
-                        c = getc(fin);
-                    sexp iv = save(scan(fin));
-                    if (isFixnum(iv->cdr->cdr->car))
-                        iv->cdr->cdr->car = newflonum((double)asFixnum(iv->cdr->cdr->car));
-                    iv->cdr->car = newflonum((double)fixer);
-                    return lose(1, iv);
-                } else
-                    return newfixnum(fixer);
-        }
+    } else if (status > NON_NUMERIC && '@' == c) {
+        c = scanChar(fin);
+        s << ' ';
+        c = scanNumber(s, fin, status);
+        double r, theta;
+        s >> r >> theta;
+        return newcomplex(r * cos(theta), r * sin(theta));
+    } else if (status > NON_NUMERIC && '/' == c) {
+        c = scanChar(fin);
+        s << ' ';
+        c = scanNumber(s, fin, status);
+        long num, den;
+        s >> num >> den;
+        return newrational(num, den);
     }
 
     if ('"' == c)
     {
-        c = getc(fin);
+        c = scanChar(fin);
         sexp r = newcell(STRING, save(readChunks(fin, "\"")));
-        (void)getc(fin);  // read the " again
+        (void)scanChar(fin);  // read the " again
         return lose(1, r);
+    }
+
+    if (FIXED == status)
+    {
+        long num; s >> num;
+        return newfixnum(num);
+    }
+
+    if (FLOATING == status)
+    {
+        double re; s >> re;
+        return newflonum(re);
     }
 
     return lose(2, intern(save(newcell(ATOM, save(readChunks(fin, "( )[,]\t\r\n"))))));
@@ -3433,7 +3404,7 @@ void intr_handler(int sig, siginfo_t *si, void *ctx)
 // do a traceback upon a segmentation violation
 void segv_handler(int sig, siginfo_t *si, void *ctx)
 {
-    putchar('\n');
+    std::cout << std::endl;
 #ifdef UNWIND
     unw_cursor_t cursor;
     unw_context_t context;
@@ -3458,8 +3429,11 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
             name = symbol;
         }
 
-        printf("#%2d 0x%p sp=0x%p %s + 0x%lx\n", ++n,
-                (void*)(ip), (void*)(sp), name, static_cast<uintptr_t>(off));
+        std::cout << ++n
+                  << " 0x" << std::hex << (void*)ip
+                  << " sp=0x" << (void*)sp << ' '
+                  << name << " + 0x" << static_cast<uintptr_t>(off)
+                  << std::dec << std::endl;
 
         if ( name != symbol )
           free(name);
@@ -3711,9 +3685,11 @@ int main(int argc, char **argv, char **envp)
     segv_action.sa_flags = SA_SIGINFO;
     segv_action.sa_sigaction = segv_handler;
 
+    //tracing = t;
+
     char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
-        printf("%s\n", s);
+        std::cout << s << std::endl;
 
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
@@ -3732,7 +3708,7 @@ int main(int argc, char **argv, char **envp)
 
     s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
-        printf("%s\n", s);
+        std::cout << s << std::endl;
 
     // read evaluate display ...
 
@@ -3742,13 +3718,13 @@ int main(int argc, char **argv, char **envp)
     {
         if (psp > protect)
             if ((long)(psp-protect) > 1)
-                printf("%ld items remain on protection stack\n", (long)(psp-protect));
+                std::cout << (long)(psp-protect) << " items remain on protection stack" << std::endl;
             else
-                printf("one item remains on protection stack\n");
+                std::cout << "one item remains on protection stack" << std::endl;
         total = 0;
         collected = 0;
-        printf("> ");
-        fflush(stdout);
+        std::cout << "> ";
+        std::cout.flush();
         sexp e = read(stdin, 0);
         if (eof == e)
             break;
@@ -3762,7 +3738,7 @@ int main(int argc, char **argv, char **envp)
             display(s, v, seenSet, ugly, false);
             fwrite(s.str().c_str(), 1, s.str().length(), stdout);
             if (voida != v)
-                putchar('\n');
+                std::cout << std::endl;
         }
     }
     return 0;

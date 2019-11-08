@@ -165,7 +165,7 @@
     (string=? "abc" (list->string (list #\a #\b #\c)))
     (string=? "abc" (string #\a #\b #\c))
     (string=? "abc" (string-copy "abc"))
-    (string=? "aBc" (string-set! "abc" 1 #\B ))
+    (string=? "aBc" (string-set! "abc" 1 #\B))
     (string=? "abc" (symbol->string 'abc))
     (string>=? "abd" "abc")
     (string>? "abd" "abc")
