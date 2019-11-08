@@ -20,6 +20,7 @@
 #include <cstring>
 #include <ctype.h>
 #include <errno.h>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <set>
@@ -96,7 +97,7 @@ struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp* e; };
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp apply(sexp fun, sexp args);
-sexp read(FILE* fin, int level);
+sexp read(std::istream& fin, int level);
 void debug(const char* label, sexp exp);
 
 /*
@@ -2134,10 +2135,11 @@ sexp load(sexp x)
 
     std::cout << ";; load: " << name << std::endl;
 
-    FILE* fin = fopen(name, "r");
-    if (fin)
+    std::ifstream fin(name, std::ifstream::in);
+
+    if (fin.good())
     {
-        while (!feof(fin))
+        while (fin.good())
         {
             sexp input = read(fin, 0);
             if (eof == input)
@@ -2146,7 +2148,7 @@ sexp load(sexp x)
                 debug("load", input);
             eval(input, global);
         }
-        fclose(fin);
+        fin.close();
         return t;
     }
     return 0;
@@ -2872,7 +2874,10 @@ sexp readf(sexp args)
     if (args)
         assertInPort(port = args->car);
     FILE* f = ((InPort*)port)->file;
-    return read(f, 0);
+    std::stringstream s;
+    s << "/proc/self/fd/" << fileno(((InPort*)port)->file);
+    std::ifstream fin(s.str(), std::ifstream::in);
+    return read(fin, 0);
 }
 
 /*
@@ -3084,7 +3089,7 @@ sexp eval(sexp p, sexp env)
 /*
  * read Chunks terminated by some character
  */
-sexp readChunks(FILE* fin, const char *ends)
+sexp readChunks(std::istream& fin, const char *ends)
 {
     sexp p = save(newcell());
     sexp q = p;
@@ -3094,18 +3099,18 @@ sexp readChunks(FILE* fin, const char *ends)
 
     for (int i = 0; ; )
     {
-        int c = getc(fin);
+        int c = fin.get();
 
         if (c < 0 || strchr(ends, c))
         {
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
-            ungetc(c, fin);
+            fin.unget();
             return lose(1, p);
         }
 
         if ('\\' == c)
-            c = decodeEscape(getc(fin));
+            c = decodeEscape(fin.get());
 
         r->text[i++] = c;
 
@@ -3121,19 +3126,19 @@ sexp readChunks(FILE* fin, const char *ends)
 }
 
 // ignore white space and comments
-char whitespace(FILE* fin, char c)
+char whitespace(std::istream& fin, char c)
 {
     if (c > 0)
     {
         while (0 <= c && strchr(" \t\r\n", c))
-            c = getc(fin);
+            c = fin.get();
 
         while (';' == c)
         {
             while (0 <= c && '\n' != c)
-                c = getc(fin);
+                c = fin.get();
             while (0 <= c && strchr(" \t\r\n", c))
-                c = getc(fin);
+                c = fin.get();
         }
     }
 
@@ -3143,40 +3148,40 @@ char whitespace(FILE* fin, char c)
 enum NumStatus { NON_NUMERIC, FIXED, FLOATING };
 
 // scan a number from fin, copy it to s, set status, return next character
-int scanNumber(std::stringstream& s, FILE* fin, NumStatus& status)
+int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
 {
-    char c = getc(fin);
+    int c = fin.get();
     status = NON_NUMERIC;
     while (isspace(c))
-        c = getc(fin);
+        c = fin.get();
     if ('-' == c)
-        { s.put(c); c = getc(fin); }
+        { s.put(c); c = fin.get(); }
     while (isdigit(c))
-        { status = FIXED; s.put(c); c = getc(fin); }
+        { status = FIXED; s.put(c); c = fin.get(); }
     if ('.' == c)
-        { status = FLOATING; s.put(c); c = getc(fin); }
+        { status = FLOATING; s.put(c); c = fin.get(); }
     while (isdigit(c))
-        { status = FLOATING; s.put(c); c = getc(fin); }
+        { status = FLOATING; s.put(c); c = fin.get(); }
     if (status > NON_NUMERIC && ('e' == c || 'E' == c))
     {
         status = NON_NUMERIC;
         s.put(c);
-        c = getc(fin);
+        c = fin.get();
         if ('-' == c) {
             s.put(c);
-            c = getc(fin);
+            c = fin.get();
         } else if ('+' == c) {
             s.put(c);
-            c = getc(fin);
+            c = fin.get();
         }
         while (isdigit(c))
         {
             status = FLOATING;
             s.put(c);
-            c = getc(fin);
+            c = fin.get();
         }
     }
-    ungetc(c, fin);
+    fin.unget();
 //  std::cerr << "scanNumber: " << s.str() << std::endl;
     return c;
 }
@@ -3184,15 +3189,15 @@ int scanNumber(std::stringstream& s, FILE* fin, NumStatus& status)
 /*
  * read an atom, number or string from the input stream
  */
-sexp scan(FILE* fin);
+sexp scan(std::istream& fin);
 
-sexp scans(FILE* fin)
+sexp scans(std::istream& fin)
 {
     sexp* mark = psp;
 
     std::stringstream s;
 
-    char c = whitespace(fin, getc(fin));
+    char c = whitespace(fin, fin.get());
 
     if (c < 0)
         return eof;
@@ -3206,22 +3211,22 @@ sexp scans(FILE* fin)
     case '`':  return tick;
     case '[':  return lbracket;
     case ']':  return rbracket;
-    case ',':  c = getc(fin);
+    case ',':  c = fin.get();
                if ('@' != c) {
-                    ungetc(c, fin);
+                    fin.unget();
                     return comma;
                } else
                     return commaat;
-    case '#':  c = getc(fin);
+    case '#':  c = fin.get();
                switch (c)
                {
                case 'f': return 0;
                case 't': return t;
                case '\\':
-                    c = getc(fin);
+                    c = fin.get();
                     while (0 <= c && !isspace(c) && ')' != c && ']' != c && ',' != c)
-                        { s.put(c); c = getc(fin); }
-                    ungetc(c, fin);
+                        { s.put(c); c = fin.get(); }
+                    fin.unget();
                     const char* buf = s.str().c_str();
                     for (int i = 0; character_table[i]; ++i)
                         if (!strcmp(buf, 1+character_table[i]))
@@ -3229,26 +3234,26 @@ sexp scans(FILE* fin)
                     return newcharacter(*buf);
                 }
     case '-':
-        c = getc(fin);
+        c = fin.get();
         if ('.' == c || isdigit(c))
             s.put('-');
         else
-            { ungetc(c, fin); return minus; } 
+            { fin.unget(); return minus; } 
     }
 
-    ungetc(c, fin);
+    fin.unget();
 
     NumStatus status;
     c = scanNumber(s, fin, status);
 
     if (status > NON_NUMERIC && '+' == c) {
-        c = getc(fin);
+        c = fin.get();
         s << ' ';
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
             double re, im;
-            c = getc(fin);
+            c = fin.get();
             s >> re >> im;
             return newcomplex(re, im);
         }
@@ -3258,20 +3263,20 @@ sexp scans(FILE* fin)
         if ('i' == c)
         {
             double re, im;
-            c = getc(fin);
+            c = fin.get();
             s >> re >> im;
             return newcomplex(re, im);
         }
     } else if (status > NON_NUMERIC && '@' == c) {
         double r, theta;
-        c = getc(fin);
+        c = fin.get();
         s << ' ';
         c = scanNumber(s, fin, status);
         s >> r >> theta;
         return newcomplex(r * cos(theta), r * sin(theta));
     } else if (status > NON_NUMERIC && '/' == c) {
         long num, den;
-        c = getc(fin);
+        c = fin.get();
         s << ' ';
         c = scanNumber(s, fin, status);
         s >> num >> den;
@@ -3280,9 +3285,9 @@ sexp scans(FILE* fin)
 
     if ('"' == c)
     {
-        c = getc(fin);
+        c = fin.get();
         sexp r = newcell(STRING, save(readChunks(fin, "\"")));
-        (void)getc(fin);  // read the " again
+        (void)fin.get();  // read the " again
         return lose(1, r);
     }
 
@@ -3302,7 +3307,7 @@ sexp scans(FILE* fin)
 }
 
 // stub to enable tracing of scans()
-sexp scan(FILE* fin)
+sexp scan(std::istream& fin)
 {
     sexp r = scans(fin);
     if (tracing)
@@ -3311,7 +3316,7 @@ sexp scan(FILE* fin)
 }
 
 // finish reading a list
-sexp readTail(FILE* fin, int level)
+sexp readTail(std::istream& fin, int level)
 {
     sexp q = read(fin, level);
     if (rparen == q)
@@ -3324,7 +3329,7 @@ sexp readTail(FILE* fin, int level)
 }
 
 // finish reading a vector
-sexp readVector(FILE* fin, int level)
+sexp readVector(std::istream& fin, int level)
 {
     sexp q = 0;
     sexp* mark = psp;
@@ -3349,7 +3354,7 @@ sexp readVector(FILE* fin, int level)
 /*
  * read an s-expression
  */
-sexp read(FILE* fin, int level)
+sexp read(std::istream& fin, int level)
 {
     sexp p = scan(fin);
     if (nil == p)
@@ -3712,7 +3717,7 @@ int main(int argc, char **argv, char **envp)
         collected = 0;
         std::cout << "> ";
         std::cout.flush();
-        sexp e = read(stdin, 0);
+        sexp e = read(std::cin, 0);
         if (eof == e)
             break;
         killed = 0;
