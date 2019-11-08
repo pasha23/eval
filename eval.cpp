@@ -302,7 +302,7 @@ void mark(sexp p)
     case ATOM:
     case STRING:
         mark(((Atom*)p)->chunks);
-    break;
+        break;
     case VECTOR:
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
@@ -2123,19 +2123,6 @@ sexp promisev(sexp p)
         error("promise not forced yet");
 }
 
-int scanChar(FILE* fin)
-{
-    char c = getc(fin);
-//  std::cerr << "scanChar: " << c << std::endl;
-    return c;
-}
-
-void unscanChar(char c, FILE* fin)
-{
-//  std::cerr << "unscanChar: " << c << std::endl;
-    ungetc(c, fin);
-}
-
 // load
 sexp load(sexp x)
 {
@@ -3107,18 +3094,18 @@ sexp readChunks(FILE* fin, const char *ends)
 
     for (int i = 0; ; )
     {
-        char c = scanChar(fin);
+        int c = getc(fin);
 
-        if (strchr(ends, c))
+        if (c < 0 || strchr(ends, c))
         {
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
-            unscanChar(c, fin);
+            ungetc(c, fin);
             return lose(1, p);
         }
 
         if ('\\' == c)
-            c = decodeEscape(scanChar(fin));
+            c = decodeEscape(getc(fin));
 
         r->text[i++] = c;
 
@@ -3138,15 +3125,15 @@ char whitespace(FILE* fin, char c)
 {
     if (c > 0)
     {
-        while (strchr(" \t\r\n", c))
-            c = scanChar(fin);
+        while (0 <= c && strchr(" \t\r\n", c))
+            c = getc(fin);
 
         while (';' == c)
         {
-            while ('\n' != c)
-                c = scanChar(fin);
-            while (strchr(" \t\r\n", c))
-                c = scanChar(fin);
+            while (0 <= c && '\n' != c)
+                c = getc(fin);
+            while (0 <= c && strchr(" \t\r\n", c))
+                c = getc(fin);
         }
     }
 
@@ -3158,38 +3145,38 @@ enum NumStatus { NON_NUMERIC, FIXED, FLOATING };
 // scan a number from fin, copy it to s, set status, return next character
 int scanNumber(std::stringstream& s, FILE* fin, NumStatus& status)
 {
-    char c = scanChar(fin);
+    char c = getc(fin);
     status = NON_NUMERIC;
     while (isspace(c))
-        c = scanChar(fin);
+        c = getc(fin);
     if ('-' == c)
-        { s.put(c); c = scanChar(fin); }
+        { s.put(c); c = getc(fin); }
     while (isdigit(c))
-        { status = FIXED; s.put(c); c = scanChar(fin); }
+        { status = FIXED; s.put(c); c = getc(fin); }
     if ('.' == c)
-        { status = FLOATING; s.put(c); c = scanChar(fin); }
+        { status = FLOATING; s.put(c); c = getc(fin); }
     while (isdigit(c))
-        { status = FLOATING; s.put(c); c = scanChar(fin); }
+        { status = FLOATING; s.put(c); c = getc(fin); }
     if (status > NON_NUMERIC && ('e' == c || 'E' == c))
     {
         status = NON_NUMERIC;
         s.put(c);
-        c = scanChar(fin);
+        c = getc(fin);
         if ('-' == c) {
             s.put(c);
-            c = scanChar(fin);
+            c = getc(fin);
         } else if ('+' == c) {
             s.put(c);
-            c = scanChar(fin);
+            c = getc(fin);
         }
         while (isdigit(c))
         {
             status = FLOATING;
             s.put(c);
-            c = scanChar(fin);
+            c = getc(fin);
         }
     }
-    unscanChar(c, fin);
+    ungetc(c, fin);
 //  std::cerr << "scanNumber: " << s.str() << std::endl;
     return c;
 }
@@ -3205,7 +3192,7 @@ sexp scans(FILE* fin)
 
     std::stringstream s;
 
-    char c = whitespace(fin, scanChar(fin));
+    char c = whitespace(fin, getc(fin));
 
     if (c < 0)
         return eof;
@@ -3219,22 +3206,22 @@ sexp scans(FILE* fin)
     case '`':  return tick;
     case '[':  return lbracket;
     case ']':  return rbracket;
-    case ',':  c = scanChar(fin);
+    case ',':  c = getc(fin);
                if ('@' != c) {
-                    unscanChar(c, fin);
+                    ungetc(c, fin);
                     return comma;
                } else
                     return commaat;
-    case '#':  c = scanChar(fin);
+    case '#':  c = getc(fin);
                switch (c)
                {
                case 'f': return 0;
                case 't': return t;
                case '\\':
-                    c = scanChar(fin);
-                    while (!isspace(c) && ')' != c && ']' != c && ',' != c)
-                        { s.put(c); c = scanChar(fin); }
-                    unscanChar(c, fin);
+                    c = getc(fin);
+                    while (0 <= c && !isspace(c) && ')' != c && ']' != c && ',' != c)
+                        { s.put(c); c = getc(fin); }
+                    ungetc(c, fin);
                     const char* buf = s.str().c_str();
                     for (int i = 0; character_table[i]; ++i)
                         if (!strcmp(buf, 1+character_table[i]))
@@ -3242,26 +3229,26 @@ sexp scans(FILE* fin)
                     return newcharacter(*buf);
                 }
     case '-':
-        c = scanChar(fin);
+        c = getc(fin);
         if ('.' == c || isdigit(c))
             s.put('-');
         else
-            { unscanChar(c, fin); return minus; } 
+            { ungetc(c, fin); return minus; } 
     }
 
-    unscanChar(c, fin);
+    ungetc(c, fin);
 
     NumStatus status;
     c = scanNumber(s, fin, status);
 
     if (status > NON_NUMERIC && '+' == c) {
-        c = scanChar(fin);
+        c = getc(fin);
         s << ' ';
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
             double re, im;
-            c = scanChar(fin);
+            c = getc(fin);
             s >> re >> im;
             return newcomplex(re, im);
         }
@@ -3271,20 +3258,20 @@ sexp scans(FILE* fin)
         if ('i' == c)
         {
             double re, im;
-            c = scanChar(fin);
+            c = getc(fin);
             s >> re >> im;
             return newcomplex(re, im);
         }
     } else if (status > NON_NUMERIC && '@' == c) {
         double r, theta;
-        c = scanChar(fin);
+        c = getc(fin);
         s << ' ';
         c = scanNumber(s, fin, status);
         s >> r >> theta;
         return newcomplex(r * cos(theta), r * sin(theta));
     } else if (status > NON_NUMERIC && '/' == c) {
         long num, den;
-        c = scanChar(fin);
+        c = getc(fin);
         s << ' ';
         c = scanNumber(s, fin, status);
         s >> num >> den;
@@ -3293,9 +3280,9 @@ sexp scans(FILE* fin)
 
     if ('"' == c)
     {
-        c = scanChar(fin);
+        c = getc(fin);
         sexp r = newcell(STRING, save(readChunks(fin, "\"")));
-        (void)scanChar(fin);  // read the " again
+        (void)getc(fin);  // read the " again
         return lose(1, r);
     }
 
