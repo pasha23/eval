@@ -54,18 +54,18 @@ enum Tag0
 
 enum Tag1
 {
-    ATOM    =  0,
-    STRING  =  1,
-    CHUNK   =  2,
-    FORM    =  3,
-    FIXNUM  =  4,
-    FUNCT   =  5,
-    FLOAT   =  6,
-    DOUBLE  =  7,
-    CHAR    =  8,
-    INPORT  =  9,
-    OUTPORT = 10,
-    VECTOR  = 11
+    ATOM    = 0x0001,
+    STRING  = 0x0101,
+    CHUNK   = 0x0201,
+    FORM    = 0x0301,
+    FIXNUM  = 0x0401,
+    FUNCT   = 0x0501,
+    FLOAT   = 0x0601,
+    DOUBLE  = 0x0701,
+    CHAR    = 0x0801,
+    INPORT  = 0x0901,
+    OUTPORT = 0x0A01,
+    VECTOR  = 0x0B01
 };
 
 typedef struct Cons *sexp;
@@ -79,7 +79,8 @@ typedef sexp (*Threeargp)(sexp, sexp, sexp);
  * setting up union declarations isn't all that fun but casts are ugly and error-prone.
  */
 struct Cons    { sexp                cdr; sexp                       car; };
-struct Other   { char                               tags[sizeof(Cons)-0]; };
+struct Tags    { char                                 tags[sizeof(Cons)]; };
+struct Stags   { short stags; char tags[sizeof(sexp)-2]; sexp        car; };
 struct Chunk   { char tags[2];            char      text[sizeof(Cons)-2]; };
 struct Atom    { char tags[sizeof(sexp)]; sexp                    chunks; };
 struct String  { char tags[sizeof(sexp)]; sexp                    chunks; };
@@ -124,24 +125,23 @@ std::stringstream& display(std::stringstream& s, sexp p, std::set<sexp>& seenSet
 
 sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda, lbracket;
 sexp lparen, minus, nil, promise, qchar, quasiquote, quote, rational, rbracket;
-sexp rparen, stderra, stdina, stdouta, t, tick, unquote, unquotesplicing, voida;
+sexp rparen, t, tick, unquote, unquotesplicing, voida;
 
-static inline int  evalType(const sexp p)  { return                 ((Other*)p)->tags[1]; }
-static inline int  arity(const sexp p)     { return                 ((Other*)p)->tags[2]; }
-static inline bool isMarked(const sexp p)  { return       (MARK  & ((Other*)p)->tags[0]); }
-static inline bool isCons(const sexp p)    { return p && !(OTHER & ((Other*)p)->tags[0]); }
-static inline bool isOther(const sexp p)   { return p &&  (OTHER & ((Other*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)    { return isOther(p) && ATOM    == evalType(p); }
-static inline bool isString(const sexp p)  { return isOther(p) && STRING  == evalType(p); }
-static inline bool isFunct(const sexp p)   { return isOther(p) && FUNCT   == evalType(p); }
-static inline bool isForm(const sexp p)    { return isOther(p) && FORM    == evalType(p); }
-static inline bool isFixnum(const sexp p)  { return isOther(p) && FIXNUM  == evalType(p); }
-static inline bool isFloat(const sexp p)   { return isOther(p) && FLOAT   == evalType(p); }
-static inline bool isDouble(const sexp p)  { return isOther(p) && DOUBLE  == evalType(p); }
-static inline bool isChar(const sexp p)    { return isOther(p) && CHAR    == evalType(p); }
-static inline bool isInPort(const sexp p)  { return isOther(p) && INPORT  == evalType(p); }
-static inline bool isOutPort(const sexp p) { return isOther(p) && OUTPORT == evalType(p); }
-static inline bool isVector(const sexp p)  { return isOther(p) && VECTOR  == evalType(p); }
+static inline int  shortType(const sexp p) { return                   ((Stags*)p)->stags; }
+static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
+static inline bool isMarked(const sexp p)  { return       (MARK  &  ((Tags*)p)->tags[0]); }
+static inline bool isCons(const sexp p)    { return p && !(OTHER &  ((Tags*)p)->tags[0]); }
+static inline bool isAtom(const sexp p)    { return p &&         ATOM    == shortType(p); }
+static inline bool isString(const sexp p)  { return p &&         STRING  == shortType(p); }
+static inline bool isFunct(const sexp p)   { return p &&         FUNCT   == shortType(p); }
+static inline bool isForm(const sexp p)    { return p &&         FORM    == shortType(p); }
+static inline bool isFixnum(const sexp p)  { return p &&         FIXNUM  == shortType(p); }
+static inline bool isFloat(const sexp p)   { return p &&         FLOAT   == shortType(p); }
+static inline bool isDouble(const sexp p)  { return p &&         DOUBLE  == shortType(p); }
+static inline bool isChar(const sexp p)    { return p &&         CHAR    == shortType(p); }
+static inline bool isInPort(const sexp p)  { return p &&         INPORT  == shortType(p); }
+static inline bool isOutPort(const sexp p) { return p &&         OUTPORT == shortType(p); }
+static inline bool isVector(const sexp p)  { return p &&         VECTOR  == shortType(p); }
 static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p);            }
 
 bool isClosure(sexp p)
@@ -249,13 +249,13 @@ sexp lose(sexp* mark, sexp p)
 
 static inline void markCell(sexp p)
 {
-    ((Other*)p)->tags[0] |=  MARK;
+    ((Tags*)p)->tags[0] |=  MARK;
     ++marked;
 }
 
 static inline void unmarkCell(sexp p)
 {
-    ((Other*)p)->tags[0] &= ~MARK;
+    ((Tags*)p)->tags[0] &= ~MARK;
     --marked;
 }
 
@@ -298,11 +298,12 @@ void mark(sexp p)
         return;
     }
 
-    switch (((Other*)p)->tags[1]) {
+    switch (((Stags*)p)->stags)
+    {
     case ATOM:
     case STRING:
-            mark(((Atom*)p)->chunks);
-        break;
+        mark(((Atom*)p)->chunks);
+    break;
     case VECTOR:
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
@@ -360,17 +361,16 @@ sexp gc(sexp args)
     {
         if (!isMarked(p))
         {
-            if (OTHER & ((Other*)p)->tags[0])
-                switch (((Other*)p)->tags[1]) {
-                case OUTPORT:
-                    deleteoutport(p);
-                    break;
-                case INPORT:
-                    deleteinport(p);
-                    break;
-                case VECTOR:
-                    deletevector(p);
-                }
+            switch (((Stags*)p)->stags) {
+            case OUTPORT:
+                deleteoutport(p);
+                break;
+            case INPORT:
+                deleteinport(p);
+                break;
+            case VECTOR:
+                deletevector(p);
+            }
             p->car = 0;
             p->cdr = freelist;
             freelist = p;
@@ -421,31 +421,19 @@ sexp newcell(void)
     return p;
 }
 
-sexp newatom(sexp chunks)
+sexp newcell(short stags, sexp car)
 {
-    save(chunks);
-    Atom* p = (Atom*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = ATOM;
-    p->chunks = chunks;
-    return lose(1, (sexp)p);
-}
-
-sexp newstring(sexp chunks)
-{
-    save(chunks);
-    String* p = (String*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = STRING;
-    p->chunks = chunks;
-    return lose(1, (sexp)p);
+    save(car);
+    Stags* t = (Stags*)newcell();
+    t->stags = stags;
+    t->car = car;
+    return lose(1, (sexp)t);
 }
 
 sexp newfixnum(long number)
 {
     Fixnum* p = (Fixnum*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = FIXNUM;
+    ((Stags*)p)->stags = FIXNUM;
     p->fixnum = number;
     return (sexp)p;
 }
@@ -453,8 +441,7 @@ sexp newfixnum(long number)
 sexp newcharacter(char c)
 {
     Char* p = (Char*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = CHAR;
+    ((Stags*)p)->stags = CHAR;
     p->ch = c;
     return (sexp)p;
 }
@@ -462,8 +449,7 @@ sexp newcharacter(char c)
 sexp newinport(char* name)
 {
     InPort* p = (InPort*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = INPORT;
+    ((Stags*)p)->stags = INPORT;
     p->avail = 0;
     p->peek = 0;
     p->file = fopen(name, "r");
@@ -473,8 +459,7 @@ sexp newinport(char* name)
 sexp newoutport(char* name)
 {
     OutPort* p = (OutPort*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = OUTPORT;
+    ((Stags*)p)->stags = OUTPORT;
     p->file = fopen(name, "w");
     return (sexp)p;
 }
@@ -483,14 +468,12 @@ sexp newflonum(double number)
 {
     if (sizeof(double) > sizeof(void*)) {
         Float* p = (Float*)newcell();
-        p->tags[0] = OTHER;
-        p->tags[1] = FLOAT;
+        ((Stags*)p)->stags = FLOAT;
         p->flonum = number;
         return (sexp)p;
     } else {
         Double* p = (Double*)newcell();
-        p->tags[0] = OTHER;
-        p->tags[1] = DOUBLE;
+        ((Stags*)p)->stags = DOUBLE;
         p->flonum = number;
         return (sexp)p;
     }
@@ -500,8 +483,7 @@ sexp define_form(sexp name, Formp f)
 {
     assert(name);
     Form* p = (Form*)save(newcell());
-    p->tags[0] = OTHER;
-    p->tags[1] = FORM;
+    ((Stags*)p)->stags = FORM;
     p->formp = f;
     define(name, (sexp)p);
     return lose(1, name);
@@ -511,8 +493,7 @@ sexp define_funct(sexp name, int arity, void* f)
 {
     assert(name);
     Funct* p = (Funct*)save(newcell());
-    p->tags[0] = OTHER;
-    p->tags[1] = FUNCT;
+    ((Stags*)p)->stags = FUNCT;
     p->tags[2] = arity;
     p->funcp = f;
     define(name, (sexp)p);
@@ -773,7 +754,13 @@ sexp angle(sexp z)
 
 long gcd(long x, long y)
 {
-    return y ? gcd(y, x % y) : x;
+    for (;;)
+    {
+        if (0 == x) return y;
+        y %= x;
+        if (0 == y) return x;
+        x %= y;
+    }
 }
 
 // gcd
@@ -1317,8 +1304,7 @@ sexp newchunk(const char *t)
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
-    r->tags[0] = OTHER;
-    r->tags[1] = CHUNK;
+    ((Stags*)r)->stags = CHUNK;
     q->car = (sexp) r;
 
     int i = 0;
@@ -1343,8 +1329,7 @@ sexp newchunk(const char *t)
             i = 0;
             q = q->cdr = newcell();
             r = (Chunk*) newcell();
-            r->tags[0] = OTHER;
-            r->tags[1] = CHUNK;
+            ((Stags*)r)->stags = CHUNK;
             q->car = (sexp) r;
         }
     }
@@ -1376,7 +1361,7 @@ sexp number2string(sexp exp)
     std::stringstream s;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     num2string(s, exp);
-    return lose(1, newstring(save(newchunk(s.str().c_str()))));
+    return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
 // make-string
@@ -1394,7 +1379,7 @@ sexp makestring(sexp args)
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
-    return lose(1, newstring(save(newchunk(b))));
+    return lose(1, newcell(STRING, save(newchunk(b))));
 }
 
 // copy characters from a String or Atom into a buffer
@@ -1423,7 +1408,7 @@ sexp stringcopyf(sexp s)
     assertString(s);
 
     int len = slen(s)+1;
-    return lose(1, newstring(save(newchunk(sstr((char*)alloca(len), len, s)))));
+    return lose(1, newcell(STRING, save(newchunk(sstr((char*)alloca(len), len, s)))));
 }
 
 // string-append
@@ -1440,7 +1425,7 @@ sexp stringappend(sexp p, sexp q)
     sstr(b, pl+1, p);
     sstr(b+pl, ql+1, q);
 
-    return lose(1, newstring(save(newchunk(b))));
+    return lose(1, newcell(STRING, save(newchunk(b))));
 }
 
 // string-fill
@@ -1558,8 +1543,7 @@ sexp vectorp(sexp v)
 sexp newvector(int len, sexp fill)
 {
     Vector* v = (Vector*) save(newcell());
-    v->tags[0] = OTHER;
-    v->tags[1] = VECTOR;
+    ((Stags*)v)->stags = VECTOR;
     v->l = len;
     v->e = new sexp[len];
     for (int i = v->l; --i >= 0; v->e[i] = fill) {}
@@ -1999,7 +1983,7 @@ sexp substringf(sexp s, sexp i, sexp j)
                 int n = k+m;
                 if (n == jj) {
                     b[n-ii] = 0;
-                    return lose(1, newstring(save(newchunk(b))));
+                    return lose(1, newcell(STRING, save(newchunk(b))));
                 } else if (ii <= n && n < jj)
                     b[n-ii] = t->text[m];
             }
@@ -2430,7 +2414,7 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
         return s;
     }
 
-    switch (((Other*)exp)->tags[1])
+    switch (((Stags*)exp)->stags)
     {
     default:      error("display: unknown object");
     case CHUNK:   s << "#<chunk>";                                          break;
@@ -2439,13 +2423,13 @@ std::stringstream& display(std::stringstream& s, sexp exp, std::set<sexp>& seenS
     case DOUBLE:  s << asFlonum(exp);                                       break;
     case STRING:  displayString(s, exp, write);                             break;
     case ATOM:    displayAtom(s, exp, write);                               break;
-    case VECTOR:  if (safe(seenSet, exp))
-                    displayVector(s, exp, seenSet, ugly, write);            break;
     case FUNCT:   displayFunction(s, exp, write);                           break;
     case FORM:    displayNamed(s, "form", exp, write);                      break;
     case INPORT:  s << "#<input@" << fileno(((InPort*)exp)->file) << '>';   break;
     case OUTPORT: s << "#<output@" << fileno(((OutPort*)exp)->file) << '>'; break;
     case CHAR:    displayChar(s, exp, write);                               break;
+    case VECTOR:  if (safe(seenSet, exp))
+                    displayVector(s, exp, seenSet, ugly, write);
     }
     return s;
 }
@@ -2480,10 +2464,10 @@ sexp intern(sexp p)
 }
 
 // string->symbol
-sexp str2sym(sexp x) { assertString(x); return intern(newatom(((String*)x)->chunks)); }
+sexp str2sym(sexp x) { assertString(x); return intern(newcell(ATOM, (((String*)x)->chunks))); }
 
 // symbol->string
-sexp sym2str(sexp x) { assertAtom(x); return newstring(((Atom*)x)->chunks); }
+sexp sym2str(sexp x) { assertAtom(x); return newcell(STRING, ((Atom*)x)->chunks); }
 
 // string->number
 sexp s2num(sexp s)
@@ -2535,14 +2519,13 @@ sexp s2list(sexp x)
 sexp list2s(sexp s)
 {
     if (!s)
-        return newstring(0);
+        return newcell(STRING, 0);
 
     save(s);
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
-    r->tags[0] = OTHER;
-    r->tags[1] = CHUNK;
+    ((Stags*)r)->stags = CHUNK;
     q->car = (sexp) r;
 
     int i = 0;
@@ -2557,8 +2540,7 @@ sexp list2s(sexp s)
             i = 0;
             q = q->cdr = newcell();
             r = (Chunk*) newcell();
-            r->tags[0] = OTHER;
-            r->tags[1] = CHUNK;
+            ((Stags*)r)->stags = CHUNK;
             q->car = (sexp) r;
         }
     }
@@ -2566,7 +2548,7 @@ sexp list2s(sexp s)
     while (i < sizeof(r->text))
         r->text[i++] = 0;
 
-    return lose(2, newstring(p));
+    return lose(2, newcell(STRING, p));
 }
 
 // string
@@ -2609,15 +2591,15 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
         seeny.insert(y);
         return eqvb(seenx, seeny, x->car, y->car) && eqvb(seenx, seeny, x->cdr, y->cdr);
     }
-    if (evalType(x) != evalType(y))
+    if (shortType(x) != shortType(y))
         return false;
-    switch (evalType(x)) 
+    switch (shortType(x)) 
     {
+    case FLOAT :
+    case DOUBLE: return asFlonum(x) == asFlonum(y);
     case CHUNK : return 0 == scmp(x, y);
     case STRING: return 0 == scmp(((String*)x)->chunks, ((String*)y)->chunks);
     case FIXNUM: return asFixnum(x) == asFixnum(y);
-    case FLOAT :
-    case DOUBLE: return asFlonum(x) == asFlonum(y);
     case VECTOR: return cmpv(seenx, seeny, x, y);
     case CHAR:   return ((Char*)x)->ch == ((Char*)y)->ch;
     default:     return 0;
@@ -3078,7 +3060,7 @@ sexp eval(sexp p, sexp env)
     if (tracing)
         debug("eval", p);
 
-    if (!p || f == p || t == p || isOther(p) && ATOM != evalType(p))
+    if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
         return p;
 
     if (isAtom(p))
@@ -3104,8 +3086,7 @@ sexp readChunks(FILE* fin, const char *ends)
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
-    r->tags[0] = OTHER;
-    r->tags[1] = CHUNK;
+    ((Stags*)r)->stags = CHUNK;
     q->car = (sexp) r;
 
     for (int i = 0; ; )
@@ -3130,8 +3111,7 @@ sexp readChunks(FILE* fin, const char *ends)
             i = 0;
             q = q->cdr = newcell();
             r = (Chunk*) newcell();
-            r->tags[0] = OTHER;
-            r->tags[1] = CHUNK;
+            ((Stags*)r)->stags = CHUNK;
             q->car = (sexp) r;
         }
     }
@@ -3157,18 +3137,6 @@ char whitespace(FILE* fin, char c)
     return c;
 }
 
-enum
-{
-    NON_NUMERIC,
-    INT_NUMERIC,
-    INT_RATIONAL,
-    FLO_NUMERIC,
-    FLO_RECTANGULAR,
-    INT_RECTANGULAR,
-    INT_POLAR,
-    FLO_POLAR
-};
-
 /*
  * read an atom, number or string from the input stream
  */
@@ -3176,6 +3144,8 @@ sexp scan(FILE* fin);
 
 sexp scans(FILE* fin)
 {
+    enum { NON_NUMERIC, INT_NUMERIC, INT_RATIONAL, FLO_NUMERIC, FLO_RECTANGULAR, INT_RECTANGULAR, INT_POLAR, FLO_POLAR };
+
     sexp* mark = psp;
     char buffer[256];
     char *p = buffer;
@@ -3365,12 +3335,12 @@ sexp scans(FILE* fin)
     if ('"' == c)
     {
         c = getc(fin);
-        sexp r = newstring(save(readChunks(fin, "\"")));
+        sexp r = newcell(STRING, save(readChunks(fin, "\"")));
         (void)getc(fin);  // read the " again
         return lose(1, r);
     }
 
-    return lose(2, intern(save(newatom(save(readChunks(fin, "( )[,]\t\r\n"))))));
+    return lose(2, intern(save(newcell(ATOM, save(readChunks(fin, "( )[,]\t\r\n"))))));
 }
 
 // stub to enable tracing of scans()
@@ -3448,7 +3418,7 @@ sexp read(FILE* fin, int level)
 // construct an atom and keep a unique copy
 sexp atomize(const char *s)
 {
-    return lose(2, intern(save(newatom(save(newchunk(s))))));
+    return lose(2, intern(save(newcell(ATOM, save(newchunk(s))))));
 }
 
 // the first interrupt will stop everything. the second will exit.
@@ -3501,7 +3471,7 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
 int main(int argc, char **argv, char **envp)
 {
     // allocate all the cells we will ever have
-    block = (sexp)malloc(MAX*sizeof(Cons));
+    block = (sexp)new Cons[MAX];
     for (int i = MAX; --i >= 0; )
     {
         block[i].car = 0;
@@ -3510,24 +3480,21 @@ int main(int argc, char **argv, char **envp)
     }
 
     // allocate the protection stack
-    psp = protect = (sexp*)malloc(PSIZE*sizeof(sexp));
+    psp = protect = (sexp*)new sexp[PSIZE];
 
     // allocate ports for stdin, stdout, stderr
     InPort* p = (InPort*)newcell();
-    p->tags[0] = OTHER;
-    p->tags[1] = INPORT;
+    ((Stags*)p)->stags = INPORT;
     p->file = stdin;
     inport = (sexp)p;
 
     OutPort* q = (OutPort*)newcell();
-    q->tags[0] = OTHER;
-    q->tags[1] = OUTPORT;
+    ((Stags*)q)->stags = OUTPORT;
     q->file = stdout;
     outport = (sexp)q;
 
     OutPort* r = (OutPort*)newcell();
-    r->tags[0] = OTHER;
-    r->tags[1] = OUTPORT;
+    ((Stags*)r)->stags = OUTPORT;
     r->file = stderr;
     errport = (sexp)r;
 
@@ -3557,9 +3524,9 @@ int main(int argc, char **argv, char **envp)
     unquotesplicing = atomize("unquote-splicing");
     voida           = atomize("");
 
-    define(stderra  = atomize("stderr"), errport);
-    define(stdina   = atomize("stdin"),  inport);
-    define(stdouta  = atomize("stdout"), outport);
+    define(atomize("stderr"), errport);
+    define(atomize("stdin"),  inport);
+    define(atomize("stdout"), outport);
 
     define_funct(atomize("string->symbol"), 1, (void*)str2sym);
     define_funct(atomize("acos"), 1, (void*)acosff);
@@ -3751,13 +3718,13 @@ int main(int argc, char **argv, char **envp)
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
 
-    load(newstring(newchunk("init.ss")));
+    load(newcell(STRING, newchunk("init.ss")));
 
     fixenvs(global);
 
     if (argc > 1)
     {
-        load(newstring(newchunk(argv[1])));
+        load(newcell(STRING, newchunk(argv[1])));
         return 0;
     }
 
