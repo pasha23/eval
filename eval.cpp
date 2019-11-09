@@ -1879,6 +1879,16 @@ void put(OutPort* port, int c)
         ((std::ofstream*)port->file)->put(c);
 }
 
+void write(OutPort* port, const char* s, int len)
+{
+    if ((void*)&std::cout == ((OutPort*)port)->file)
+        std::cout.write(s, len);
+    else if ((void*)&std::cerr == ((OutPort*)port)->file)
+        std::cerr.write(s, len);
+    else
+        ((std::ofstream*)(((OutPort*)port)->file))->write(s, len);
+}
+
 // write-char
 sexp writechar(sexp args)
 {
@@ -2190,12 +2200,7 @@ sexp displayf(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, false);
-    if ((void*)&std::cout == ((OutPort*)port)->file)
-        std::cout.write(s.str().c_str(), s.str().length());
-    else if ((void*)&std::cerr == ((OutPort*)port)->file)
-        std::cerr.write(s.str().c_str(), s.str().length());
-    else
-        ((std::ofstream*)(((OutPort*)port)->file))->write(s.str().c_str(), s.str().length());
+    write((OutPort*)port, s.str().c_str(), s.str().length());
     return voida;
 }
 
@@ -2209,12 +2214,7 @@ sexp writef(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, true);
-    if ((void*)&std::cout == ((OutPort*)port)->file)
-        std::cout.write(s.str().c_str(), s.str().length());
-    else if ((void*)&std::cerr == ((OutPort*)port)->file)
-        std::cerr.write(s.str().c_str(), s.str().length());
-    else
-        ((std::ofstream*)(((OutPort*)port)->file))->write(s.str().c_str(), s.str().length());
+    write((OutPort*)port, s.str().c_str(), s.str().length());
     return voida;
 }
 
@@ -2468,7 +2468,7 @@ void debug(const char *label, sexp exp)
     else
         display(s, exp, seenSet, ugly, true);
     s << '\n';
-    fwrite(s.str().c_str(), 1, s.str().length(), stdout);
+    std::cout.write(s.str().c_str(), s.str().length());
 }
 
 // every atom must be unique and saved in the atoms list
@@ -3757,7 +3757,7 @@ int main(int argc, char **argv, char **envp)
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             std::set<sexp> seenSet;
             display(s, v, seenSet, ugly, false);
-            fwrite(s.str().c_str(), 1, s.str().length(), stdout);
+            std::cout.write(s.str().c_str(), s.str().length());
             if (voida != v)
                 std::cout << std::endl;
         }
