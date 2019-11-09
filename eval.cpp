@@ -2475,29 +2475,14 @@ sexp str2sym(sexp x) { assertString(x); return intern(newcell(ATOM, (((String*)x
 sexp sym2str(sexp x) { assertAtom(x); return newcell(STRING, ((Atom*)x)->chunks); }
 
 // string->number
-sexp s2num(sexp s)
+sexp s2num(sexp exp)
 {
-    assertString(s);
-    char* b = (char*) alloca(slen(s)+1);
-    char *q = b;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
-    }
-    *q++ = 0;
-
-    double x, y; long z, w;
-    if (2 == sscanf(b, "%lf%lfi", &x, &y))
-        return newcomplex(x, y);
-    if (2 == sscanf(b, "%lf@%lf", &x, &y))
-        return newcomplex(x * cos(y), x * sin(y));
-    if (2 == sscanf(b, "%ld/%ld", &z, &w))
-        return rational_reduce(z, w);
-    if ((strchr(b, '.') || strchr(b, 'e') || strchr(b, 'E')) && (1 == sscanf(b, "%lf", &x)))
-        return newflonum(x);
-    if (1 == sscanf(b, "%ld", &z))
-        return newfixnum(z);
+    assertString(exp);
+    std::stringstream s;
+    displayChunks(s, ((String*)exp)->chunks, false, false);
+    sexp r = save(read(s, 0));
+    if (isFixnum(r) || isFlonum(r) || isRational(r) || isComplex(r))
+        return lose(1, r);
     error("string->number: not a number");
 }
 
