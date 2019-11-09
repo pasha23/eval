@@ -124,7 +124,7 @@
             (if (eqv? a (caar e))
                 (cdr e)
                 (cons (car e)
-                      (del-assq a (cdr e))))))
+                      (del-assv a (cdr e))))))
 
 (define (assoc a e)
         (if (null? e)
@@ -138,7 +138,7 @@
             e
             (if (equal? a (caar e))
                 (cdr e)
-                (cons (car e) (del-asoc a (cdr e))))))
+                (cons (car e) (del-assoc a (cdr e))))))
 
 (define (memq a e)
         (if (null? e)
@@ -242,6 +242,42 @@
     (cons 'complex (cons (* r (cos theta)) (cons (* r (sin theta)) #f))))
 
 (define (env-head l t) (if (eq? l t) #f (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
+
+(define (caddadr x) (car (cddadr x)))
+
+(define (cdddadr x) (cdr (cddadr x)))
+
+(define (cdadadr x) (cdr (cadadr x)))
+
+(define (definition name)
+        (let ((value (eval name (null-environment))))
+             (if (closure? value)
+                 (if (and (list? (cadadr value)) (cdadadr value))
+                     (list 'define (cons name (cadadr value))  (caddadr value))
+                     (list 'define (cadadr value) (caddadr value)))
+                 (list 'define name value))))
+
+(define (definitions e)
+        (if (null? e)
+            #f
+            (if (closure? (cdar e))
+                (cons (definition (caar e))
+                      (definitions (cdr e)))
+                (definitions (cdr e)))))
+
+(define (definitions) (for-each (lambda (x) (display (definition (car x))) (newline)) (null-environment)))
+
+(define (ttytest)
+        (while (not (eqv? #\return (peek-char)))
+               (write (read-char))
+               (newline))
+        (read-char))
+
+(define (fibs)
+    (let ((f '(1 1)))
+         (while (> (car f) 0)
+                (set! f (cons (+ (car f) (cadr f)) f)))
+         (cdr f)))
 
 (display (map car (interaction-environment))) (newline)
 

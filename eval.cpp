@@ -23,6 +23,8 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <istream>
+#include <ostream>
 #include <set>
 #include <sstream>
 #include <string>
@@ -43,6 +45,8 @@ int killed = 1;
  * if bit 0 is 0 it's a Cons
  * otherwise the type is in the second byte
  * if bit 1 is set then it's marked
+ *
+ * vectors are stored on the regular heap new / delete
  */
 enum Tag0
 {
@@ -77,26 +81,27 @@ typedef sexp (*Threeargp)(sexp, sexp, sexp);
 /*
  * setting up union declarations isn't all that fun but casts are ugly and error-prone.
  */
-struct Cons    { sexp                cdr; sexp                       car; };
-struct Tags    { char                                 tags[sizeof(Cons)]; };
-struct Stags   { short stags; char tags[sizeof(sexp)-2]; sexp        car; };
-struct Chunk   { char tags[2];            char      text[sizeof(Cons)-2]; };
-struct Atom    { char tags[sizeof(sexp)]; sexp                    chunks; };
-struct String  { char tags[sizeof(sexp)]; sexp                    chunks; };
-struct Fixnum  { char tags[sizeof(sexp)]; long                    fixnum; };
-struct Float   { char tags[sizeof(Cons)-sizeof(float)];  float    flonum; };
-struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double   flonum; };
-struct Funct   { char tags[sizeof(sexp)]; void*                    funcp; };
-struct Form    { char tags[sizeof(sexp)]; Formp                    formp; };
-struct Char    { char tags[sizeof(sexp)-sizeof(char)];   char         ch; };
-struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; FILE*  file; };
-struct OutPort { char tags[sizeof(sexp)]; FILE*                     file; };
-struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp* e; };
+struct Cons    { sexp                cdr; sexp                         car; };
+struct Tags    { char                                   tags[sizeof(Cons)]; };
+struct Stags   { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
+struct Chunk   { char tags[2];            char        text[sizeof(Cons)-2]; };
+struct Atom    { char tags[sizeof(sexp)]; sexp                      chunks; };
+struct String  { char tags[sizeof(sexp)]; sexp                      chunks; };
+struct Fixnum  { char tags[sizeof(sexp)]; long                      fixnum; };
+struct Float   { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
+struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
+struct Funct   { char tags[sizeof(sexp)]; void*                      funcp; };
+struct Form    { char tags[sizeof(sexp)]; Formp                      formp; };
+struct Char    { char tags[sizeof(sexp)-sizeof(char)];   char           ch; };
+struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; void*    file; };
+struct OutPort { char tags[sizeof(sexp)]; void*                       file; };
+struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
 sexp apply(sexp fun, sexp args);
 sexp read(std::istream& fin, int level);
+sexp scan(std::istream& fin);
 void debug(const char* label, sexp exp);
 
 /*
@@ -192,20 +197,21 @@ sexp complexp(sexp s) { return isComplex(s) ? t : 0; }
 
 jmp_buf the_jmpbuf;
 
-sexp tracing = 0;       // trace everything
-sexp atoms = 0;         // all atoms are linked in a list
-sexp block = 0;         // all the storage starts here
-sexp global = 0;        // this is the global symbol table (a list)
-sexp inport = 0;        // the current input port
-sexp errport = 0;       // the stderr port
-sexp outport = 0;       // the current output port
-sexp freelist = 0;      // available cells are linked in a list
-int  marked = 0;        // how many cells were marked during gc
-int  allocated = 0;     // how many cells have been allocated
-int  total = 0;         // total allocation across gc's
-int  collected = 0;     // how many gc's
-sexp *protect = 0;      // protection stack
-sexp *psp = 0;          // protection stack pointer
+bool collecting = false;	// collecting garbage now
+sexp tracing = 0;       	// trace everything
+sexp atoms = 0;         	// all atoms are linked in a list
+sexp block = 0;         	// all the storage starts here
+sexp global = 0;        	// this is the global symbol table (a list)
+sexp inport = 0;        	// the current input port
+sexp errport = 0;       	// the stderr port
+sexp outport = 0;       	// the current output port
+sexp freelist = 0;      	// available cells are linked in a list
+int  marked = 0;        	// how many cells were marked during gc
+int  allocated = 0;     	// how many cells have been allocated
+int  total = 0;         	// total allocation across gc's
+int  collected = 0;     	// how many gc's
+sexp *protect = 0;      	// protection stack
+sexp *psp = 0;          	// protection stack pointer
 
 /*
  * save the argument on the protection stack, return it
@@ -315,22 +321,18 @@ void mark(sexp p)
 
 void deleteinport(sexp v)
 {
-    FILE* f = ((InPort*)v)->file;
-    if (f)
-    {
-        ((InPort*)v)->file = 0;
-        fclose(f);
-    }
+    void* f = ((InPort*)v)->file;
+    ((InPort*)v)->file = 0;
+    if (f != (void*)&std::cin)
+        delete ((std::ifstream*)f);
 }
 
 void deleteoutport(sexp v)
 {
-    FILE* f = ((OutPort*)v)->file;
-    if (f)
-    {
-        ((OutPort*)v)->file = 0;
-        fclose(f);
-    }
+    void* f = ((OutPort*)v)->file;
+    ((OutPort*)v)->file = 0;
+    if (f != (void*)&std::cin && f != (void*)&std::cout)
+        delete ((std::ofstream*)f);
 }
 
 void deletevector(sexp v) { delete ((Vector*)v)->e; }
@@ -342,6 +344,7 @@ void deletevector(sexp v) { delete ((Vector*)v)->e; }
  */
 sexp gc(sexp args)
 {
+    collecting = true;
     bool verbose = isCons(args) && args->car;
     int werefree = MAX-allocated;
     int wereprot = psp-protect;
@@ -394,6 +397,7 @@ sexp gc(sexp args)
     ++collected;
     if (!freelist)
         error("error: storage exhausted");
+    collecting = false;
     return voida;
 }
 
@@ -458,7 +462,7 @@ sexp newinport(char* name)
     ((Stags*)p)->stags = INPORT;
     p->avail = 0;
     p->peek = 0;
-    p->file = fopen(name, "r");
+    p->file = new std::ifstream(name, std::ifstream::ios_base::in);
     return (sexp)p;
 }
 
@@ -466,7 +470,7 @@ sexp newoutport(char* name)
 {
     OutPort* p = (OutPort*)newcell();
     ((Stags*)p)->stags = OUTPORT;
-    p->file = fopen(name, "w");
+    p->file = new std::ofstream(name, std::ofstream::ios_base::out);
     return (sexp)p;
 }
 
@@ -1200,7 +1204,7 @@ sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : 0; }
 sexp i2ef(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
 
 // exact->inexact
-sexp e2if(sexp x) { assertFixnum(x); return newflonum((double)asFixnum(x)); }
+sexp e2if(sexp x) { assertFlonum(x); return newflonum((double)asFlonum(x)); }
 
 // <<
 sexp lsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) << asFixnum(y)); }
@@ -1337,32 +1341,14 @@ sexp newchunk(const char *t)
     }
 }
 
-std::ostream& num2string(std::ostream& s, sexp exp)
-{
-    if (isFixnum(exp))
-        s << asFixnum(exp);
-    else if (isFlonum(exp))
-        s << asFlonum(exp);
-    else if (isRational(exp))
-        s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
-    else if (isComplex(exp)) {
-        s << asFlonum(exp->cdr->car);
-        double im = asFlonum(exp->cdr->cdr->car);
-        if (im > 0.0)
-            s << '+' << im << 'i';
-        else if (im < 0.0)
-            s << im << 'i';
-    } else
-        error("number->string: not a number");
-    return s;
-}
-
-// number->string
+// number->string (actually we will convert arbitrary s-expressions)
 sexp number2string(sexp exp)
 {
     std::stringstream s;
+    ugly ugly(s);
+    std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    num2string(s, exp);
+    display(s, exp, seenSet, ugly, true);
     return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
@@ -1451,8 +1437,7 @@ sexp clinport(sexp p)
     assertInPort(p);
     if (inport == p)
         inport = 0;
-    fclose(((InPort*)p)->file);
-    ((InPort*)p)->file = 0;
+    deleteinport(p);
 }
 
 // close-output-port
@@ -1461,8 +1446,7 @@ sexp cloutport(sexp p)
     assertOutPort(p);
     if (outport == p)
         outport = 0;
-    fclose(((OutPort*)p)->file);
-    ((OutPort*)p)->file = 0;
+    deleteoutport(p);
 }
 
 // current-input-port
@@ -1791,7 +1775,7 @@ sexp readyp(sexp args)
 
     struct termios original;
 
-    if (0 == tcgetattr(fileno(inPort->file), &original))
+    if ((void*) &std::cin == inPort->file && 0 == tcgetattr(0, &original))
     {
         struct termios working;
 
@@ -1800,10 +1784,10 @@ sexp readyp(sexp args)
 
         setTermios(&original, &working, 0);
 
-        if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
+        if (0 == tcsetattr(0, TCSANOW, &working))
         {
-            inPort->avail = read(fileno(stdin), &inPort->peek, 1) > 0;
-            tcsetattr(fileno(stdin), TCSANOW, &original);
+            inPort->avail = read(0, &inPort->peek, 1) > 0;
+            tcsetattr(0, TCSANOW, &original);
         }
         return inPort->avail ? t : 0;
     } else
@@ -1821,26 +1805,30 @@ sexp readchar(sexp args)
 
     struct termios original;
 
-    if (0 == tcgetattr(fileno(stdin), &original))
+    if ((void*) &std::cin == inPort->file)
     {
-        if (inPort->avail)
+        if (0 == tcgetattr(0, &original))
         {
-            inPort->avail = false;
+            if (inPort->avail)
+            {
+                inPort->avail = false;
+                return newcharacter(inPort->peek);
+            }
+
+            struct termios working;
+
+            setTermios(&original, &working, 1);
+
+            if (0 == tcsetattr(0, TCSANOW, &working))
+            {
+                while (0 == read(0, &inPort->peek, 1)) {}
+                tcsetattr(0, TCSANOW, &original);
+            }
             return newcharacter(inPort->peek);
         }
-
-        struct termios working;
-
-        setTermios(&original, &working, 1);
-
-        if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
-        {
-            while (0 == read(fileno(stdin), &inPort->peek, 1)) {}
-            tcsetattr(fileno(stdin), TCSANOW, &original);
-        }
-        return newcharacter(inPort->peek);
+        return newcharacter(std::cin.get());
     }
-    return newcharacter(getc(inPort->file));
+    return newcharacter(((std::ifstream*)(inPort->file))->get());
 }
 
 // peek-char
@@ -1854,27 +1842,41 @@ sexp peekchar(sexp args)
 
     struct termios original;
 
-    if (0 == tcgetattr(fileno(stdin), &original))
+    if ((void*) &std::cin == inPort->file)
     {
-        if (inPort->avail)
-            return newcharacter(inPort->peek);
-
-        struct termios working;
-
-        setTermios(&original, &working, 1);
-
-        if (0 == tcsetattr(fileno(stdin), TCSANOW, &working))
+        if (0 == tcgetattr(0, &original))
         {
-            while (0 == read(fileno(stdin), &inPort->peek, 1)) {}
-            inPort->avail = true;
-            tcsetattr(fileno(stdin), TCSANOW, &original);
+            if (inPort->avail)
+                return newcharacter(inPort->peek);
+
+            struct termios working;
+
+            setTermios(&original, &working, 1);
+
+            if (0 == tcsetattr(0, TCSANOW, &working))
+            {
+                while (0 == read(0, &inPort->peek, 1)) {}
+                inPort->avail = true;
+                tcsetattr(0, TCSANOW, &original);
+            }
+            return newcharacter(inPort->peek);
         }
-        return newcharacter(inPort->peek);
+        return newcharacter(std::cin.get());
     }
 
-    int c = getc(inPort->file);
-    ungetc(c, inPort->file);
+    int c = ((std::ifstream*)(inPort->file))->get();
+    ((std::ifstream*)(inPort->file))->unget();
     return newcharacter(c);
+}
+
+void put(OutPort* port, int c)
+{
+    if ((void*)&std::cout == port->file)
+        std::cout.put(c);
+    else if ((void*)&std::cerr == port->file)
+        std::cerr.put(c);
+    else
+        ((std::ofstream*)port->file)->put(c);
 }
 
 // write-char
@@ -1887,7 +1889,9 @@ sexp writechar(sexp args)
         if (args->cdr)
             assertOutPort(port = args->cdr->car);
     }
-    fputc(((Char*)(args->car))->ch, ((OutPort*)port)->file);
+
+    put(((OutPort*)port), ((Char*)(args->car))->ch);
+
     return voida;
 }
 
@@ -2157,7 +2161,7 @@ sexp spacef(sexp args)
 {
     sexp port = args ? args->car : outport;
     assertOutPort(port);
-    fputc(' ', (((OutPort*)port)->file));
+    put ((OutPort*)port, ' ');
     return voida;
 }
 
@@ -2166,7 +2170,7 @@ sexp newlinef(sexp args)
 {
     sexp port = args ? args->car : outport;
     assertOutPort(port);
-    fputc('\n', (((OutPort*)port)->file));
+    put ((OutPort*)port, '\n');
     return voida;
 }
 
@@ -2186,7 +2190,12 @@ sexp displayf(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, false);
-    fwrite(s.str().c_str(), 1, s.str().length(), ((OutPort*)port)->file);
+    if ((void*)&std::cout == ((OutPort*)port)->file)
+        std::cout.write(s.str().c_str(), s.str().length());
+    else if ((void*)&std::cerr == ((OutPort*)port)->file)
+        std::cerr.write(s.str().c_str(), s.str().length());
+    else
+        ((std::ofstream*)(((OutPort*)port)->file))->write(s.str().c_str(), s.str().length());
     return voida;
 }
 
@@ -2200,7 +2209,12 @@ sexp writef(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, true);
-    fwrite(s.str().c_str(), 1, s.str().length(), ((OutPort*)port)->file);
+    if ((void*)&std::cout == ((OutPort*)port)->file)
+        std::cout.write(s.str().c_str(), s.str().length());
+    else if ((void*)&std::cerr == ((OutPort*)port)->file)
+        std::cerr.write(s.str().c_str(), s.str().length());
+    else
+        ((std::ofstream*)(((OutPort*)port)->file))->write(s.str().c_str(), s.str().length());
     return voida;
 }
 
@@ -2282,7 +2296,9 @@ std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ug
                 if (safe(seenSet, exp->cdr))
                 {
                     exp = exp->cdr;
-                    if (isCons(exp->car) || isVector(exp->car))
+                    if (write)
+                        s << ' ';
+                    else if (isCons(exp->car) || isVector(exp->car))
                         ugly.wrapmajor();
                     else
                         ugly.wrapminor();
@@ -2313,7 +2329,9 @@ std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ug
         if (i < vv->l-1)
         {
             s << ",";
-            if (isCons(vv->e[i]) || isVector(vv->e[i]))
+            if (write)
+                s << ' ';
+            else if (isCons(vv->e[i]) || isVector(vv->e[i]))
                 ugly.wrapmajor();
             else
                 ugly.wrapminor();
@@ -2428,8 +2446,8 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
     case ATOM:    displayAtom(s, exp, write);                               break;
     case FUNCT:   displayFunction(s, exp, write);                           break;
     case FORM:    displayNamed(s, "form", exp, write);                      break;
-    case INPORT:  s << "#<input@" << fileno(((InPort*)exp)->file) << '>';   break;
-    case OUTPORT: s << "#<output@" << fileno(((OutPort*)exp)->file) << '>'; break;
+    case INPORT:  displayNamed(s, "input", exp, write);                     break;
+    case OUTPORT: displayNamed(s, "output", exp, write);                    break;
     case CHAR:    displayChar(s, exp, write);                               break;
     case VECTOR:  if (safe(seenSet, exp))
                     displayVector(s, exp, seenSet, ugly, write);
@@ -2627,6 +2645,20 @@ sexp define(sexp p, sexp r)
         }
     global = cons(save(cons(p, r)), global);
     return lose(1, voida);
+}
+
+sexp undefine(sexp p)
+{
+    if (p == global->car->car)
+        global = global->cdr;
+    else
+        for (sexp q = global; q; q = q->cdr)
+            if (q->cdr && p == q->cdr->car)
+            {
+                q->cdr = q->cdr->cdr;
+                break;
+            }
+    return voida;
 }
 
 static char errorBuffer[128];   // used by get and set
@@ -2845,11 +2877,22 @@ sexp readf(sexp args)
     sexp port = inport;
     if (args)
         assertInPort(port = args->car);
-    FILE* f = ((InPort*)port)->file;
-    std::stringstream s;
-    s << "/proc/self/fd/" << fileno(((InPort*)port)->file);
-    std::ifstream fin(s.str(), std::ifstream::in);
-    return read(fin, 0);
+    if ((void*)&std::cin == ((InPort*)port)->file)
+        return read(std::cin, 0);
+    else
+        return read(*(std::ifstream*)((InPort*)port)->file, 0);
+}
+
+// scan
+sexp scanff(sexp args)
+{
+    sexp port = inport;
+    if (args)
+        assertInPort(port = args->car);
+    if ((void*)&std::cin == ((InPort*)port)->file)
+        return scan(std::cin);
+    else
+        return scan(*(std::ifstream*)((InPort*)port)->file);
 }
 
 /*
@@ -2889,7 +2932,7 @@ sexp letform(sexp exp, sexp env)
         e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     sexp r = save(voida);
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = replace(eval(p->car, e));
+        r = save(eval(p->car, e));
     return lose(mark, r);
 }
 
@@ -3331,8 +3374,6 @@ sexp read(std::istream& fin, int level)
     sexp p = scan(fin);
     if (nil == p)
         return 0;
-    if (eof == p)
-        return p;
     if (lparen == p)
         return readTail(fin, level+1);
     if (lbracket == p)
@@ -3361,7 +3402,9 @@ void intr_handler(int sig, siginfo_t *si, void *ctx)
 {
     if (killed++)
         exit(0);
-    if (SIGINT == sig)
+    if (collecting)
+        std::cout << "collecting now" << std::endl;
+    else if (SIGINT == sig)
         error("SIGINT");
 }
 
@@ -3423,17 +3466,17 @@ int main(int argc, char **argv, char **envp)
     // allocate ports for stdin, stdout, stderr
     InPort* p = (InPort*)newcell();
     ((Stags*)p)->stags = INPORT;
-    p->file = stdin;
+    p->file = (void*) &std::cin;
     inport = (sexp)p;
 
     OutPort* q = (OutPort*)newcell();
     ((Stags*)q)->stags = OUTPORT;
-    q->file = stdout;
+    q->file = (void*) &std::cout;
     outport = (sexp)q;
 
     OutPort* r = (OutPort*)newcell();
     ((Stags*)r)->stags = OUTPORT;
-    r->file = stderr;
+    r->file = (void*) &std::cerr;
     errport = (sexp)r;
 
     closure         = atomize("closure");
@@ -3466,6 +3509,20 @@ int main(int argc, char **argv, char **envp)
     define(atomize("stdin"),  inport);
     define(atomize("stdout"), outport);
 
+    // metasyntax
+    define(atomize("comma"),    comma);
+    define(atomize("commaat"),  commaat);
+    define(atomize("dot"),      dot);
+    define(atomize("lbracket"), lbracket);
+    define(atomize("lparen"),   lparen);
+    define(atomize("qchar"),    qchar);
+    define(atomize("rbracket"), rbracket);
+    define(atomize("rparen"),   rparen);
+    define(atomize("tick"),     tick);
+    define(atomize("void"),     voida);
+
+    define_funct(atomize("undefine"), 1, (void*)undefine);
+    define_funct(atomize("scan"),     0, (void*)scanff);
     define_funct(atomize("string->symbol"), 1, (void*)str2sym);
     define_funct(atomize("acos"), 1, (void*)acosff);
     define_funct(atomize("atom?"), 1, (void*)atomp);
