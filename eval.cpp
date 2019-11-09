@@ -29,13 +29,12 @@
 #include <termios.h>
 #include <unistd.h>
 
-bool killed = true;
+int killed = 1;
 
 #ifdef BROKEN
 #define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
 #else
-#define error(s) do { if (killed) { std::cout << s << std::endl; assert(false); }\
-                      psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
+#define error(s) do { psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
 /*
@@ -276,10 +275,12 @@ void markCons(sexp p, std::set<sexp>& seenSet)
         markCons(p->car, seenSet);
     else
         mark(p->car);
+
     if (isCons(p->cdr))
         markCons(p->cdr, seenSet);
     else
         mark(p->cdr);
+
     markCell(p);
 }
 
@@ -308,6 +309,7 @@ void mark(sexp p)
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
     }
+
     markCell(p);
 }
 
@@ -381,11 +383,11 @@ sexp gc(sexp args)
 
     if (verbose)
         std::cout << "gc: allocated: " << allocated
-                  << " protected: " << wereprot
-                  << " marked: " << weremark
-                  << " reclaimed: " << reclaimed
-                  << " collections: " << collected
-                  << " allocation: " << total << std::endl;
+                  << " protected: "    << wereprot
+                  << " marked: "       << weremark
+                  << " reclaimed: "    << reclaimed
+                  << " collections: "  << collected
+                  << " allocation: "   << total << std::endl;
 
     allocated -= reclaimed-werefree;
     total += allocated;
@@ -552,8 +554,6 @@ sexp setcdrf(sexp p, sexp q)
 // and
 sexp andform(sexp p, sexp env)
 {
-    save(p);
-    save(env);
     sexp q = t;
     while (p = p->cdr)
     {
@@ -561,14 +561,12 @@ sexp andform(sexp p, sexp env)
         if (!q)
             break;
     }
-    return lose(2, q);
+    return q;
 }
 
 // or
 sexp orform(sexp p, sexp env)
 {
-    save(p);
-    save(env);
     sexp q = 0;
     while (p = p->cdr)
     {
@@ -576,7 +574,7 @@ sexp orform(sexp p, sexp env)
         if (q)
             break;
     }
-    return lose(2, q);
+    return q;
 }
 
 // trace
@@ -723,12 +721,12 @@ sexp gt(sexp x, sexp y)
 
 sexp newrational(long n, long d)
 {
-    return lose(4, cons(rational, save(cons(save(newfixnum(n)), save(cons(save(newfixnum(d)), 0))))));
+    return lose(2, cons(rational, replace(cons(save(newfixnum(n)), replace(cons(save(newfixnum(d)), 0))))));
 }
 
 sexp newcomplex(double re, double im)
 {
-    return lose(4, cons(complex, save(cons(save(newflonum(re)), save(cons(save(newflonum(im)), 0))))));
+    return lose(2, cons(complex, replace(cons(save(newflonum(re)), replace(cons(save(newflonum(im)), 0))))));
 }
 
 double realpart(sexp x)
@@ -958,7 +956,7 @@ sexp unisub(sexp l)
         return newfixnum(0);
     if (!l->cdr)
         return negf(l->car);
-    return lose(2, uniadd(cons(l->car, save(cons(negf(save(uniadd(l->cdr))), 0)))));
+    return lose(2, uniadd(save(cons(l->car, replace(cons(negf(save(uniadd(l->cdr))), 0))))));
 }
 
 // *
@@ -2084,10 +2082,10 @@ sexp xorf(sexp args)
 // delay
 sexp delayform(sexp exp, sexp env)
 {
-    return lose(4, cons(promise,
-                        save(cons(0,
-                        save(cons(0,
-                        save(cons(exp->cdr->car,
+    return lose(1, cons(promise,
+                        replace(cons(0,
+                        replace(cons(0,
+                        replace(cons(exp->cdr->car,
                         save(cons(env, 0))))))))));
 }
 
@@ -2474,16 +2472,13 @@ sexp str2sym(sexp x) { assertString(x); return intern(newcell(ATOM, (((String*)x
 // symbol->string
 sexp sym2str(sexp x) { assertAtom(x); return newcell(STRING, ((Atom*)x)->chunks); }
 
-// string->number
+// string->number (actually we will convert arbitrary s-expressions)
 sexp s2num(sexp exp)
 {
-    assertString(exp);
     std::stringstream s;
     displayChunks(s, ((String*)exp)->chunks, false, false);
     sexp r = save(read(s, 0));
-    if (isFixnum(r) || isFlonum(r) || isRational(r) || isComplex(r))
-        return lose(1, r);
-    error("string->number: not a number");
+    return lose(1, r);
 }
 
 // symbol->list
@@ -2630,8 +2625,8 @@ sexp define(sexp p, sexp r)
             q->car->cdr = r;
             return voida;
         }
-    global = cons(save(cons(save(p), save(r))), global);
-    return lose(3, voida);
+    global = cons(save(cons(p, r)), global);
+    return lose(1, voida);
 }
 
 static char errorBuffer[128];   // used by get and set
@@ -2712,23 +2707,21 @@ sexp intenvform(sexp exp, sexp env)
 // begin
 sexp beginform(sexp exp, sexp env)
 {
-    save(env);
     sexp v = 0;
-    for (sexp p = save(exp)->cdr; p; p = p->cdr)
+    for (sexp p = exp->cdr; p; p = p->cdr)
         v = eval(p->car, env);
-    return lose(2, v);
+    return v;
 }
 
 // while
 sexp whileform(sexp exp, sexp env)
 {
-    save(env);
     sexp v = 0;
-    exp = save(exp)->cdr;
+    exp = exp->cdr;
     while (eval(exp->car, env))
         for (sexp p = exp->cdr; p; p = p->cdr)
             v = eval(p->car, env);
-    return lose(2, v);
+    return v;
 }
 
 /*
@@ -2741,20 +2734,16 @@ sexp whileform(sexp exp, sexp env)
  */
 sexp condform(sexp exp, sexp env)
 {
-    save(env);
-    sexp r = 0;
-    for (sexp p = save(exp)->cdr; p; p = p->cdr)
-        if (elsea == p->car->car || eval(p->car->car, env)) {
-            r = eval(p->car->cdr->car, env);
-            break;
-        }
-    return lose(2, r);
+    for (sexp p = exp->cdr; p; p = p->cdr)
+        if (elsea == p->car->car || eval(p->car->car, env))
+            return eval(p->car->cdr->car, env);
+    return voida;
 }
 
 // lambda creates a closure
 sexp lambdaform(sexp exp, sexp env)
 {
-    return lose(4, cons(closure, save(cons(save(exp), save(cons(save(env), 0))))));
+    return lose(1, cons(closure, replace(cons(exp, save(cons(env, 0))))));
 }
 
 /*
@@ -2774,9 +2763,8 @@ sexp defineform(sexp p, sexp env)
     {
         if (isCons(p->cdr->car->cdr))
         {
-            save(env);
             sexp k = p->cdr->car->car;
-            sexp v = save(cons(lambda, save(cons(p->cdr->car->cdr, save(p)->cdr->cdr))));
+            sexp v = replace(cons(lambda, save(cons(p->cdr->car->cdr, p->cdr->cdr))));
             // v is the transformed definition (lambda (x) ...)
             v = save(lambdaform(v, env));
             // v is a closure (closure exp env)
@@ -2790,9 +2778,8 @@ sexp defineform(sexp p, sexp env)
             global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
             return lose(mark, voida);
         } else {
-            save(env);
             sexp k = p->cdr->car->car;
-            sexp v = save(cons(lambda, save(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), save(p)->cdr->cdr))));
+            sexp v = replace(cons(lambda, replace(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), p->cdr->cdr))));
             // v is the transformed definition (lambda (mycar . x) ...)
             v = save(lambdaform(v, env));
             // v is a closure (closure exp env)
@@ -2810,10 +2797,10 @@ sexp defineform(sexp p, sexp env)
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
             {
-                q->car->cdr = eval(save(p)->cdr->cdr->car, save(env));
+                q->car->cdr = eval(p->cdr->cdr->car, env);
                 return lose(mark, voida);
             }
-        global = cons(save(cons(p->cdr->car, save(eval(save(p)->cdr->cdr->car, save(env))))), global);
+        global = cons(replace(cons(p->cdr->car, save(eval(p->cdr->cdr->car, env)))), global);
         return lose(mark, voida);
     }
 }
@@ -2837,13 +2824,13 @@ sexp unquoteform(sexp exp, sexp env)
     if (!exp || !isCons(exp))
         return exp;
     else if (unquote == exp->car && isCons(exp->cdr))
-        return lose(mark, eval(save(exp)->cdr->car, save(env)));
+        return eval(exp->cdr->car, env);
     else if (exp->car && unquotesplicing == exp->car->car)
-        return lose(mark, save(append(save(eval(exp->car->cdr->car, env)),
-                                      save(unquoteform(save(exp)->cdr, save(env))))));
+        return lose(mark, replace(append(save(eval(exp->car->cdr->car, env)),
+                                         save(unquoteform(exp->cdr, env)))));
     else
         return lose(mark, cons(save(unquoteform(exp->car, env)),
-                               save(unquoteform(save(exp)->cdr, save(env)))));
+                               save(unquoteform(exp->cdr, env))));
 }
 
 // quasiquote
@@ -2878,11 +2865,11 @@ sexp ifform(sexp exp, sexp env)
         error("if: missing predicate");
     if (!exp->cdr->cdr)
         error("if: missing consequent");
+    if (eval(exp->cdr->car, env))
+        return eval(exp->cdr->cdr->car, env);
     if (exp->cdr->cdr->cdr)
-        return lose(2, eval(save(exp)->cdr->car, save(env)) ?
-                              eval(exp->cdr->cdr->car, env) : eval(exp->cdr->cdr->cdr->car, env));
-    else
-        return lose(2, eval(save(exp)->cdr->car, save(env)) ? eval(exp->cdr->cdr->car, env) : voida);
+        return eval(exp->cdr->cdr->cdr->car, env);
+    return voida;
 }
 
 /*
@@ -2890,47 +2877,47 @@ sexp ifform(sexp exp, sexp env)
  */
 sexp setform(sexp exp, sexp env)
 {
-    return lose(3, set(exp->cdr->car, save(eval(save(exp)->cdr->cdr->car, env)), save(env)));
+    return lose(1, set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
 }
 
 // (let ((var val) (var val) ..) body )
 sexp letform(sexp exp, sexp env)
 {
-    sexp r;
     sexp* mark = psp;
-    sexp e = save(env);
-    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
+    sexp e = env;
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
+    sexp r = save(voida);
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = save(eval(p->car, e));
+        r = replace(eval(p->car, e));
     return lose(mark, r);
 }
 
 // (let* ((var val) (var val) ..) body )
 sexp letstarform(sexp exp, sexp env)
 {
-    sexp r;
     sexp* mark = psp;
-    sexp e = save(env);
-    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
+    sexp e = env;
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
+    sexp r = save(voida);
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = save(eval(p->car, e));
+        r = replace(eval(p->car, e));
     return lose(mark, r);
 }
 
 // (letrec ((var val) (var val) ..) body )
 sexp letrecform(sexp exp, sexp env)
 {
-    sexp r;
     sexp* mark = psp;
-    sexp e = save(env);
-    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+    sexp e = env;
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = replace(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
+    sexp r = save(voida);
     for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = save(eval(p->car, e));
+        r = replace(eval(p->car, e));
     return lose(mark, r);
 }
 
@@ -2947,11 +2934,11 @@ sexp doform(sexp exp, sexp env)
     //    body
     // }
     sexp* mark = psp;
-    sexp e = save(env);
+    sexp e = env;
     // bind all the variables to their values
-    for (sexp v = save(exp)->cdr->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
-    sexp s = save(0);
+    for (sexp v = exp->cdr->car; v; v = v->cdr)
+        e = replace(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+    sexp s = save(voida);
     for (;;)
     {
         // if any test succeeds, return s
