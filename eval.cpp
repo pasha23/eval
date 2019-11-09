@@ -112,7 +112,6 @@ struct CinPortStream : public PortStream
     virtual sexp read(void) { return ::read(*(std::istream*)streamPointer, 0); }
     virtual sexp scan(void) { return ::scan(*(std::istream*)streamPointer); }
     virtual bool good(void) { return ((std::istream*)streamPointer)->good(); }
-    virtual ~CinPortStream() {}
 } cinStream(std::cin);
 
 struct CoutPortStream : public PortStream
@@ -121,7 +120,6 @@ struct CoutPortStream : public PortStream
     virtual void put(int ch) { ((std::ostream*)streamPointer)->put(ch); }
     virtual void write(const char *s, int len) { ((std::ostream*)streamPointer)->write(s, len); }
     virtual bool good(void) { return ((std::ostream*)streamPointer)->good(); }
-    virtual ~CoutPortStream() {}
 } coutStream(std::cout), cerrStream(std::cerr);
 
 struct IfsPortStream : public PortStream
@@ -154,11 +152,11 @@ struct StrPortStream : public PortStream
     virtual sexp read(void) { return ::read(*(std::stringstream*)streamPointer, 0); }
     virtual sexp scan(void) { return ::scan(*(std::stringstream*)streamPointer); }
     virtual bool good(void) { return ((std::stringstream*)streamPointer)->good(); }
-    virtual ~StrPortStream() { delete (std::stringstream*) streamPointer; }
 };
 
 /*
  * setting up union declarations isn't all that fun but casts are ugly and error-prone.
+ * note that there is just no room for virtual function pointers
  */
 struct Cons    { sexp                cdr; sexp                         car; };
 struct Tags    { char                                   tags[sizeof(Cons)]; };
@@ -295,10 +293,7 @@ sexp save(sexp p)
 /*
  * replace the top of the protection stack, return it
  */
-sexp replace(sexp p)
-{
-    return *psp = p;
-}
+sexp replace(sexp p) { return *psp = p; }
 
 /*
  * pop n items from the protection stack then return p
@@ -314,23 +309,11 @@ sexp lose(int n, sexp p)
     return p;
 }
 
-sexp lose(sexp* mark, sexp p)
-{
-    psp = mark;
-    return p;
-}
+sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 
-static inline void markCell(sexp p)
-{
-    ((Tags*)p)->tags[0] |=  MARK;
-    ++marked;
-}
+static inline void markCell(sexp p) { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
 
-static inline void unmarkCell(sexp p)
-{
-    ((Tags*)p)->tags[0] &= ~MARK;
-    --marked;
-}
+static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; }
 
 void mark(sexp p);
 
@@ -387,21 +370,9 @@ void mark(sexp p)
     markCell(p);
 }
 
-void deleteinport(sexp v)
-{
-    PortStream* f = ((InPort*)v)->s;
-    ((InPort*)v)->s = 0;
-    if (f != &cinStream)
-        delete f;
-}
+void deleteinport(sexp v) { PortStream* f = ((InPort*)v)->s; ((InPort*)v)->s = 0; if (f != &cinStream) delete f; }
 
-void deleteoutport(sexp v)
-{
-    PortStream* f = ((OutPort*)v)->s;
-    ((OutPort*)v)->s = 0;
-    if (f != &coutStream && f != &cerrStream)
-        delete f;
-}
+void deleteoutport(sexp v) { PortStream* f = ((OutPort*)v)->s; ((OutPort*)v)->s = 0; if (f != &coutStream && f != &cerrStream) delete f; }
 
 void deletevector(sexp v) { delete ((Vector*)v)->e; }
 
@@ -478,11 +449,7 @@ void assertInPort(sexp s)      { if (!isInPort(s))      error("not an input port
 void assertOutPort(sexp s)     { if (!isOutPort(s))     error("not an output port"); }
 void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
 
-void assertFlonum(sexp s)
-{
-    if (!isFlonum(s) && !isFixnum(s) && !isRational(s))
-        error("not a real number");
-}
+void assertFlonum(sexp s) { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) error("not a real number"); }
 
 /*
  * allocate a cell from the freelist
@@ -590,38 +557,16 @@ sexp cons(sexp car, sexp cdr)
 }
 
 // car
-sexp car(sexp p)
-{
-    if (!isCons(p))
-        error("error: car of non-pair");
-    return p->car;
-}
+sexp car(sexp p) { if (!isCons(p)) error("error: car of non-pair"); return p->car; }
 
 // cdr
-sexp cdr(sexp p)
-{
-    if (!isCons(p))
-        error("error: cdr of non-pair");
-    return p->cdr;
-}
+sexp cdr(sexp p) { if (!isCons(p)) error("error: cdr of non-pair"); return p->cdr; }
 
 // set-car!
-sexp setcarf(sexp p, sexp q)
-{
-    if (!isCons(p))
-        error("error: set-car! of non-pair");
-    p->car = q;
-    return voida;
-}
+sexp setcarf(sexp p, sexp q) { if (!isCons(p)) error("error: set-car! of non-pair"); p->car = q; return voida; }
 
 // set-cdr!
-sexp setcdrf(sexp p, sexp q)
-{
-    if (!isCons(p))
-        error("error: set-cdr! of non-pair");
-    p->cdr = q;
-    return voida;
-}
+sexp setcdrf(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pair"); p->cdr = q; return voida; }
 
 // and
 sexp andform(sexp p, sexp env)
@@ -650,24 +595,11 @@ sexp orform(sexp p, sexp env)
 }
 
 // trace
-sexp trace(sexp arg)
-{
-    sexp r = tracing;
-    tracing = arg ? t : 0;
-    return r;
-}
+sexp trace(sexp arg) { sexp r = tracing; tracing = arg ? t : 0; return r; }
 
-long asFixnum(sexp p)
-{
-    if (isFixnum(p))
-        return ((Fixnum*)p)->fixnum;
-    error("asFixnum: not a fixnum");
-}
+long asFixnum(sexp p) { if (isFixnum(p)) return ((Fixnum*)p)->fixnum; error("asFixnum: not a fixnum"); }
 
-double rat2real(sexp x)
-{
-    return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car);
-}
+double rat2real(sexp x) { return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car); }
 
 double asFlonum(sexp p)
 {
@@ -768,28 +700,16 @@ bool cmple(sexp x, sexp y)
 }
 
 // <
-sexp lt(sexp x, sexp y)
-{
-    return cmplt(x, y) ? t : 0;
-}
+sexp lt(sexp x, sexp y) { return cmplt(x, y) ? t : 0; }
 
 // <=
-sexp le(sexp x, sexp y)
-{
-    return cmple(x, y) ? t : 0;
-}
+sexp le(sexp x, sexp y) { return cmple(x, y) ? t : 0; }
 
 // >=
-sexp ge(sexp x, sexp y)
-{
-    return cmplt(x, y) ? 0 : t;
-}
+sexp ge(sexp x, sexp y) { return cmplt(x, y) ? 0 : t; }
 
 // >
-sexp gt(sexp x, sexp y)
-{
-    return cmple(x, y) ? 0 : t;
-}
+sexp gt(sexp x, sexp y) { return cmple(x, y) ? 0 : t; }
 
 sexp newrational(long n, long d)
 {
@@ -801,15 +721,9 @@ sexp newcomplex(double re, double im)
     return lose(2, cons(complex, replace(cons(save(newflonum(re)), replace(cons(save(newflonum(im)), 0))))));
 }
 
-double realpart(sexp x)
-{
-    assertComplex(x); return asFlonum(x->cdr->car);
-}
+double realpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->car); }
 
-double imagpart(sexp x)
-{
-    assertComplex(x); return asFlonum(x->cdr->cdr->car);
-}
+double imagpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->cdr->car); }
 
 // magnitude
 sexp magnitude(sexp z)
@@ -838,26 +752,12 @@ long gcd(long x, long y)
 }
 
 // gcd
-sexp gcdf(sexp x, sexp y)
-{
-    assertFixnum(x);
-    assertFixnum(y);
-    return newfixnum(gcd(asFixnum(x), asFixnum(y)));
-}
+sexp gcdf(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(gcd(asFixnum(x), asFixnum(y))); }
 
-long lcm(long x, long y)
-{
-    long g = gcd(x, y);
-    return (x / g) * (y / g);
-}
+long lcm(long x, long y) { long g = gcd(x, y); return (x / g) * (y / g); }
 
 // lcm
-sexp lcmf(sexp x, sexp y)
-{
-    assertFixnum(x);
-    assertFixnum(y);
-    return newfixnum(lcm(asFixnum(x), asFixnum(y)));
-}
+sexp lcmf(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(lcm(asFixnum(x), asFixnum(y))); }
 
 sexp rational_reduce(long n, long d)
 {
@@ -872,15 +772,9 @@ sexp rational_reduce(long n, long d)
         return newrational(ng, dg);
 }
 
-long num(sexp x)
-{
-    return asFixnum(x->cdr->car);
-}
+long num(sexp x) { return asFixnum(x->cdr->car); }
 
-long den(sexp x)
-{
-    return asFixnum(x->cdr->cdr->car);
-}
+long den(sexp x) { return asFixnum(x->cdr->cdr->car); }
 
 sexp rational_add(sexp x, sexp y)
 {
@@ -1163,10 +1057,7 @@ sexp rational_mod(sexp x, sexp y)
     return rational_reduce(xn % yn, d);
 }
 
-sexp complex_mod(sexp x, sexp y)
-{
-    error("complex_mod: not implemented");
-}
+sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
 // %
 sexp unimod(sexp l)
@@ -1245,16 +1136,10 @@ sexp roundff(sexp x)   { assertFlonum(x); return newflonum(round(asFlonum(x))); 
 sexp ceilingff(sexp x) { assertFlonum(x); return newflonum(ceil(asFlonum(x)));  } // ceiling
 
 // pow
-sexp powff(sexp x, sexp y)
-{
-    assertFlonum(x); assertFlonum(y); return newflonum(pow(asFlonum(x), asFlonum(y)));
-}
+sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(pow(asFlonum(x), asFlonum(y))); }
 
 // truncate
-sexp truncateff(sexp x)
-{
-    assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x)));
-}
+sexp truncateff(sexp x) { assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x))); }
 
 // exact?
 sexp exactp(sexp x) { return isFixnum(x) ? t : 0; }
@@ -1326,11 +1211,7 @@ int slen(sexp s)
 }
 
 // string-length
-sexp stringlengthf(sexp s)
-{
-    assertString(s);
-    return newfixnum(slen(s));
-}
+sexp stringlengthf(sexp s) { assertString(s); return newfixnum(slen(s)); }
 
 // index a character in a string
 char* sref(sexp s, int i)
@@ -1500,22 +1381,10 @@ sexp stringfillf(sexp s, sexp c)
 }
 
 // close-input-port
-sexp clinport(sexp p)
-{
-    assertInPort(p);
-    if (inport == p)
-        inport = 0;
-    deleteinport(p);
-}
+sexp clinport(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); }
 
 // close-output-port
-sexp cloutport(sexp p)
-{
-    assertOutPort(p);
-    if (outport == p)
-        outport = 0;
-    deleteoutport(p);
-}
+sexp cloutport(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); }
 
 // current-input-port
 sexp curinport(sexp p) { return inport ? inport : 0; }
@@ -1527,72 +1396,28 @@ sexp curoutport(sexp p) { return outport ? outport : 0; }
 sexp inportp(sexp p) { return isInPort(p) ? t : 0; }
 
 // open-input-file
-sexp openin(sexp p)
-{
-    assertString(p);
-    int len = slen(p)+1;
-    char* b = (char*) alloca(len); sstr(b, len, p);
-    return newinport(b);
-}
+sexp openin(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(len); sstr(b, len, p); return newinport(b); }
 
 // open-output-file
-sexp openout(sexp p)
-{
-    assertString(p);
-    int len = slen(p)+1;
-    char* b = (char*) alloca(slen(p)+1);
-    sstr(b, len, p);
-    return newoutport(b);
-}
+sexp openout(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(slen(p)+1); sstr(b, len, p); return newoutport(b); }
 
 // output-port?
 sexp outportp(sexp p) { return isOutPort(p) ? t : 0; }
 
 // with-input-from-file
-sexp within(sexp p, sexp f)
-{
-    sexp t = inport;
-    inport = openin(p);
-    sexp q = apply(f, 0);
-    clinport(inport);
-    inport = t;
-    return q;
-}
+sexp within(sexp p, sexp f) { sexp t = inport; inport = openin(p); sexp q = apply(f, 0); clinport(inport); inport = t; return q; }
 
 // with-output-to-file
-sexp without(sexp p, sexp f)
-{
-    sexp t = outport;
-    outport = openout(p);
-    sexp q = apply(f, 0);
-    cloutport(outport);
-    outport = t;
-    return q;
-}
+sexp without(sexp p, sexp f) { sexp t = outport; outport = openout(p); sexp q = apply(f, 0); cloutport(outport); outport = t; return q; }
 
 // call-with-input-file
-sexp callwithin(sexp p, sexp f)
-{
-    sexp inp = openin(p);
-    sexp q = apply(f, cons(inp, 0));
-    clinport(inp);
-    return q;
-}
+sexp callwithin(sexp p, sexp f) { sexp inp = openin(p); sexp q = apply(f, cons(inp, 0)); clinport(inp); return q; }
 
 // call-with-output-file
-sexp callwithout(sexp p, sexp f)
-{
-    sexp oup = openout(p);
-    sexp q = apply(f, cons(oup, 0));
-    cloutport(oup);
-    return q;
-}
+sexp callwithout(sexp p, sexp f) { sexp oup = openout(p); sexp q = apply(f, cons(oup, 0)); cloutport(oup); return q; }
 
 // vector?
-sexp vectorp(sexp v)
-{
-    return isVector(v) ? t : 0;
-}
+sexp vectorp(sexp v) { return isVector(v) ? t : 0; }
 
 sexp newvector(int len, sexp fill)
 {
@@ -1631,11 +1456,7 @@ sexp list2vec(sexp list)
     return lose(2, (sexp)v);
 }
 
-void assertVector(sexp v)
-{
-    if (!isVector(v))
-        error("not a vector");
-}
+void assertVector(sexp v) { if (!isVector(v)) error("not a vector"); }
 
 // vector->list
 sexp vec2list(sexp vector)
@@ -1664,20 +1485,10 @@ sexp vecfill(sexp vector, sexp value)
 }
 
 // vector-length
-sexp veclength(sexp vector)
-{
-    assertVector(vector);
-    save(vector);
-    return lose(1, newfixnum(((Vector*)vector)->l));
-}
+sexp veclength(sexp vector) { assertVector(vector); save(vector); return lose(1, newfixnum(((Vector*)vector)->l)); }
 
 // vector-ref
-sexp vecref(sexp vector, sexp index)
-{
-    assertFixnum(index);
-    assertVector(vector);
-    return ((Vector*)vector)->e[asFixnum(index)];
-}
+sexp vecref(sexp vector, sexp index) { assertFixnum(index); assertVector(vector); return ((Vector*)vector)->e[asFixnum(index)]; }
 
 // (vector e0 e1 e2 ...)
 sexp vector(sexp args)
@@ -1953,11 +1764,7 @@ sexp writechar(sexp args)
     return voida;
 }
 
-sexp achunk(sexp s)
-{
-    assertString(s);
-    return ((String*)s)->chunks;
-}
+sexp achunk(sexp s) { assertString(s); return ((String*)s)->chunks; }
 
 // string<=?
 sexp stringlef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <= 0 ? t : 0; }
@@ -2059,10 +1866,7 @@ sexp substringf(sexp s, sexp i, sexp j)
 }
 
 // (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
-sexp append(sexp p, sexp q)
-{
-    return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q;
-}
+sexp append(sexp p, sexp q) { return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q; }
 
 // reverse
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
@@ -2144,11 +1948,7 @@ sexp xorf(sexp args)
 // delay
 sexp delayform(sexp exp, sexp env)
 {
-    return lose(1, cons(promise,
-                        replace(cons(0,
-                        replace(cons(0,
-                        replace(cons(exp->cdr->car,
-                        save(cons(env, 0))))))))));
+    return lose(1, cons(promise, replace(cons(0, replace(cons(0, replace(cons(exp->cdr->car, save(cons(env, 0))))))))));
 }
 
 // force
@@ -2214,28 +2014,13 @@ sexp load(sexp x)
 }
 
 // space
-sexp spacef(sexp args)
-{
-    sexp port = args ? args->car : outport;
-    assertOutPort(port);
-    ((OutPort*)port)->s->put(' ');
-    return voida;
-}
+sexp spacef(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put(' '); return voida; }
 
 // newline
-sexp newlinef(sexp args)
-{
-    sexp port = args ? args->car : outport;
-    assertOutPort(port);
-    ((OutPort*)port)->s->put('\n');
-    return voida;
-}
+sexp newlinef(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put('\n'); return voida; }
 
 // eof?
-sexp eofp(sexp a)
-{
-    return eof == a ? t : 0;
-}
+sexp eofp(sexp a) { return eof == a ? t : 0; }
 
 // display
 sexp displayf(sexp args)
@@ -2311,24 +2096,14 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
     return false;
 }
 
-bool cyclic(sexp exp)
-{
-    std::set<sexp> seenSet;
-    return cyclic(seenSet, exp);
-}
+bool cyclic(sexp exp) { std::set<sexp> seenSet; return cyclic(seenSet, exp); }
 
 // cyclic?
 sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
 
-bool safe(std::set<sexp>& seenSet, sexp exp)
-{
-    return seenSet.find(exp) == seenSet.end();
-}
+bool safe(std::set<sexp>& seenSet, sexp exp) { return seenSet.find(exp) == seenSet.end(); }
 
-void insert(std::set<sexp>& seenSet, sexp exp)
-{
-    seenSet.insert(exp);
-}
+void insert(std::set<sexp>& seenSet, sexp exp) { seenSet.insert(exp); }
 
 std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
 {
@@ -2602,10 +2377,7 @@ sexp list2s(sexp s)
 }
 
 // string
-sexp string(sexp args)
-{
-    return list2s(args);
-}
+sexp string(sexp args) { return list2s(args); }
 
 bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
 
@@ -2657,20 +2429,10 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 }
 
 // eqv?
-sexp eqv(sexp x, sexp y)
-{
-    std::set<sexp> seenx;
-    std::set<sexp> seeny;
-    return eqvb(seenx, seeny, x, y) ? t : 0;
-}
+sexp eqv(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
 
 // equal?
-sexp equalp(sexp x, sexp y)
-{
-    std::set<sexp> seenx;
-    std::set<sexp> seeny;
-    return eqvb(seenx, seeny, x, y) ? t : 0;
-}
+sexp equalp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
 
 // update all the closures in an environment so they reference
 // that environment instead of earlier ones for init.ss
@@ -2758,9 +2520,7 @@ sexp set(sexp p, sexp r, sexp env)
 // evaluate a list of arguments in an environment
 sexp evlis(sexp p, sexp env)
 {
-    if (!p)
-        return 0;
-    return lose(4, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env)))));
+    return p ? lose(4, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env))))) : 0;
 }
 
 // associate a list of formal parameters and actual parameters in an environment
@@ -2773,16 +2533,10 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 }
 
 // null-environment
-sexp nulenvform(sexp exp, sexp env)
-{
-    return global;
-}
+sexp nulenvform(sexp exp, sexp env) { return global; }
 
 // interaction-environment
-sexp intenvform(sexp exp, sexp env)
-{
-    return env;
-}
+sexp intenvform(sexp exp, sexp env) { return env; }
 
 // begin
 sexp beginform(sexp exp, sexp env)
@@ -2886,16 +2640,10 @@ sexp defineform(sexp p, sexp env)
 }
 
 // atoms
-sexp atomsf(sexp args)
-{
-    return atoms;
-}
+sexp atomsf(sexp args) { return atoms; }
 
 // quote
-sexp quoteform(sexp exp, sexp env)
-{
-    return exp->cdr->car;
-}
+sexp quoteform(sexp exp, sexp env) { return exp->cdr->car; }
 
 // unquote
 sexp unquoteform(sexp exp, sexp env)
@@ -2914,28 +2662,13 @@ sexp unquoteform(sexp exp, sexp env)
 }
 
 // quasiquote
-sexp quasiquoteform(sexp exp, sexp env)
-{
-    return unquoteform(exp->cdr->car, env);
-}
+sexp quasiquoteform(sexp exp, sexp env) { return unquoteform(exp->cdr->car, env); }
 
 // read
-sexp readf(sexp args)
-{
-    sexp port = inport;
-    if (args)
-        assertInPort(port = args->car);
-    return ((InPort*)port)->s->read();
-}
+sexp readf(sexp args) { sexp port = inport; if (args) assertInPort(port = args->car); return ((InPort*)port)->s->read(); }
 
 // scan
-sexp scanff(sexp args)
-{
-    sexp port = inport;
-    if (args)
-        assertInPort(port = args->car);
-    return ((InPort*)port)->s->scan();
-}
+sexp scanff(sexp args) { sexp port = inport; if (args) assertInPort(port = args->car); return ((InPort*)port)->s->scan(); }
 
 /*
  * (if predicate consequent alternative)
@@ -3104,18 +2837,10 @@ sexp apply(sexp fun, sexp args)
 }
 
 // (rational numerator denominator)
-sexp rationalform(sexp exp, sexp env)
-{
-    assertRational(exp);
-    return exp;
-}
+sexp rationalform(sexp exp, sexp env) { assertRational(exp); return exp; }
 
 // (complex real imaginary)
-sexp complexform(sexp exp, sexp env)
-{
-    assertComplex(exp);
-    return exp;
-}
+sexp complexform(sexp exp, sexp env) { assertComplex(exp); return exp; }
 
 /*
  * malformed constructs will fail without grace
@@ -3371,13 +3096,7 @@ sexp scans(std::istream& fin)
 }
 
 // stub to enable tracing of scans()
-sexp scan(std::istream& fin)
-{
-    sexp r = scans(fin);
-    if (tracing)
-        debug("scan", r);
-    return r;
-}
+sexp scan(std::istream& fin) { sexp r = scans(fin); if (tracing) debug("scan", r); return r; }
 
 // finish reading a list
 sexp readTail(std::istream& fin, int level)
@@ -3441,10 +3160,7 @@ sexp read(std::istream& fin, int level)
 }
 
 // construct an atom and keep a unique copy
-sexp atomize(const char *s)
-{
-    return lose(2, intern(save(newcell(ATOM, save(newchunk(s))))));
-}
+sexp atomize(const char *s) { return lose(2, intern(save(newcell(ATOM, save(newchunk(s)))))); }
 
 // the first interrupt will stop everything. the second will exit.
 void intr_handler(int sig, siginfo_t *si, void *ctx)
