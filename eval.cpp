@@ -16,7 +16,6 @@
 #include <cmath>
 #include <csetjmp>
 #include <csignal>
-#include <cstdio>
 #include <cstring>
 #include <ctype.h>
 #include <errno.h>
@@ -3463,7 +3462,7 @@ int main(int argc, char **argv, char **envp)
     // allocate the protection stack
     psp = protect = (sexp*)new sexp[PSIZE];
 
-    // allocate ports for stdin, stdout, stderr
+    // allocate ports for cin, cout, cerr
     InPort* p = (InPort*)newcell();
     ((Stags*)p)->stags = INPORT;
     p->file = (void*) &std::cin;
@@ -3505,9 +3504,9 @@ int main(int argc, char **argv, char **envp)
     unquotesplicing = atomize("unquote-splicing");
     voida           = atomize("");
 
-    define(atomize("stderr"), errport);
-    define(atomize("stdin"),  inport);
-    define(atomize("stdout"), outport);
+    define(atomize("cerr"), errport);
+    define(atomize("cin"),  inport);
+    define(atomize("cout"), outport);
 
     // metasyntax
     define(atomize("comma"),    comma);

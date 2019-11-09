@@ -179,17 +179,17 @@
     (vector? (list->vector (list 1 2 3)))
     (vector? (make-vector 3))
 
-    (begin (call-with-output-file "fac20.out" (lambda (port) (display (fac 20) port)))
-           (call-with-input-file "fac20.out" (lambda (port) (= (fac 20) (read port)))))
+    (begin (call-with-output-file "/tmp/fac20.out" (lambda (port) (display (fac 20) port)))
+           (call-with-input-file "/tmp/fac20.out" (lambda (port) (= (fac 20) (read port)))))
 
-    (begin (with-output-to-file "fac20.out"   (lambda () (display (fac 20))))
-           (with-input-from-file "fac20.out"  (lambda () (= (fac 20) (read)))))
+    (begin (with-output-to-file "/tmp/fac20.out"   (lambda () (display (fac 20))))
+           (with-input-from-file "/tmp/fac20.out"  (lambda () (= (fac 20) (read)))))
 
     (let ((fib20 (fib 20))
-          (output-port (open-output-file "fib20.out")))
+          (output-port (open-output-file "/tmp/fib20.out")))
          (display fib20 output-port)
          (close-output-port output-port)
-         (eqv? fib20 (read (open-input-file "fib20.out"))))
+         (eqv? fib20 (read (open-input-file "/tmp/fib20.out"))))
 
     #t
 ))
