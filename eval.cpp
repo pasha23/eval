@@ -77,6 +77,86 @@ typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
+sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda;
+sexp lbracket, lparen, minus, nil, promise, qchar, quasiquote, quote;
+sexp rational, rbracket, rparen, t, tick, unquote, unquotesplicing, voida;
+
+sexp define(sexp p, sexp r);
+sexp eval(sexp p, sexp env);
+sexp apply(sexp fun, sexp args);
+sexp read(std::istream& fin, int level);
+sexp scan(std::istream& fin);
+void debug(const char* label, sexp exp);
+
+class PortStream
+{
+protected:
+    void* streamPointer;
+public:
+    PortStream(void* streamPointer) : streamPointer(streamPointer) {}
+    virtual int get(void) { return -1; }
+    virtual void unget(void) { assert(false); }
+    virtual void put(int ch) { assert(false); }
+    virtual void write(const char* s, int len) { assert(false); }
+    virtual sexp read(void) { return eof; }
+    virtual sexp scan(void) { return eof; }
+    virtual bool good(void) { return false; }
+    virtual ~PortStream() {}
+};
+
+struct CinPortStream : public PortStream
+{
+    CinPortStream(std::istream& stdstream) : PortStream(&stdstream) {}
+    virtual int get(void) { return ((std::istream*)streamPointer)->get(); }
+    virtual void unget(void) { ((std::istream*)streamPointer)->unget(); }
+    virtual sexp read(void) { return ::read(*(std::istream*)streamPointer, 0); }
+    virtual sexp scan(void) { return ::scan(*(std::istream*)streamPointer); }
+    virtual bool good(void) { return ((std::istream*)streamPointer)->good(); }
+    virtual ~CinPortStream() {}
+} cinStream(std::cin);
+
+struct CoutPortStream : public PortStream
+{
+    CoutPortStream(std::ostream& stdstream) : PortStream(&stdstream) {}
+    virtual void put(int ch) { ((std::ostream*)streamPointer)->put(ch); }
+    virtual void write(const char *s, int len) { ((std::ostream*)streamPointer)->write(s, len); }
+    virtual bool good(void) { return ((std::ostream*)streamPointer)->good(); }
+    virtual ~CoutPortStream() {}
+} coutStream(std::cout), cerrStream(std::cerr);
+
+struct IfsPortStream : public PortStream
+{
+    IfsPortStream(const char *name, std::ios_base::openmode mode) : PortStream(new std::ifstream(name, mode)) {}
+    virtual int get(void) { return ((std::ifstream*)streamPointer)->get(); }
+    virtual void unget(void) { ((std::ifstream*)streamPointer)->unget(); }
+    virtual sexp read(void) { return ::read(*(std::ifstream*)streamPointer, 0); }
+    virtual sexp scan(void) { return ::scan(*(std::ifstream*)streamPointer); }
+    virtual bool good(void) { return ((std::ifstream*)streamPointer)->good(); }
+    virtual ~IfsPortStream() { delete (std::ifstream*) streamPointer; }
+};
+
+struct OfsPortStream : public PortStream
+{
+    OfsPortStream(const char *name, std::ios_base::openmode mode) : PortStream(new std::ofstream(name, mode)) {}
+    virtual void put(int ch) { ((std::ofstream*)streamPointer)->put(ch); }
+    virtual void write(const char *s, int len) { ((std::ofstream*)streamPointer)->write(s, len); }
+    virtual bool good(void) { return ((std::ofstream*)streamPointer)->good(); }
+    virtual ~OfsPortStream() { delete (std::ofstream*) streamPointer; }
+};
+
+struct StrPortStream : public PortStream
+{
+    StrPortStream(std::stringstream& stringstream) : PortStream(&stringstream) {}
+    virtual int get(void) { return ((std::stringstream*)streamPointer)->get(); }
+    virtual void unget(void) { ((std::stringstream*)streamPointer)->unget(); }
+    virtual void put(int ch) { ((std::stringstream*)streamPointer)->put(ch); }
+    virtual void write(const char *s, int len) { ((std::stringstream*)streamPointer)->write(s, len); }
+    virtual sexp read(void) { return ::read(*(std::stringstream*)streamPointer, 0); }
+    virtual sexp scan(void) { return ::scan(*(std::stringstream*)streamPointer); }
+    virtual bool good(void) { return ((std::stringstream*)streamPointer)->good(); }
+    virtual ~StrPortStream() { delete (std::stringstream*) streamPointer; }
+};
+
 /*
  * setting up union declarations isn't all that fun but casts are ugly and error-prone.
  */
@@ -92,16 +172,9 @@ struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
 struct Funct   { char tags[sizeof(sexp)]; void*                      funcp; };
 struct Form    { char tags[sizeof(sexp)]; Formp                      formp; };
 struct Char    { char tags[sizeof(sexp)-sizeof(char)];   char           ch; };
-struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; void*    file; };
-struct OutPort { char tags[sizeof(sexp)]; void*                       file; };
+struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
+struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
-
-sexp define(sexp p, sexp r);
-sexp eval(sexp p, sexp env);
-sexp apply(sexp fun, sexp args);
-sexp read(std::istream& fin, int level);
-sexp scan(std::istream& fin);
-void debug(const char* label, sexp exp);
 
 /*
  * not pretty yet
@@ -125,10 +198,6 @@ public:
 };
 
 std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, bool write);
-
-sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda, lbracket;
-sexp lparen, minus, nil, promise, qchar, quasiquote, quote, rational, rbracket;
-sexp rparen, t, tick, unquote, unquotesplicing, voida;
 
 static inline int  shortType(const sexp p) { return                   ((Stags*)p)->stags; }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -320,18 +389,18 @@ void mark(sexp p)
 
 void deleteinport(sexp v)
 {
-    void* f = ((InPort*)v)->file;
-    ((InPort*)v)->file = 0;
-    if (f != (void*)&std::cin)
-        delete ((std::ifstream*)f);
+    PortStream* f = ((InPort*)v)->s;
+    ((InPort*)v)->s = 0;
+    if (f != &cinStream)
+        delete f;
 }
 
 void deleteoutport(sexp v)
 {
-    void* f = ((OutPort*)v)->file;
-    ((OutPort*)v)->file = 0;
-    if (f != (void*)&std::cin && f != (void*)&std::cout)
-        delete ((std::ofstream*)f);
+    PortStream* f = ((OutPort*)v)->s;
+    ((OutPort*)v)->s = 0;
+    if (f != &coutStream && f != &cerrStream)
+        delete f;
 }
 
 void deletevector(sexp v) { delete ((Vector*)v)->e; }
@@ -461,7 +530,7 @@ sexp newinport(char* name)
     ((Stags*)p)->stags = INPORT;
     p->avail = 0;
     p->peek = 0;
-    p->file = new std::ifstream(name, std::ifstream::ios_base::in);
+    p->s = new IfsPortStream(name, std::ifstream::ios_base::in);
     return (sexp)p;
 }
 
@@ -469,7 +538,7 @@ sexp newoutport(char* name)
 {
     OutPort* p = (OutPort*)newcell();
     ((Stags*)p)->stags = OUTPORT;
-    p->file = new std::ofstream(name, std::ofstream::ios_base::out);
+    p->s = new OfsPortStream(name, std::ofstream::ios_base::out);
     return (sexp)p;
 }
 
@@ -1774,7 +1843,7 @@ sexp readyp(sexp args)
 
     struct termios original;
 
-    if ((void*) &std::cin == inPort->file && 0 == tcgetattr(0, &original))
+    if (&cinStream == inPort->s && 0 == tcgetattr(0, &original))
     {
         struct termios working;
 
@@ -1804,7 +1873,7 @@ sexp readchar(sexp args)
 
     struct termios original;
 
-    if ((void*) &std::cin == inPort->file)
+    if (&cinStream == inPort->s)
     {
         if (0 == tcgetattr(0, &original))
         {
@@ -1827,7 +1896,7 @@ sexp readchar(sexp args)
         }
         return newcharacter(std::cin.get());
     }
-    return newcharacter(((std::ifstream*)(inPort->file))->get());
+    return newcharacter(inPort->s->get());
 }
 
 // peek-char
@@ -1841,7 +1910,7 @@ sexp peekchar(sexp args)
 
     struct termios original;
 
-    if ((void*) &std::cin == inPort->file)
+    if (&cinStream == inPort->s)
     {
         if (0 == tcgetattr(0, &original))
         {
@@ -1863,29 +1932,9 @@ sexp peekchar(sexp args)
         return newcharacter(std::cin.get());
     }
 
-    int c = ((std::ifstream*)(inPort->file))->get();
-    ((std::ifstream*)(inPort->file))->unget();
+    int c = inPort->s->get();
+    inPort->s->unget();
     return newcharacter(c);
-}
-
-void put(OutPort* port, int c)
-{
-    if ((void*)&std::cout == port->file)
-        std::cout.put(c);
-    else if ((void*)&std::cerr == port->file)
-        std::cerr.put(c);
-    else
-        ((std::ofstream*)port->file)->put(c);
-}
-
-void write(OutPort* port, const char* s, int len)
-{
-    if ((void*)&std::cout == ((OutPort*)port)->file)
-        std::cout.write(s, len);
-    else if ((void*)&std::cerr == ((OutPort*)port)->file)
-        std::cerr.write(s, len);
-    else
-        ((std::ofstream*)(((OutPort*)port)->file))->write(s, len);
 }
 
 // write-char
@@ -1899,7 +1948,7 @@ sexp writechar(sexp args)
             assertOutPort(port = args->cdr->car);
     }
 
-    put(((OutPort*)port), ((Char*)(args->car))->ch);
+    ((OutPort*)port)->s->put(((Char*)(args->car))->ch);
 
     return voida;
 }
@@ -2146,20 +2195,19 @@ sexp load(sexp x)
 
     std::cout << ";; load: " << name << std::endl;
 
-    std::ifstream fin(name, std::ifstream::in);
+    IfsPortStream fin(name, std::ifstream::in);
 
     if (fin.good())
     {
         while (fin.good())
         {
-            sexp input = read(fin, 0);
+            sexp input = fin.read();
             if (eof == input)
                 break;
             if (tracing)
                 debug("load", input);
             eval(input, global);
         }
-        fin.close();
         return t;
     }
     return 0;
@@ -2170,7 +2218,7 @@ sexp spacef(sexp args)
 {
     sexp port = args ? args->car : outport;
     assertOutPort(port);
-    put ((OutPort*)port, ' ');
+    ((OutPort*)port)->s->put(' ');
     return voida;
 }
 
@@ -2179,7 +2227,7 @@ sexp newlinef(sexp args)
 {
     sexp port = args ? args->car : outport;
     assertOutPort(port);
-    put ((OutPort*)port, '\n');
+    ((OutPort*)port)->s->put('\n');
     return voida;
 }
 
@@ -2199,7 +2247,7 @@ sexp displayf(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, false);
-    write((OutPort*)port, s.str().c_str(), s.str().length());
+    ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
 
@@ -2213,7 +2261,7 @@ sexp writef(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, true);
-    write((OutPort*)port, s.str().c_str(), s.str().length());
+    ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
 
@@ -2646,6 +2694,7 @@ sexp define(sexp p, sexp r)
     return lose(1, voida);
 }
 
+// undefine
 sexp undefine(sexp p)
 {
     if (p == global->car->car)
@@ -2876,10 +2925,7 @@ sexp readf(sexp args)
     sexp port = inport;
     if (args)
         assertInPort(port = args->car);
-    if ((void*)&std::cin == ((InPort*)port)->file)
-        return read(std::cin, 0);
-    else
-        return read(*(std::ifstream*)((InPort*)port)->file, 0);
+    return ((InPort*)port)->s->read();
 }
 
 // scan
@@ -2888,10 +2934,7 @@ sexp scanff(sexp args)
     sexp port = inport;
     if (args)
         assertInPort(port = args->car);
-    if ((void*)&std::cin == ((InPort*)port)->file)
-        return scan(std::cin);
-    else
-        return scan(*(std::ifstream*)((InPort*)port)->file);
+    return ((InPort*)port)->s->scan();
 }
 
 /*
@@ -3260,7 +3303,8 @@ sexp scans(std::istream& fin)
     NumStatus status;
     c = scanNumber(s, fin, status);
 
-    if (status > NON_NUMERIC && '+' == c) {
+    if (status > NON_NUMERIC && '+' == c)
+    {
         c = fin.get();
         s << ' ';
         c = scanNumber(s, fin, status);
@@ -3271,7 +3315,9 @@ sexp scans(std::istream& fin)
             s >> re >> im;
             return newcomplex(re, im);
         }
-    } else if (status > NON_NUMERIC && '-' == c) {
+    }
+    else if (status > NON_NUMERIC && '-' == c)
+    {
         s << ' ';
         c = scanNumber(s, fin, status);
         if ('i' == c)
@@ -3281,14 +3327,18 @@ sexp scans(std::istream& fin)
             s >> re >> im;
             return newcomplex(re, im);
         }
-    } else if (status > NON_NUMERIC && '@' == c) {
+    }
+    else if (status > NON_NUMERIC && '@' == c)
+    {
         double r, theta;
         c = fin.get();
         s << ' ';
         c = scanNumber(s, fin, status);
         s >> r >> theta;
         return newcomplex(r * cos(theta), r * sin(theta));
-    } else if (status > NON_NUMERIC && '/' == c) {
+    }
+    else if (status > NON_NUMERIC && '/' == c)
+    {
         long num, den;
         c = fin.get();
         s << ' ';
@@ -3465,17 +3515,17 @@ int main(int argc, char **argv, char **envp)
     // allocate ports for cin, cout, cerr
     InPort* p = (InPort*)newcell();
     ((Stags*)p)->stags = INPORT;
-    p->file = (void*) &std::cin;
+    p->s = &cinStream;
     inport = (sexp)p;
 
     OutPort* q = (OutPort*)newcell();
     ((Stags*)q)->stags = OUTPORT;
-    q->file = (void*) &std::cout;
+    q->s = &coutStream;
     outport = (sexp)q;
 
     OutPort* r = (OutPort*)newcell();
     ((Stags*)r)->stags = OUTPORT;
-    r->file = (void*) &std::cerr;
+    r->s = &cerrStream;
     errport = (sexp)r;
 
     closure         = atomize("closure");
