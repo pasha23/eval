@@ -191,6 +191,11 @@
          (close-output-port output-port)
          (eqv? fib20 (read (open-input-file "/tmp/fib20.out"))))
 
+    (string=? "(a b c)" (write-to-string '(a b c)))
+    (string=? "(a b c)" (let ((s (open-output-string))) (display '(a b c) s) (get-output-string s)))
+    (eqv? '(a b c) (read (open-input-string "(a b c)" 0 7)))
+    (string=? "(a b c)" (call-with-output-string (lambda (x) (display '(a b c) x))))
+    (string=? "(a b c)" (call-with-truncated-output-string 1000 (lambda (x) (display '(a b c) x))))
     #t
 ))
 

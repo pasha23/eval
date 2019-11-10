@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <iostream>
 #include <istream>
+#include <limits.h>
 #include <ostream>
 #include <set>
 #include <sstream>
@@ -88,11 +89,9 @@ sexp read(std::istream& fin, int level);
 sexp scan(std::istream& fin);
 void debug(const char* label, sexp exp);
 
-class PortStream
+struct PortStream
 {
-protected:
     void* streamPointer;
-public:
     PortStream(void* streamPointer) : streamPointer(streamPointer) {}
     virtual int get(void) { return -1; }
     virtual void unget(void) { assert(false); }
@@ -152,6 +151,7 @@ struct StrPortStream : public PortStream
     virtual sexp read(void) { return ::read(*(std::stringstream*)streamPointer, 0); }
     virtual sexp scan(void) { return ::scan(*(std::stringstream*)streamPointer); }
     virtual bool good(void) { return ((std::stringstream*)streamPointer)->good(); }
+    virtual ~StrPortStream() { delete (std::stringstream*) streamPointer; }
 };
 
 /*
@@ -424,12 +424,8 @@ sexp gc(sexp args)
     }
 
     if (verbose)
-        std::cout << "gc: allocated: " << allocated
-                  << " protected: "    << wereprot
-                  << " marked: "       << weremark
-                  << " reclaimed: "    << reclaimed
-                  << " collections: "  << collected
-                  << " allocation: "   << total << std::endl;
+        std::cout << "gc: allocated: " << allocated << " protected: "    << wereprot  << " marked: "       << weremark
+                  << " reclaimed: "    << reclaimed << " collections: "  << collected << " allocation: "   << total << std::endl;
 
     allocated -= reclaimed-werefree;
     total += allocated;
@@ -563,10 +559,10 @@ sexp car(sexp p) { if (!isCons(p)) error("error: car of non-pair"); return p->ca
 sexp cdr(sexp p) { if (!isCons(p)) error("error: cdr of non-pair"); return p->cdr; }
 
 // set-car!
-sexp setcarf(sexp p, sexp q) { if (!isCons(p)) error("error: set-car! of non-pair"); p->car = q; return voida; }
+sexp set_car(sexp p, sexp q) { if (!isCons(p)) error("error: set-car! of non-pair"); p->car = q; return voida; }
 
 // set-cdr!
-sexp setcdrf(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pair"); p->cdr = q; return voida; }
+sexp set_cdr(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pair"); p->cdr = q; return voida; }
 
 // and
 sexp andform(sexp p, sexp env)
@@ -700,16 +696,16 @@ bool cmple(sexp x, sexp y)
 }
 
 // <
-sexp lt(sexp x, sexp y) { return cmplt(x, y) ? t : 0; }
+sexp ltp(sexp x, sexp y) { return cmplt(x, y) ? t : 0; }
 
 // <=
-sexp le(sexp x, sexp y) { return cmple(x, y) ? t : 0; }
+sexp lep(sexp x, sexp y) { return cmple(x, y) ? t : 0; }
 
 // >=
-sexp ge(sexp x, sexp y) { return cmplt(x, y) ? 0 : t; }
+sexp gep(sexp x, sexp y) { return cmplt(x, y) ? 0 : t; }
 
 // >
-sexp gt(sexp x, sexp y) { return cmple(x, y) ? 0 : t; }
+sexp gtp(sexp x, sexp y) { return cmple(x, y) ? 0 : t; }
 
 sexp newrational(long n, long d)
 {
@@ -1154,10 +1150,10 @@ sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
 sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : 0; }
 
 // inexact->exact
-sexp i2ef(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
+sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
 
 // exact->inexact
-sexp e2if(sexp x) { assertFlonum(x); return newflonum((double)asFlonum(x)); }
+sexp exact_inexact(sexp x) { assertFlonum(x); return newflonum((double)asFlonum(x)); }
 
 // <<
 sexp lsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) << asFixnum(y)); }
@@ -1211,7 +1207,7 @@ int slen(sexp s)
 }
 
 // string-length
-sexp stringlengthf(sexp s) { assertString(s); return newfixnum(slen(s)); }
+sexp string_length(sexp s) { assertString(s); return newfixnum(slen(s)); }
 
 // index a character in a string
 char* sref(sexp s, int i)
@@ -1291,7 +1287,7 @@ sexp newchunk(const char *t)
 }
 
 // number->string (actually we will convert arbitrary s-expressions)
-sexp number2string(sexp exp)
+sexp number_string(sexp exp)
 {
     std::stringstream s;
     ugly ugly(s);
@@ -1302,7 +1298,7 @@ sexp number2string(sexp exp)
 }
 
 // make-string
-sexp makestring(sexp args)
+sexp make_string(sexp args)
 {
     if (!args || !isFixnum(args->car))
         error("make-string: args expected");
@@ -1340,7 +1336,7 @@ char* sstr(char* b, int len, sexp s)
 }
 
 // string-copy
-sexp stringcopyf(sexp s)
+sexp string_copy(sexp s)
 {
     assertString(s);
 
@@ -1349,7 +1345,7 @@ sexp stringcopyf(sexp s)
 }
 
 // string-append
-sexp stringappend(sexp p, sexp q)
+sexp string_append(sexp p, sexp q)
 {
     assertString(p);
     assertString(q);
@@ -1366,7 +1362,7 @@ sexp stringappend(sexp p, sexp q)
 }
 
 // string-fill
-sexp stringfillf(sexp s, sexp c)
+sexp string_fill(sexp s, sexp c)
 {
     assertString(s);
     assertChar(c);
@@ -1381,40 +1377,129 @@ sexp stringfillf(sexp s, sexp c)
 }
 
 // close-input-port
-sexp clinport(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); }
+sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); }
 
 // close-output-port
-sexp cloutport(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); }
+sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); }
 
 // current-input-port
-sexp curinport(sexp p) { return inport ? inport : 0; }
+sexp current_input_port(sexp p) { return inport ? inport : 0; }
 
 // current-output-port
-sexp curoutport(sexp p) { return outport ? outport : 0; }
+sexp current_output_port(sexp p) { return outport ? outport : 0; }
 
 // input-port?
-sexp inportp(sexp p) { return isInPort(p) ? t : 0; }
+sexp input_portp(sexp p) { return isInPort(p) ? t : 0; }
 
 // open-input-file
-sexp openin(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(len); sstr(b, len, p); return newinport(b); }
+sexp open_input_file(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(len); sstr(b, len, p); return newinport(b); }
 
 // open-output-file
-sexp openout(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(slen(p)+1); sstr(b, len, p); return newoutport(b); }
+sexp open_output_file(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(slen(p)+1); sstr(b, len, p); return newoutport(b); }
 
 // output-port?
-sexp outportp(sexp p) { return isOutPort(p) ? t : 0; }
+sexp output_portp(sexp p) { return isOutPort(p) ? t : 0; }
 
 // with-input-from-file
-sexp within(sexp p, sexp f) { sexp t = inport; inport = openin(p); sexp q = apply(f, 0); clinport(inport); inport = t; return q; }
+sexp with_input_from_file(sexp p, sexp f) { sexp t = inport; inport = open_input_file(p); sexp q = apply(f, 0); close_input_port(inport); inport = t; return q; }
 
 // with-output-to-file
-sexp without(sexp p, sexp f) { sexp t = outport; outport = openout(p); sexp q = apply(f, 0); cloutport(outport); outport = t; return q; }
+sexp with_output_to_file(sexp p, sexp f) { sexp t = outport; outport = open_output_file(p); sexp q = apply(f, 0); close_output_port(outport); outport = t; return q; }
 
 // call-with-input-file
-sexp callwithin(sexp p, sexp f) { sexp inp = openin(p); sexp q = apply(f, cons(inp, 0)); clinport(inp); return q; }
+sexp call_with_input_file(sexp p, sexp f) { sexp inp = open_input_file(p); sexp q = apply(f, cons(inp, 0)); close_input_port(inp); return q; }
 
 // call-with-output-file
-sexp callwithout(sexp p, sexp f) { sexp oup = openout(p); sexp q = apply(f, cons(oup, 0)); cloutport(oup); return q; }
+sexp call_with_output_file(sexp p, sexp f) { sexp oup = open_output_file(p); sexp q = apply(f, cons(oup, 0)); close_output_port(oup); return q; }
+
+// open-input-string
+sexp open_input_string(sexp args)
+{
+    sexp s = args->car;
+    int ii = 0;
+    if (args->cdr)
+        ii = asFixnum(args->cdr->car);
+    int jj = slen(s);
+    if (args->cdr->cdr)
+        jj = asFixnum(args->cdr->cdr->car);
+    if (ii < 0 || jj <= ii)
+        error("open-input-string: bad arguments");
+
+    std::stringstream* ss = new std::stringstream();
+    InPort* port = (InPort*)newcell();
+    ((Stags*)port)->stags = INPORT;
+    port->avail = 0;
+    port->peek = 0;
+    port->s = new StrPortStream(*ss);
+
+    int k = 0;
+    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    {
+        Chunk* t = (Chunk*)(p->car);
+        if (k <= ii && ii < k+sizeof(t->text))
+        {
+            for (int m = 0; m < sizeof(t->text); ++m)
+            {
+                int n = k+m;
+                if (n == jj)
+                    return (sexp)port;
+                else if (ii <= n && n < jj)
+                    ss->put(t->text[m]);
+            }
+        }
+        k += sizeof(t->text);
+    }
+}
+
+// get-output-string
+sexp get_output_string(sexp port)
+{
+    OutPort* p = (OutPort*)port;
+    std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
+    return lose(1, newcell(STRING, save(newchunk(ss->str().c_str()))));
+}
+
+// open-output-string
+sexp open_output_string(sexp args)
+{
+    std::stringstream* ss = new std::stringstream();
+    OutPort* p = (OutPort*)newcell();
+    ((Stags*)p)->stags = OUTPORT;
+    p->s = new StrPortStream(*ss);
+    return (sexp)p;
+}
+
+// call-with-output-string
+sexp call_with_output_string(sexp proc)
+{
+    sexp port = open_output_string(0);
+    apply(proc, cons(port, 0));
+    return get_output_string(port);
+}
+
+// call-with-truncated-output-string
+sexp call_with_truncated_output_string(sexp limit, sexp proc)
+{
+    // truncate somehow
+    sexp port = open_output_string(0);
+    apply(proc, cons(port, 0));
+    return get_output_string(port);
+}
+
+// write-to-string
+sexp write_to_string(sexp args)
+{
+    sexp object = args->car;
+    int limit = INT_MAX;
+    if (args->cdr)
+        limit = asFixnum(args->cdr->car);
+    std::stringstream s;
+    ugly ugly(s);
+    std::set<sexp> seenSet;
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
+    display(s, object, seenSet, ugly, true);
+    return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
+}
 
 // vector?
 sexp vectorp(sexp v) { return isVector(v) ? t : 0; }
@@ -1430,7 +1515,7 @@ sexp newvector(int len, sexp fill)
 }
 
 // make-vector
-sexp makevec(sexp args)
+sexp make_vector(sexp args)
 {
     save(args);
     int len = 0;
@@ -1443,7 +1528,7 @@ sexp makevec(sexp args)
 }
 
 // list->vector
-sexp list2vec(sexp list)
+sexp list_vector(sexp list)
 {
     save(list);
     int length = 0;
@@ -1459,7 +1544,7 @@ sexp list2vec(sexp list)
 void assertVector(sexp v) { if (!isVector(v)) error("not a vector"); }
 
 // vector->list
-sexp vec2list(sexp vector)
+sexp vector_list(sexp vector)
 {
     assertVector(vector);
     save(vector);
@@ -1472,7 +1557,7 @@ sexp vec2list(sexp vector)
 }
 
 // vector-fill
-sexp vecfill(sexp vector, sexp value)
+sexp vector_fill(sexp vector, sexp value)
 {
     assertVector(vector);
     save(value);
@@ -1485,10 +1570,10 @@ sexp vecfill(sexp vector, sexp value)
 }
 
 // vector-length
-sexp veclength(sexp vector) { assertVector(vector); save(vector); return lose(1, newfixnum(((Vector*)vector)->l)); }
+sexp vector_length(sexp vector) { assertVector(vector); save(vector); return lose(1, newfixnum(((Vector*)vector)->l)); }
 
 // vector-ref
-sexp vecref(sexp vector, sexp index) { assertFixnum(index); assertVector(vector); return ((Vector*)vector)->e[asFixnum(index)]; }
+sexp vector_ref(sexp vector, sexp index) { assertFixnum(index); assertVector(vector); return ((Vector*)vector)->e[asFixnum(index)]; }
 
 // (vector e0 e1 e2 ...)
 sexp vector(sexp args)
@@ -1505,7 +1590,7 @@ sexp vector(sexp args)
 }
 
 // vector-set
-sexp vecset(sexp vector, sexp index, sexp value)
+sexp vector_set(sexp vector, sexp index, sexp value)
 {
     assertFixnum(index);
     assertVector(vector);
@@ -1571,64 +1656,64 @@ int scmpi(sexp p, sexp q)
 }
 
 // char-alphabetic?
-sexp alphap(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : 0; }
+sexp char_alphabeticp(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : 0; }
 
 // char->integer
-sexp char2int(sexp c) { assertChar(c); return  newfixnum(((Char*)c)->ch); }
+sexp char_integer(sexp c) { assertChar(c); return  newfixnum(((Char*)c)->ch); }
 
 // char-ci=?
-sexp charcieq(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cieqp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch) ? t : 0; }
 
 // char-ci>=?
-sexp charcige(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cigep(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch) ? t : 0; }
 
 // char-ci>?
-sexp charcigt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cigtp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch) ? t : 0; }
 
 // char-ci<=?
-sexp charcile(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cilep(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch) ? t : 0; }
 
 // char-ci<?
-sexp charcilt(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_ciltp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch) ? t : 0; }
 
 // char=?
-sexp chareq(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch == ((Char*)q)->ch ? t : 0; }
+sexp char_eqp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch == ((Char*)q)->ch ? t : 0; }
 
 // char>=?
-sexp charge(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >= ((Char*)q)->ch ? t : 0; }
+sexp char_gep(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >= ((Char*)q)->ch ? t : 0; }
 
 // char>?
-sexp chargt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >  ((Char*)q)->ch ? t : 0; }
+sexp char_gtp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >  ((Char*)q)->ch ? t : 0; }
 
 // char<=?
-sexp charle(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <= ((Char*)q)->ch ? t : 0; }
+sexp char_lep(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <= ((Char*)q)->ch ? t : 0; }
 
 // char<?
-sexp charlt(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <  ((Char*)q)->ch ? t : 0; }
+sexp char_ltp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <  ((Char*)q)->ch ? t : 0; }
 
 // character?
 sexp charp(sexp c) { return isChar(c) ? t : 0; }
 
 // char-downcase
-sexp downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
+sexp char_downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
 
 // integer->char
-sexp int2char(sexp c) { assertFixnum(c); return newcharacter(asFixnum(c)); }
+sexp integer_char(sexp c) { assertFixnum(c); return newcharacter(asFixnum(c)); }
 
 // char-lowercase?
-sexp lowercasep(sexp c) { return isChar(c) && islower(((Char*)c)->ch) ? t : 0; }
+sexp char_lower_casep(sexp c) { return isChar(c) && islower(((Char*)c)->ch) ? t : 0; }
 
 // char-numeric?
-sexp numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->ch) ? t : 0; }
+sexp char_numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->ch) ? t : 0; }
 
 // char-upcase
-sexp upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)); }
+sexp char_upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)); }
 
 // char-uppercase?
-sexp uppercasep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : 0; }
+sexp char_upper_casep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : 0; }
 
 // char-whitespace?
-sexp whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
+sexp char_whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
 
 // copy the original termios then modify it for cbreak style input
 void setTermios(struct termios* original, struct termios* working, int vmin)
@@ -1644,7 +1729,7 @@ void setTermios(struct termios* original, struct termios* working, int vmin)
 }
 
 // char-ready?
-sexp readyp(sexp args)
+sexp char_readyp(sexp args)
 {
     sexp port = inport;
     if (args)
@@ -1674,7 +1759,7 @@ sexp readyp(sexp args)
 }
 
 // read-char
-sexp readchar(sexp args)
+sexp read_char(sexp args)
 {
     sexp port = inport;
     if (args)
@@ -1711,7 +1796,7 @@ sexp readchar(sexp args)
 }
 
 // peek-char
-sexp peekchar(sexp args)
+sexp peek_char(sexp args)
 {
     sexp port = inport;
     if (args)
@@ -1749,7 +1834,7 @@ sexp peekchar(sexp args)
 }
 
 // write-char
-sexp writechar(sexp args)
+sexp write_char(sexp args)
 {
     sexp port = outport;
     if (args)
@@ -1767,37 +1852,37 @@ sexp writechar(sexp args)
 sexp achunk(sexp s) { assertString(s); return ((String*)s)->chunks; }
 
 // string<=?
-sexp stringlef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <= 0 ? t : 0; }
+sexp string_lep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <= 0 ? t : 0; }
 
 // string<?
-sexp stringltf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <  0 ? t : 0; }
+sexp string_ltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <  0 ? t : 0; }
 
 // string=?
-sexp stringeqf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) == 0 ? t : 0; }
+sexp string_eqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) == 0 ? t : 0; }
 
 // string>=?
-sexp stringgef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >= 0 ? t : 0; }
+sexp string_gep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >= 0 ? t : 0; }
 
 // string>?
-sexp stringgtf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >  0 ? t : 0; }
+sexp string_gtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >  0 ? t : 0; }
 
 // string-ci-<=?
-sexp stringcilef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <= 0 ? t : 0; }
+sexp string_cilep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <= 0 ? t : 0; }
 
 // string-ci<?
-sexp stringciltf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <  0 ? t : 0; }
+sexp string_ciltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <  0 ? t : 0; }
 
 // string-ci=?
-sexp stringcieqf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) == 0 ? t : 0; }
+sexp string_cieqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) == 0 ? t : 0; }
 
 // string-ci>=?
-sexp stringcigef(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >= 0 ? t : 0; }
+sexp string_cigep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >= 0 ? t : 0; }
 
 // string-ci>?
-sexp stringcigtf(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >  0 ? t : 0; }
+sexp string_cigtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >  0 ? t : 0; }
 
 // string-ref
-sexp stringreff(sexp s, sexp i)
+sexp string_ref(sexp s, sexp i)
 {
     assertString(s);
     assertFixnum(i);
@@ -1810,7 +1895,7 @@ sexp stringreff(sexp s, sexp i)
 }
 
 // string-set!
-sexp stringsetf(sexp s, sexp k, sexp c)
+sexp string_set(sexp s, sexp k, sexp c)
 {
     assertString(s);
     assertFixnum(k);
@@ -1965,8 +2050,8 @@ sexp force(sexp p)
     return p->cdr->cdr->car;
 }
 
-// forced?
-sexp forcedp(sexp p)
+// promise_forced?
+sexp promise_forcedp(sexp p)
 {
     if (!isPromise(p))
         error("promise-forced?: not a promise");
@@ -1974,7 +2059,7 @@ sexp forcedp(sexp p)
 }
 
 // promise-value
-sexp promisev(sexp p)
+sexp promise_value(sexp p)
 {
     if (!isPromise(p))
         error("promise-value: not a promise");
@@ -2014,13 +2099,13 @@ sexp load(sexp x)
 }
 
 // space
-sexp spacef(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put(' '); return voida; }
+sexp space(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put(' '); return voida; }
 
 // newline
-sexp newlinef(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put('\n'); return voida; }
+sexp newline(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put('\n'); return voida; }
 
-// eof?
-sexp eofp(sexp a) { return eof == a ? t : 0; }
+// eof-object?
+sexp eof_objectp(sexp a) { return eof == a ? t : 0; }
 
 // display
 sexp displayf(sexp args)
@@ -2307,13 +2392,13 @@ sexp intern(sexp p)
 }
 
 // string->symbol
-sexp str2sym(sexp x) { assertString(x); return intern(newcell(ATOM, (((String*)x)->chunks))); }
+sexp string_symbol(sexp x) { assertString(x); return intern(newcell(ATOM, (((String*)x)->chunks))); }
 
 // symbol->string
-sexp sym2str(sexp x) { assertAtom(x); return newcell(STRING, ((Atom*)x)->chunks); }
+sexp symbol_string(sexp x) { assertAtom(x); return newcell(STRING, ((Atom*)x)->chunks); }
 
 // string->number (actually we will convert arbitrary s-expressions)
-sexp s2num(sexp exp)
+sexp string_number(sexp exp)
 {
     std::stringstream s;
     displayChunks(s, ((String*)exp)->chunks, false, false);
@@ -2321,8 +2406,8 @@ sexp s2num(sexp exp)
     return lose(1, r);
 }
 
-// symbol->list
-sexp s2list(sexp x)
+// string->list
+sexp string_list(sexp x)
 {
     assertString(x);
     char* b = (char*) alloca(slen(x));
@@ -2341,7 +2426,7 @@ sexp s2list(sexp x)
 }
 
 // list->string
-sexp list2s(sexp s)
+sexp list_string(sexp s)
 {
     if (!s)
         return newcell(STRING, 0);
@@ -2377,7 +2462,7 @@ sexp list2s(sexp s)
 }
 
 // string
-sexp string(sexp args) { return list2s(args); }
+sexp string(sexp args) { return list_string(args); }
 
 bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
 
@@ -2429,7 +2514,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 }
 
 // eqv?
-sexp eqv(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
+sexp eqvp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
 
 // equal?
 sexp equalp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
@@ -2533,13 +2618,13 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 }
 
 // null-environment
-sexp nulenvform(sexp exp, sexp env) { return global; }
+sexp null_environment(sexp exp, sexp env) { return global; }
 
 // interaction-environment
-sexp intenvform(sexp exp, sexp env) { return env; }
+sexp interaction_environment(sexp exp, sexp env) { return env; }
 
 // begin
-sexp beginform(sexp exp, sexp env)
+sexp begin(sexp exp, sexp env)
 {
     sexp v = 0;
     for (sexp p = exp->cdr; p; p = p->cdr)
@@ -2566,7 +2651,7 @@ sexp whileform(sexp exp, sexp env)
  *
  * the first true test returns its corresponding val
  */
-sexp condform(sexp exp, sexp env)
+sexp cond(sexp exp, sexp env)
 {
     for (sexp p = exp->cdr; p; p = p->cdr)
         if (elsea == p->car->car || eval(p->car->car, env))
@@ -2699,7 +2784,7 @@ sexp setform(sexp exp, sexp env)
 }
 
 // (let ((var val) (var val) ..) body )
-sexp letform(sexp exp, sexp env)
+sexp let(sexp exp, sexp env)
 {
     sexp* mark = psp;
     sexp e = env;
@@ -2712,7 +2797,7 @@ sexp letform(sexp exp, sexp env)
 }
 
 // (let* ((var val) (var val) ..) body )
-sexp letstarform(sexp exp, sexp env)
+sexp letstar(sexp exp, sexp env)
 {
     sexp* mark = psp;
     sexp e = env;
@@ -2725,7 +2810,7 @@ sexp letstarform(sexp exp, sexp env)
 }
 
 // (letrec ((var val) (var val) ..) body )
-sexp letrecform(sexp exp, sexp env)
+sexp letrec(sexp exp, sexp env)
 {
     sexp* mark = psp;
     sexp e = env;
@@ -3122,13 +3207,13 @@ sexp readVector(std::istream& fin, int level)
         if (eof == s)
             return 0;
         if (rbracket == s)
-            return lose(mark, list2vec(save(reverse(q))));
+            return lose(mark, list_vector(save(reverse(q))));
         while (unquote == s->car)
             s = s->cdr->car;
         q = replace(cons(s, q));
         s = scan(fin);
         if (rbracket == s)
-            return lose(mark, list2vec(save(reverse(q))));
+            return lose(mark, list_vector(save(reverse(q))));
         if (comma != s)
             error("comma expected in vector");
     }
@@ -3286,12 +3371,18 @@ int main(int argc, char **argv, char **envp)
     define(atomize("tick"),     tick);
     define(atomize("void"),     voida);
 
+    define_funct(atomize("open-input-string"), 0, (void*)open_input_string);
+    define_funct(atomize("open-output-string"), 0, (void*)open_output_string);
+    define_funct(atomize("get-output-string"),  1, (void*)get_output_string);
+    define_funct(atomize("call-with-output-string"), 1, (void*)call_with_output_string);
+    define_funct(atomize("call-with-truncated-output-string"), 2, (void*)call_with_truncated_output_string);
+    define_funct(atomize("write-to-string"), 0, (void*)write_to_string);
     define_funct(atomize("undefine"), 1, (void*)undefine);
     define_funct(atomize("scan"),     0, (void*)scanff);
-    define_funct(atomize("string->symbol"), 1, (void*)str2sym);
+    define_funct(atomize("string->symbol"), 1, (void*)string_symbol);
     define_funct(atomize("acos"), 1, (void*)acosff);
     define_funct(atomize("atom?"), 1, (void*)atomp);
-    define_funct(atomize("char-alphabetic?"), 1, (void*)alphap);
+    define_funct(atomize("char-alphabetic?"), 1, (void*)char_alphabeticp);
     define_funct(atomize("&"), 0, (void*)andf);
     define_funct(atomize("angle"), 1, (void*)angle);
     define_funct(atomize("append"), 2, (void*)append);
@@ -3300,124 +3391,124 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("atan"), 1, (void*)atanff);
     define_funct(atomize("atoms"), 0, (void*)atomsf);
     define_funct(atomize("boolean?"), 1, (void*)booleanp);
-    define_funct(atomize("call-with-input-file"), 2, (void*)callwithin);
-    define_funct(atomize("call-with-output-file"), 2, (void*)callwithout);
+    define_funct(atomize("call-with-input-file"), 2, (void*)call_with_input_file);
+    define_funct(atomize("call-with-output-file"), 2, (void*)call_with_output_file);
     define_funct(atomize("ceiling"), 1, (void*)ceilingff);
-    define_funct(atomize("char->integer"), 1, (void*)char2int);
-    define_funct(atomize("char-ci=?"), 2, (void*)charcieq);
-    define_funct(atomize("char-ci>=?"), 2, (void*)charcige);
-    define_funct(atomize("char-ci>?"), 2, (void*)charcigt);
-    define_funct(atomize("char-ci<=?"), 2, (void*)charcile);
-    define_funct(atomize("char-ci<?"), 2, (void*)charcilt);
-    define_funct(atomize("char=?"), 2, (void*)chareq);
-    define_funct(atomize("char>=?"), 2, (void*)charge);
-    define_funct(atomize("char>?"), 2, (void*)chargt);
-    define_funct(atomize("char<=?"), 2, (void*)charle);
-    define_funct(atomize("char<?"), 2, (void*)charlt);
+    define_funct(atomize("char->integer"), 1, (void*)char_integer);
+    define_funct(atomize("char-ci=?"), 2, (void*)char_cieqp);
+    define_funct(atomize("char-ci>=?"), 2, (void*)char_cigep);
+    define_funct(atomize("char-ci>?"), 2, (void*)char_cigtp);
+    define_funct(atomize("char-ci<=?"), 2, (void*)char_cilep);
+    define_funct(atomize("char-ci<?"), 2, (void*)char_ciltp);
+    define_funct(atomize("char=?"), 2, (void*)char_eqp);
+    define_funct(atomize("char>=?"), 2, (void*)char_gep);
+    define_funct(atomize("char>?"), 2, (void*)char_gtp);
+    define_funct(atomize("char<=?"), 2, (void*)char_lep);
+    define_funct(atomize("char<?"), 2, (void*)char_ltp);
     define_funct(atomize("char?"), 1, (void*)charp);
-    define_funct(atomize("close-input-port"), 1, (void*)clinport);
+    define_funct(atomize("close-input-port"), 1, (void*)close_input_port);
     define_funct(atomize("closure?"), 1, (void*)closurep);
-    define_funct(atomize("close-output-port"), 1, (void*)cloutport);
+    define_funct(atomize("close-output-port"), 1, (void*)close_output_port);
     define_funct(atomize("complex?"), 1, (void*)complexp);
     define_funct(atomize("cos"), 1, (void*)cosff);
-    define_funct(atomize("current-input-port"), 0, (void*)curinport);
-    define_funct(atomize("current-output-port"), 0, (void*)curoutport);
+    define_funct(atomize("current-input-port"), 0, (void*)current_input_port);
+    define_funct(atomize("current-output-port"), 0, (void*)current_output_port);
     define_funct(atomize("cyclic?"), 1, (void*)cyclicp);
     define_funct(atomize("display"), 0, (void*)displayf);
-    define_funct(atomize("char-downcase"), 1, (void*)downcase);
-    define_funct(atomize("exact->inexact"), 1, (void*)e2if);
-    define_funct(atomize("eof-object?"), 1, (void*)eofp);
+    define_funct(atomize("char-downcase"), 1, (void*)char_downcase);
+    define_funct(atomize("exact->inexact"), 1, (void*)exact_inexact);
+    define_funct(atomize("eof-object?"), 1, (void*)eof_objectp);
     define_funct(atomize("eval"), 2, (void*)eval);
     define_funct(atomize("exact?"), 1, (void*)exactp);
     define_funct(atomize("exp"), 1, (void*)expff);
     define_funct(atomize("floor"), 1, (void*)floorff);
     define_funct(atomize("force"), 1, (void*)force);
-    define_funct(atomize("promise-forced?"), 1, (void*)forcedp);
+    define_funct(atomize("promise-forced?"), 1, (void*)promise_forcedp);
     define_funct(atomize("gc"), 0, (void*)gc);
     define_funct(atomize("gcd"), 2, (void*)gcdf);
-    define_funct(atomize("inexact->exact"), 1, (void*)i2ef);
+    define_funct(atomize("inexact->exact"), 1, (void*)inexact_exact);
     define_funct(atomize("inexact?"), 1, (void*)inexactp);
-    define_funct(atomize("input-port?"), 1, (void*)inportp);
-    define_funct(atomize("integer->char"), 1, (void*)int2char);
+    define_funct(atomize("input-port?"), 1, (void*)input_portp);
+    define_funct(atomize("integer->char"), 1, (void*)integer_char);
     define_funct(atomize("integer?"), 1, (void*)integerp);
     define_funct(atomize("lcm"), 2, (void*)lcmf);
-    define_funct(atomize("list->string"), 1, (void*)list2s);
-    define_funct(atomize("list->vector"), 1, (void*)list2vec);
+    define_funct(atomize("list->string"), 1, (void*)list_string);
+    define_funct(atomize("list->vector"), 1, (void*)list_vector);
     define_funct(atomize("list?"), 1, (void*)listp);
     define_funct(atomize("load"), 1, (void*)load);
     define_funct(atomize("log"), 1, (void*)logff);
-    define_funct(atomize("char-lower-case?"), 1, (void*)lowercasep);
+    define_funct(atomize("char-lower-case?"), 1, (void*)char_lower_casep);
     define_funct(atomize("<<"), 2, (void*)lsh);
     define_funct(atomize("magnitude"), 1, (void*)magnitude);
-    define_funct(atomize("make-string"), 0, (void*)makestring);
-    define_funct(atomize("make-vector"), 0, (void*)makevec);
-    define_funct(atomize("newline"), 0, (void*)newlinef);
-    define_funct(atomize("number->string"), 1, (void*)number2string);
+    define_funct(atomize("make-string"), 0, (void*)make_string);
+    define_funct(atomize("make-vector"), 0, (void*)make_vector);
+    define_funct(atomize("newline"), 0, (void*)newline);
+    define_funct(atomize("number->string"), 1, (void*)number_string);
     define_funct(atomize("number?"), 1, (void*)numberp);
-    define_funct(atomize("char-numeric?"), 1, (void*)numericp);
-    define_funct(atomize("open-input-file"), 1, (void*)openin);
-    define_funct(atomize("open-output-file"), 1, (void*)openout);
-    define_funct(atomize("output-port?"), 1, (void*)outportp);
-    define_funct(atomize("peek-char"), 0, (void*)peekchar);
+    define_funct(atomize("char-numeric?"), 1, (void*)char_numericp);
+    define_funct(atomize("open-input-file"), 1, (void*)open_input_file);
+    define_funct(atomize("open-output-file"), 1, (void*)open_output_file);
+    define_funct(atomize("output-port?"), 1, (void*)output_portp);
+    define_funct(atomize("peek-char"), 0, (void*)peek_char);
     define_funct(atomize("|"), 0, (void*)orf);
     define_funct(atomize("pow"), 2, (void*)powff);
     define_funct(atomize("procedure?"), 1, (void*)procedurep);
     define_funct(atomize("promise?"), 1, (void*)promisep);
-    define_funct(atomize("promise-value"), 1, (void*)promisev);
+    define_funct(atomize("promise-value"), 1, (void*)promise_value);
     define_funct(atomize("rational?"), 1, (void*)rationalp);
     define_funct(atomize("read"), 0, (void*)readf);
-    define_funct(atomize("read-char"), 0, (void*)readchar);
-    define_funct(atomize("char-ready?"), 0, (void*)readyp);
+    define_funct(atomize("read-char"), 0, (void*)read_char);
+    define_funct(atomize("char-ready?"), 0, (void*)char_readyp);
     define_funct(atomize("real?"), 1, (void*)realp);
     define_funct(atomize("reverse"), 1, (void*)reverse);
     define_funct(atomize("round"), 1, (void*)roundff);
     define_funct(atomize(">>"), 2, (void*)rsh);
-    define_funct(atomize("string->list"), 1, (void*)s2list);
-    define_funct(atomize("string->number"), 1, (void*)s2num);
-    define_funct(atomize("set-car!"), 2, (void*)setcarf);
-    define_funct(atomize("set-cdr!"), 2, (void*)setcdrf);
+    define_funct(atomize("string->list"), 1, (void*)string_list);
+    define_funct(atomize("string->number"), 1, (void*)string_number);
+    define_funct(atomize("set-car!"), 2, (void*)set_car);
+    define_funct(atomize("set-cdr!"), 2, (void*)set_cdr);
     define_funct(atomize("sin"), 1, (void*)sinff);
-    define_funct(atomize("space"), 0, (void*)spacef);
+    define_funct(atomize("space"), 0, (void*)space);
     define_funct(atomize("sqrt"), 1, (void*)sqrtff);
     define_funct(atomize("string"), 0, (void*)string);
-    define_funct(atomize("string-append"), 2, (void*)stringappend);
-    define_funct(atomize("string-ci=?"), 2, (void*)stringcieqf);
-    define_funct(atomize("string-ci>=?"), 2, (void*)stringcigef);
-    define_funct(atomize("string-ci>?"), 2, (void*)stringcigtf);
-    define_funct(atomize("string-ci<=?"), 2, (void*)stringcilef);
-    define_funct(atomize("string-ci<?"), 2, (void*)stringciltf);
-    define_funct(atomize("string-copy"), 1, (void*)stringcopyf);
-    define_funct(atomize("string=?"), 2, (void*)stringeqf);
-    define_funct(atomize("string-fill!"), 2, (void*)stringfillf);
-    define_funct(atomize("string>=?"), 2, (void*)stringgef);
-    define_funct(atomize("string>?"), 2, (void*)stringgtf);
-    define_funct(atomize("string<=?"), 2, (void*)stringlef);
-    define_funct(atomize("string-length"), 1, (void*)stringlengthf);
-    define_funct(atomize("string<?"), 2, (void*)stringltf);
+    define_funct(atomize("string-append"), 2, (void*)string_append);
+    define_funct(atomize("string-ci=?"), 2, (void*)string_cieqp);
+    define_funct(atomize("string-ci>=?"), 2, (void*)string_cigep);
+    define_funct(atomize("string-ci>?"), 2, (void*)string_cigtp);
+    define_funct(atomize("string-ci<=?"), 2, (void*)string_cilep);
+    define_funct(atomize("string-ci<?"), 2, (void*)string_ciltp);
+    define_funct(atomize("string-copy"), 1, (void*)string_copy);
+    define_funct(atomize("string=?"), 2, (void*)string_eqp);
+    define_funct(atomize("string-fill!"), 2, (void*)string_fill);
+    define_funct(atomize("string>=?"), 2, (void*)string_gep);
+    define_funct(atomize("string>?"), 2, (void*)string_gtp);
+    define_funct(atomize("string<=?"), 2, (void*)string_lep);
+    define_funct(atomize("string-length"), 1, (void*)string_length);
+    define_funct(atomize("string<?"), 2, (void*)string_ltp);
     define_funct(atomize("string?"), 1, (void*)stringp);
-    define_funct(atomize("string-ref"), 2, (void*)stringreff);
-    define_funct(atomize("string-set!"), 3, (void*)stringsetf);
+    define_funct(atomize("string-ref"), 2, (void*)string_ref);
+    define_funct(atomize("string-set!"), 3, (void*)string_set);
     define_funct(atomize("substring"), 0, (void*)substringf);
-    define_funct(atomize("symbol->string"), 1, (void*)sym2str);
+    define_funct(atomize("symbol->string"), 1, (void*)symbol_string);
     define_funct(atomize("symbol?"), 1, (void*)symbolp);
     define_funct(atomize("tan"), 1, (void*)tanff);
     define_funct(atomize("~"), 1, (void*)complement);
     define_funct(atomize("trace"), 1, (void*)trace);
     define_funct(atomize("truncate"), 1, (void*)truncateff);
-    define_funct(atomize("char-upcase"), 1, (void*)upcase);
-    define_funct(atomize("char-upper-case?"), 1, (void*)uppercasep);
-    define_funct(atomize("vector->list"), 1, (void*)vec2list);
+    define_funct(atomize("char-upcase"), 1, (void*)char_upcase);
+    define_funct(atomize("char-upper-case?"), 1, (void*)char_upper_casep);
+    define_funct(atomize("vector->list"), 1, (void*)vector_list);
     define_funct(atomize("vector"), 0, (void*)vector);
-    define_funct(atomize("vector-fill!"), 2, (void*)vecfill);
-    define_funct(atomize("vector-length"), 1, (void*)veclength);
+    define_funct(atomize("vector-fill!"), 2, (void*)vector_fill);
+    define_funct(atomize("vector-length"), 1, (void*)vector_length);
     define_funct(atomize("vector?"), 1, (void*)vectorp);
-    define_funct(atomize("vector-ref"), 2, (void*)vecref);
-    define_funct(atomize("vector-set!"), 3, (void*)vecset);
-    define_funct(atomize("char-whitespace?"), 1, (void*)whitespacep);
-    define_funct(atomize("with-input-from-file"), 2, (void*)within);
-    define_funct(atomize("with-output-to-file"), 2, (void*)without);
+    define_funct(atomize("vector-ref"), 2, (void*)vector_ref);
+    define_funct(atomize("vector-set!"), 3, (void*)vector_set);
+    define_funct(atomize("char-whitespace?"), 1, (void*)char_whitespacep);
+    define_funct(atomize("with-input-from-file"), 2, (void*)with_input_from_file);
+    define_funct(atomize("with-output-to-file"), 2, (void*)with_output_to_file);
     define_funct(atomize("write"), 0, (void*)writef);
-    define_funct(atomize("write-char"), 0, (void*)writechar);
+    define_funct(atomize("write-char"), 0, (void*)write_char);
     define_funct(atomize("^"), 0, (void*)xorf);
     define_funct(atomize("null?"), 1, (void*)nullp);
     define_funct(atomize("pair?"), 1, (void*)pairp);
@@ -3427,14 +3518,14 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("/"), 0, (void*)unidiv);
     define_funct(atomize("not"), 1, (void*)isnot);
     define_funct(atomize("neg"), 1, (void*)negf);
-    define_funct(atomize("<"), 2, (void*)lt);
-    define_funct(atomize("<="), 2, (void*)le);
-    define_funct(atomize(">="), 2, (void*)ge);
-    define_funct(atomize(">"), 2, (void*)gt);
+    define_funct(atomize("<"), 2, (void*)ltp);
+    define_funct(atomize("<="), 2, (void*)lep);
+    define_funct(atomize(">="), 2, (void*)gep);
+    define_funct(atomize(">"), 2, (void*)gtp);
     define_funct(atomize("eq?"), 2, (void*)eqp);
     define_funct(atomize("="), 2, (void*)eqnp);
     define_funct(atomize("equal?"), 2, (void*)equalp);
-    define_funct(atomize("eqv?"), 2, (void*)eqv);
+    define_funct(atomize("eqv?"), 2, (void*)eqvp);
     define_funct(atomize("+"), 0, (void*)uniadd);
     define_funct(atomize("-"), 0, (void*)unisub);
     define_funct(atomize("*"), 0, (void*)unimul);
@@ -3442,17 +3533,17 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("cdr"), 1, (void*)cdr);
     define_funct(atomize("cons"), 2, (void*)cons);
 
-    define_form(atomize("begin"), beginform);
+    define_form(atomize("begin"), begin);
     define_form(atomize("bound?"), boundp);
-    define_form(atomize("cond"), condform);
+    define_form(atomize("cond"), cond);
     define_form(atomize("define"), defineform);
     define_form(atomize("delay"), delayform);
     define_form(atomize("do"), doform);
-    define_form(atomize("interaction-environment"), intenvform);
-    define_form(atomize("null-environment"), nulenvform);
-    define_form(atomize("let"), letform);
-    define_form(atomize("let*"), letstarform);
-    define_form(atomize("letrec"), letrecform);
+    define_form(atomize("interaction-environment"), interaction_environment);
+    define_form(atomize("null-environment"), null_environment);
+    define_form(atomize("let"), let);
+    define_form(atomize("let*"), letstar);
+    define_form(atomize("letrec"), letrec);
     define_form(atomize("quasiquote"), quasiquoteform);
     define_form(atomize("set!"), setform);
     define_form(atomize("while"), whileform);
