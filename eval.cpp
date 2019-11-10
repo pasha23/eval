@@ -174,9 +174,7 @@ struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
 struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 
-/*
- * not pretty yet
- */
+// supports uglyprinting
 class ugly
 {
     static const int tabs = 2;
@@ -367,9 +365,21 @@ void mark(sexp p)
     markCell(p);
 }
 
-void deleteinport(sexp v) { PortStream* f = ((InPort*)v)->s; ((InPort*)v)->s = 0; if (f != &cinStream) delete f; }
+void deleteinport(sexp v)
+{
+    PortStream* f = ((InPort*)v)->s;
+    ((InPort*)v)->s = 0;
+    if (f != &cinStream)
+        delete f;
+}
 
-void deleteoutport(sexp v) { PortStream* f = ((OutPort*)v)->s; ((OutPort*)v)->s = 0; if (f != &coutStream && f != &cerrStream) delete f; }
+void deleteoutport(sexp v)
+{
+    PortStream* f = ((OutPort*)v)->s;
+    ((OutPort*)v)->s = 0;
+    if (f != &coutStream && f != &cerrStream)
+        delete f;
+}
 
 void deletevector(sexp v) { delete ((Vector*)v)->e; }
 
@@ -394,10 +404,10 @@ sexp gc(sexp args)
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
 
-    int weremark = marked;
-    int reclaimed = 0;
-
     freelist = 0;
+    int reclaimed = 0;
+    int weremark = marked;
+
     for (sexp p = block; p < block+MAX; ++p)
     {
         if (!isMarked(p))
@@ -564,12 +574,7 @@ sexp set_cdr(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pai
 sexp andform(sexp p, sexp env)
 {
     sexp q = t;
-    while (p = p->cdr)
-    {
-        q = eval(p->car, env);
-        if (!q)
-            break;
-    }
+    while ((p = p->cdr) && (q = eval(p->car, env))) {}
     return q;
 }
 
@@ -577,12 +582,7 @@ sexp andform(sexp p, sexp env)
 sexp orform(sexp p, sexp env)
 {
     sexp q = 0;
-    while (p = p->cdr)
-    {
-        q = eval(p->car, env);
-        if (q)
-            break;
-    }
+    while ((p = p->cdr) && 0 == (q = eval(p->car, env))) {}
     return q;
 }
 
@@ -833,7 +833,7 @@ sexp complex_div(sexp z, sexp w)
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
-// +
+// x0 + x1 + x2 ...
 sexp uniadd(sexp l)
 {
     sexp* mark = psp;
@@ -891,7 +891,7 @@ sexp uniadd(sexp l)
     return lose(mark, sum);
 }
 
-// -
+// - x
 sexp negf(sexp x)
 {
     if (isFixnum(x))
@@ -905,9 +905,9 @@ sexp negf(sexp x)
     error("neg: not a number");
 }
 
-// - x
-// x - y
-// x - y - z - w ...
+// - x0
+// x0 - x1
+// x0 - x1 - x2 - x3 ...
 sexp unisub(sexp l)
 {
     if (!l)
@@ -917,7 +917,7 @@ sexp unisub(sexp l)
     return lose(1, uniadd(replace(cons(l->car, replace(cons(replace(negf(save(uniadd(l->cdr)))), 0))))));
 }
 
-// *
+// x0 * x1 * x2 ...
 sexp unimul(sexp l)
 {
     sexp* mark = psp;
@@ -982,7 +982,7 @@ sexp unimul(sexp l)
     return lose(mark, product);
 }
 
-// /
+// x0 / x1 / x2 ...
 sexp unidiv(sexp l)
 {
     sexp* mark = psp;
@@ -1051,7 +1051,7 @@ sexp rational_mod(sexp x, sexp y)
 
 sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
-// %
+// x0 % x1 % x2 ...
 sexp unimod(sexp l)
 {
     sexp* mark = psp;
@@ -2024,7 +2024,7 @@ sexp eqnp(sexp x, sexp y)
         return 0;
 }
 
-// ~ fixnum
+// ~ x
 sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : 0; }
 
 // all arguments must be fixnums for these logical operations
@@ -2036,7 +2036,7 @@ sexp allfixnums(sexp args)
     return t;
 }
 
-// &
+// x0 & x1 & x2 ...
 sexp andf(sexp args)
 {
     if (allfixnums(save(args))) {
@@ -2048,7 +2048,7 @@ sexp andf(sexp args)
         return lose(1, 0);
 }
 
-// |
+// x0 | x1 | x2 ...
 sexp orf(sexp args)
 {
     if (allfixnums(save(args))) {
@@ -2060,7 +2060,7 @@ sexp orf(sexp args)
         return lose(1, 0);
 }
 
-// ^
+// x0 ^ x1 ^ x2 ...
 sexp xorf(sexp args)
 {
     if (allfixnums(save(args))) {
@@ -2105,10 +2105,9 @@ sexp promise_value(sexp p)
 {
     if (!isPromise(p))
         error("promise-value: not a promise");
-    if (p->cdr->car)
-        return p->cdr->cdr->car;
-    else
+    if (!p->cdr->car)
         error("promise not forced yet");
+    return p->cdr->cdr->car;
 }
 
 // load
@@ -2228,10 +2227,6 @@ bool cyclic(sexp exp) { std::set<sexp> seenSet; return cyclic(seenSet, exp); }
 // cyclic?
 sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
 
-bool safe(std::set<sexp>& seenSet, sexp exp) { return seenSet.find(exp) == seenSet.end(); }
-
-void insert(std::set<sexp>& seenSet, sexp exp) { seenSet.insert(exp); }
-
 // for prettyprinting
 int displayLength(sexp exp)
 {
@@ -2246,14 +2241,14 @@ std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ug
 {
     s << '(';
     level += 2;
-    while (exp && safe(seenSet, exp))
+    while (exp && seenSet.find(exp) == seenSet.end())
     {
         display(s, exp->car, seenSet, ugly, level+2, write);
-        insert(seenSet, exp);
+        seenSet.insert(exp);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
             {
-                if (safe(seenSet, exp->cdr))
+                if (seenSet.find(exp->cdr) == seenSet.end())
                 {
                     if (write)
                         s << ' ';
@@ -2282,7 +2277,7 @@ std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ug
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        if (safe(seenSet, vv->e[i]))
+        if (seenSet.find(vv->e[i]) == seenSet.end())
             display(s, vv->e[i], seenSet, ugly, level+2, write);
         if (i < vv->l-1)
         {
@@ -2374,19 +2369,25 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
         return s;
     } else if (isCons(exp)) {
         bool quoted = false;
-        if      (quote           == exp->car) { quoted = true; s << '\''; }
-        else if (quasiquote      == exp->car) { quoted = true; s <<  '`'; }
-        else if (unquote         == exp->car) { quoted = true; s <<  ','; }
-        else if (unquotesplicing == exp->car) { quoted = true; s << ",@"; }
-        if (quoted) {
+        if (isCons(exp->cdr))
+        {
+            quoted = true;
+            if      (quote           == exp->car) s << '\'';
+            else if (quasiquote      == exp->car) s <<  '`';
+            else if (unquote         == exp->car) s <<  ',';
+            else if (unquotesplicing == exp->car) s << ",@";
+            else quoted = false;
+        }
+
+        if (quoted)
             display(s, exp->cdr->car, seenSet, ugly, level, write);
-        } else if (isRational(exp)) {
+        else if (isRational(exp))
             s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
-        } else if (isClosure(exp)) {
+        else if (isClosure(exp))
             displayNamed(s, "closure", exp, write);
-        } else if (isPromise(exp)) {
+        else if (isPromise(exp))
             displayNamed(s, "promise", exp, write);
-        } else if (isComplex(exp)) {
+        else if (isComplex(exp)) {
             if (isRational(exp->cdr->car))
                 s << asFixnum(exp->cdr->car->cdr->car) << '/' << asFixnum(exp->cdr->car->cdr->cdr->car);
             else
@@ -2402,7 +2403,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
                     s << asFlonum(exp->cdr->cdr->car);
                 s << 'i';
             }
-        } else if (safe(seenSet, exp))
+        } else if (seenSet.find(exp) == seenSet.end())
             displayList(s, exp, seenSet, ugly, level, write);
         return s;
     }
@@ -2421,7 +2422,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
     case INPORT:  displayNamed(s, "input", exp, write);                     break;
     case OUTPORT: displayNamed(s, "output", exp, write);                    break;
     case CHAR:    displayChar(s, exp, write);                               break;
-    case VECTOR:  if (safe(seenSet, exp))
+    case VECTOR:  if (seenSet.find(exp) == seenSet.end())
                     displayVector(s, exp, seenSet, ugly, level, write);
     }
     return s;
@@ -2556,8 +2557,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
         return false;
     if (isCons(x) && isCons(y))
     {
-        if (seenx.find(x) != seenx.end() &&
-            seeny.find(y) != seeny.end())
+        if (seenx.find(x) != seenx.end() && seeny.find(y) != seeny.end())
             return true;
         seenx.insert(x);
         seeny.insert(y);
