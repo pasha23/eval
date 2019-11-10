@@ -179,23 +179,19 @@ struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
  */
 class ugly
 {
-    static const int tabs = 4;
+    static const int tabs = 2;
     static const int eol = 70;
 
     std::ostream& s;
     std::streampos pos;
-    int level;
 public:
-    ugly(std::ostream& s) : s(s) { level = 0; pos = s.tellp(); }
-    void enter() { level += tabs; if (s.tellp() - pos > eol) newline(); }
-    void leave() { level -= tabs; }
-    void wrapminor() { if (s.tellp() - pos > eol) newline(); else space(); }
-    void wrapmajor() { if (s.tellp() - pos > eol-tabs-tabs) newline(); else space(); }
-    void newline() { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
+    ugly(std::ostream& s) : s(s) { pos = s.tellp(); }
+    void wrap(int level, int length) { if (s.tellp() - pos + length > eol) newline(level); else space(); }
+    void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space() { s << ' '; }
 };
 
-std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, bool write);
+std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, int level, bool write);
 
 static inline int  shortType(const sexp p) { return                   ((Stags*)p)->stags; }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -249,7 +245,7 @@ bool isRational(sexp p)
 // rational?
 sexp rationalp(sexp s) { return isRational(s) ? t : 0; }
 
-static inline bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p) || isRational(p); }
+bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p) || isRational(p); }
 
 bool isComplex(sexp p)
 {
@@ -294,7 +290,7 @@ sexp save(sexp p)
 /*
  * replace the top of the protection stack, return it
  */
-sexp replace(sexp p) { return *psp = p; }
+static inline sexp replace(sexp p) { return *psp = p; }
 
 /*
  * pop n items from the protection stack then return p
@@ -310,7 +306,7 @@ sexp lose(int n, sexp p)
     return p;
 }
 
-sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
+static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 
 static inline void markCell(sexp p) { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
 
@@ -465,11 +461,10 @@ sexp newcell(void)
 
 sexp newcell(short stags, sexp car)
 {
-    save(car);
     Stags* t = (Stags*)newcell();
     t->stags = stags;
     t->car = car;
-    return lose(1, (sexp)t);
+    return (sexp)t;
 }
 
 sexp newfixnum(long number)
@@ -769,9 +764,9 @@ sexp rational_reduce(long n, long d)
         return newrational(ng, dg);
 }
 
-long num(sexp x) { return asFixnum(x->cdr->car); }
+static inline long num(sexp x) { return asFixnum(x->cdr->car); }
 
-long den(sexp x) { return asFixnum(x->cdr->cdr->car); }
+static inline long den(sexp x) { return asFixnum(x->cdr->cdr->car); }
 
 sexp rational_add(sexp x, sexp y)
 {
@@ -842,30 +837,30 @@ sexp complex_div(sexp z, sexp w)
 sexp uniadd(sexp l)
 {
     sexp* mark = psp;
-    sexp sum = replace(l->car);
-    save(sum); save(l);
+    sexp sum = l->car;
+    save(l); save(sum);
     while (l = l->cdr) {
         sexp x = l->car;
         if (isFixnum(sum)) {
             if (isFixnum(x))
                 sum = replace(newfixnum(asFixnum(sum) + asFixnum(x)));
             else if (isRational(x))
-                sum = replace(rational_add(newrational(asFixnum(sum), 1), x));
+                sum = replace(rational_add(replace(newrational(asFixnum(sum), 1)), x));
             else if (isFlonum(x))
                 sum = replace(newflonum((double)asFixnum(sum) + asFlonum(x)));
             else if (isComplex(x))
-                sum = replace(complex_add(newcomplex((double)asFixnum(sum), 0.0), x));
+                sum = replace(complex_add(replace(newcomplex((double)asFixnum(sum), 0.0)), x));
             else
                 error("not a number");
         } else if (isRational(sum)) {
             if (isFixnum(x))
-                sum = replace(rational_add(sum, newrational(asFixnum(x), 1)));
+                sum = replace(rational_add(sum, save(newrational(asFixnum(x), 1))));
             else if (isRational(x))
                 sum = replace(rational_add(sum, x));
             else if (isFlonum(x))
                 sum = replace(newflonum(rat2real(sum) + asFlonum(x)));
             else if (isComplex(x))
-                sum = replace(complex_add(newcomplex(rat2real(sum), 0.0), x));
+                sum = replace(complex_add(save(newcomplex(rat2real(sum), 0.0)), x));
             else
                 error("not a number");
         } else if (isFlonum(sum)) {
@@ -876,16 +871,16 @@ sexp uniadd(sexp l)
             else if (isFlonum(x))
                 sum = replace(newflonum(asFlonum(sum) + asFlonum(x)));
             else if (isComplex(x))
-                sum = replace(complex_add(newcomplex(asFlonum(sum), 0.0), x));
+                sum = replace(complex_add(save(newcomplex(asFlonum(sum), 0.0)), x));
             else
                 error("not a number");
         } else if (isComplex(sum)) {
             if (isFixnum(x))
-                sum = replace(complex_add(sum, newcomplex((double)asFixnum(x), 0.0)));
+                sum = replace(complex_add(sum, save(newcomplex((double)asFixnum(x), 0.0))));
             else if (isRational(x))
-                sum = replace(complex_add(sum, newcomplex(rat2real(x), 0.0)));
+                sum = replace(complex_add(sum, save(newcomplex(rat2real(x), 0.0))));
             else if (isFlonum(x))
-                sum = replace(complex_add(sum, newcomplex(asFlonum(x), 0.0)));
+                sum = replace(complex_add(sum, save(newcomplex(asFlonum(x), 0.0))));
             else if (isComplex(x))
                 sum = replace(complex_add(sum, x));
             else
@@ -919,7 +914,7 @@ sexp unisub(sexp l)
         return newfixnum(0);
     if (!l->cdr)
         return negf(l->car);
-    return lose(2, uniadd(save(cons(l->car, replace(cons(negf(save(uniadd(l->cdr))), 0))))));
+    return lose(1, uniadd(replace(cons(l->car, replace(cons(replace(negf(save(uniadd(l->cdr)))), 0))))));
 }
 
 // *
@@ -935,16 +930,16 @@ sexp unimul(sexp l)
             if (isFixnum(x))
                 product = replace(newfixnum(asFixnum(product) * asFixnum(x)));
             else if (isRational(x))
-                product = replace(rational_mul(newrational(asFixnum(product), 1), x));
+                product = replace(rational_mul(save(newrational(asFixnum(product), 1)), x));
             else if (isFlonum(x))
                 product = replace(newflonum((double)asFixnum(product) * asFlonum(x)));
             else if (isComplex(x))
-                product = replace(complex_mul(newcomplex((double)asFixnum(product), 0.0), x));
+                product = replace(complex_mul(save(newcomplex((double)asFixnum(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isRational(product)) {
             if (isFixnum(x))
-                product = replace(rational_mul(product, newrational(asFixnum(x), 1)));
+                product = replace(rational_mul(product, save(newrational(asFixnum(x), 1))));
             else if (isRational(x))
                 product = replace(rational_mul(product, x));
             else if (isFlonum(x))
@@ -968,15 +963,15 @@ sexp unimul(sexp l)
             if (isFixnum(x)) {
                 double re = realpart(product) * (double)asFixnum(x);
                 double im = realpart(product) * (double)asFixnum(x);
-                return 0.0 == im ? newflonum(re) : newcomplex(re, im);
+                product = replace(0.0 == im ? newflonum(re) : newcomplex(re, im));
             } else if (isRational(x)) {
                 double re = realpart(product) * rat2real(x);
                 double im = realpart(product) * rat2real(x);
-                return 0.0 == im ? newflonum(re) : newcomplex(re, im);
+                product = replace(0.0 == im ? newflonum(re) : newcomplex(re, im));
             } else if (isFlonum(x)) {
                 double re = realpart(product) * asFlonum(x);
                 double im = realpart(product) * asFlonum(x);
-                return 0.0 == im ? newflonum(re) : newcomplex(re, im);
+                product = replace(0.0 == im ? newflonum(re) : newcomplex(re, im));
             } else if (isComplex(x))
                 product = replace(complex_mul(product, x));
             else
@@ -1000,22 +995,22 @@ sexp unidiv(sexp l)
             if (isFixnum(x))
                 product = replace(rational_reduce(asFixnum(product), asFixnum(x)));
             else if (isRational(x))
-                product = replace(rational_div(newrational(asFixnum(product), 1), x));
+                product = replace(rational_div(replace(newrational(asFixnum(product), 1)), x));
             else if (isFlonum(x))
                 product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
             else if (isComplex(x))
-                product = replace(complex_div(newcomplex((double)asFixnum(product), 0.0), x));
+                product = replace(complex_div(replace(newcomplex((double)asFixnum(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isRational(product)) {
             if (isFixnum(x))
-                product = replace(rational_div(product, newrational(asFixnum(x), 1)));
+                product = replace(rational_div(product, save(newrational(asFixnum(x), 1))));
             else if (isRational(x))
                 product = replace(rational_div(product, x));
             else if (isFlonum(x))
                 product = replace(newflonum(rat2real(product) / asFlonum(x)));
             else if (isComplex(x))
-                product = replace(complex_div(newcomplex(rat2real(product), 0.0), x));
+                product = replace(complex_div(replace(newcomplex(rat2real(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isFlonum(product)) {
@@ -1026,16 +1021,16 @@ sexp unidiv(sexp l)
             else if (isFlonum(x))
                 product = replace(newflonum(asFlonum(product) / asFlonum(x)));
             else if (isComplex(x))
-                product = replace(complex_div(newcomplex(asFlonum(product), 0.0), x));
+                product = replace(complex_div(replace(newcomplex(asFlonum(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isComplex(product)) {
             if (isFixnum(x))
-                product = replace(complex_div(product, newcomplex((double)asFixnum(x), 0.0)));
+                product = replace(complex_div(product, save(newcomplex((double)asFixnum(x), 0.0))));
             else if (isRational(x))
                 product = replace(newcomplex(realpart(product)/rat2real(x), imagpart(product)/rat2real(x)));
             else if (isFlonum(x))
-                product = replace(complex_div(product, newcomplex(asFlonum(x), 0.0)));
+                product = replace(complex_div(product, save(newcomplex(asFlonum(x), 0.0))));
             else if (isComplex(x))
                 product = replace(complex_div(product, x));
             else
@@ -1069,22 +1064,22 @@ sexp unimod(sexp l)
             if (isFixnum(x))
                 product = replace(newfixnum(asFixnum(product) % asFixnum(x)));
             else if (isRational(x))
-                product = replace(rational_mod(newrational(asFixnum(product), 1), x));
+                product = replace(rational_mod(replace(newrational(asFixnum(product), 1)), x));
             else if (isFlonum(x))
                 product = replace(newflonum(fmod((double)asFixnum(product), asFlonum(x))));
             else if (isComplex(x))
-                product = replace(complex_mod(newcomplex((double)asFixnum(product), 0.0), x));
+                product = replace(complex_mod(replace(newcomplex((double)asFixnum(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isRational(product)) {
             if (isFixnum(x))
-                product = replace(rational_mod(product, newrational(asFixnum(x), 1)));
+                product = replace(rational_mod(product, save(newrational(asFixnum(x), 1))));
             else if (isRational(x))
                 product = replace(rational_mod(product, x));
             else if (isFlonum(x))
                 product = replace(newflonum(fmod(rat2real(product), asFlonum(x))));
             else if (isComplex(x))
-                product = replace(complex_mod(newcomplex(rat2real(product), 0.0), x));
+                product = replace(complex_mod(replace(newcomplex(rat2real(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isFlonum(product)) {
@@ -1095,7 +1090,7 @@ sexp unimod(sexp l)
             else if (isFlonum(x))
                 product = replace(newflonum(fmod(asFlonum(product), asFlonum(x))));
             else if (isComplex(x))
-                product = replace(complex_mod(newcomplex(asFlonum(product), 0.0), x));
+                product = replace(complex_mod(replace(newcomplex(asFlonum(product), 0.0)), x));
             else
                 error("not a number");
         } else if (isComplex(product)) {
@@ -1294,7 +1289,7 @@ sexp number_string(sexp exp)
     ugly ugly(s);
     std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    display(s, exp, seenSet, ugly, true);
+    display(s, exp, seenSet, ugly, 0, true);
     return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
@@ -1540,7 +1535,7 @@ sexp write_to_string(sexp args)
     ugly ugly(s);
     std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    display(s, object, seenSet, ugly, true);
+    display(s, object, seenSet, ugly, 0, true);
     return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
@@ -2163,7 +2158,7 @@ sexp displayf(sexp args)
     std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(s, args->car, seenSet, ugly, false);
+    display(s, args->car, seenSet, ugly, 0, false);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
@@ -2177,7 +2172,7 @@ sexp writef(sexp args)
     std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(s, args->car, seenSet, ugly, true);
+    display(s, args->car, seenSet, ugly, 0, true);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
@@ -2237,62 +2232,69 @@ bool safe(std::set<sexp>& seenSet, sexp exp) { return seenSet.find(exp) == seenS
 
 void insert(std::set<sexp>& seenSet, sexp exp) { seenSet.insert(exp); }
 
-std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
+// for prettyprinting
+int displayLength(sexp exp)
 {
-    ugly.enter();
+    std::set<sexp> seenSet;
+    std::stringstream ss;
+    ugly ugly(ss);
+    display(ss, exp, seenSet, ugly, 0, true);
+    return ss.str().length();
+}
+
+std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
+{
     s << '(';
-    while (exp && safe(seenSet, exp)) {
-        display(s, exp->car, seenSet, ugly, write);
+    level += 2;
+    while (exp && safe(seenSet, exp))
+    {
+        display(s, exp->car, seenSet, ugly, level+2, write);
         insert(seenSet, exp);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
             {
                 if (safe(seenSet, exp->cdr))
                 {
-                    exp = exp->cdr;
                     if (write)
                         s << ' ';
-                    else if (isCons(exp->car) || isVector(exp->car))
-                        ugly.wrapmajor();
                     else
-                        ugly.wrapminor();
+                        ugly.wrap(level, displayLength(exp->cdr->car));
+                    exp = exp->cdr;
                 }
             } else {
                 s << " . ";
                 exp = exp->cdr;
-                display(s, exp, seenSet, ugly, write);
+                display(s, exp, seenSet, ugly, level+2, write);
                 exp = 0;
             }
         } else
             exp = exp->cdr;
     }
+    level -= 2;
     s << ')';
-    ugly.leave();
     return s;
 }
 
-std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
 {
-    ugly.enter();
     s << '[';
+    level += 2;
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
         if (safe(seenSet, vv->e[i]))
-            display(s, vv->e[i], seenSet, ugly, write);
+            display(s, vv->e[i], seenSet, ugly, level+2, write);
         if (i < vv->l-1)
         {
             s << ",";
             if (write)
                 s << ' ';
-            else if (isCons(vv->e[i]) || isVector(vv->e[i]))
-                ugly.wrapmajor();
             else
-                ugly.wrapminor();
+                ugly.wrap(level, displayLength(vv->e[i+1]));
         }
     }
+    level -= 2;
     s << ']';
-    ugly.leave();
     return s;
 }
 
@@ -2364,20 +2366,27 @@ std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
     return s;
 }
 
-std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, bool write)
+std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
 {
     if (!exp)
     {
         s << "#f";
         return s;
     } else if (isCons(exp)) {
-        if (isRational(exp))
+        bool quoted = false;
+        if      (quote           == exp->car) { quoted = true; s << '\''; }
+        else if (quasiquote      == exp->car) { quoted = true; s <<  '`'; }
+        else if (unquote         == exp->car) { quoted = true; s <<  ','; }
+        else if (unquotesplicing == exp->car) { quoted = true; s << ",@"; }
+        if (quoted) {
+            display(s, exp->cdr->car, seenSet, ugly, level, write);
+        } else if (isRational(exp)) {
             s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
-        else if (isClosure(exp))
+        } else if (isClosure(exp)) {
             displayNamed(s, "closure", exp, write);
-        else if (isPromise(exp))
+        } else if (isPromise(exp)) {
             displayNamed(s, "promise", exp, write);
-        else if (isComplex(exp)) {
+        } else if (isComplex(exp)) {
             if (isRational(exp->cdr->car))
                 s << asFixnum(exp->cdr->car->cdr->car) << '/' << asFixnum(exp->cdr->car->cdr->cdr->car);
             else
@@ -2394,7 +2403,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
                 s << 'i';
             }
         } else if (safe(seenSet, exp))
-            displayList(s, exp, seenSet, ugly, write);
+            displayList(s, exp, seenSet, ugly, level, write);
         return s;
     }
 
@@ -2413,7 +2422,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
     case OUTPORT: displayNamed(s, "output", exp, write);                    break;
     case CHAR:    displayChar(s, exp, write);                               break;
     case VECTOR:  if (safe(seenSet, exp))
-                    displayVector(s, exp, seenSet, ugly, write);
+                    displayVector(s, exp, seenSet, ugly, level, write);
     }
     return s;
 }
@@ -2429,7 +2438,7 @@ void debug(const char *label, sexp exp)
     if (voida == exp)
         s << "void";
     else
-        display(s, exp, seenSet, ugly, true);
+        display(s, exp, seenSet, ugly, 0, true);
     s << '\n';
     std::cout.write(s.str().c_str(), s.str().length());
 }
@@ -2448,10 +2457,10 @@ sexp intern(sexp p)
 }
 
 // string->symbol
-sexp string_symbol(sexp x) { assertString(x); return intern(newcell(ATOM, (((String*)x)->chunks))); }
+sexp string_symbol(sexp x) { assertString(x); return lose(1, intern(newcell(ATOM, save((((String*)x)->chunks))))); }
 
 // symbol->string
-sexp symbol_string(sexp x) { assertAtom(x); return newcell(STRING, ((Atom*)x)->chunks); }
+sexp symbol_string(sexp x) { assertAtom(x); return lose(1, newcell(STRING, save(((Atom*)x)->chunks))); }
 
 // string->number (actually we will convert arbitrary s-expressions)
 sexp string_number(sexp exp)
@@ -3182,19 +3191,10 @@ sexp scans(std::istream& fin)
     fin.unget();
 
     NumStatus status, rstatus, istatus;
+
     c = scanNumber(s, fin, rstatus);
 
-    if (NON_NUMERIC < rstatus && '+' == c)
-    {
-        s << (char)fin.get();
-        c = scanNumber(s, fin, istatus);
-        if ('i' == c)
-        {
-            s << (char)fin.get();
-            status = COMPLEX;
-        }
-    }
-    else if (NON_NUMERIC < status && '-' == c)
+    if (NON_NUMERIC < rstatus && ('+' == c || '-' == c))
     {
         s << (char)fin.get();
         c = scanNumber(s, fin, istatus);
@@ -3223,11 +3223,8 @@ sexp scans(std::istream& fin)
             s.get();    // /
             s >> rden;
             real = save(rational_reduce(rnum, rden));
-        } else {
-            double re;
-            s >> re;
-            real = save(newflonum(re));
-        }
+        } else
+            { double re; s >> re; real = save(newflonum(re)); }
 
         c = s.get();    // +,-,@
 
@@ -3238,11 +3235,8 @@ sexp scans(std::istream& fin)
             s.get();    // /
             s >> iden;
             imag = save(rational_reduce(inum, iden));
-        } else {
-            double im;
-            s >> im;
-            imag = save(newflonum(im));
-        }
+        } else
+            { double im; s >> im; imag = save(newflonum(im)); }
 
         switch (c)
         {
@@ -3258,25 +3252,13 @@ sexp scans(std::istream& fin)
     }
 
     if (FIXED == status)
-    {
-        long num; s >> num;
-        return newfixnum(num);
-    }
+        { long num; s >> num; return newfixnum(num); }
 
     if (FLOATING == status)
-    {
-        double re; s >> re;
-        return newflonum(re);
-    }
+        { double re; s >> re; return newflonum(re); }
 
     if (RATIONAL == status)
-    {
-        long num, den;
-        s >> num;
-        s.get();    // must be '/'
-        s >> den;
-        return newrational(num, den);
-    }
+        { long num, den; s >> num; s.get(); s >> den; return newrational(num, den); }
 
     if ('"' == c)
     {
@@ -3423,20 +3405,9 @@ int main(int argc, char **argv, char **envp)
     psp = protect = (sexp*)new sexp[PSIZE];
 
     // allocate ports for cin, cout, cerr
-    InPort* p = (InPort*)newcell();
-    ((Stags*)p)->stags = INPORT;
-    p->s = &cinStream;
-    inport = (sexp)p;
-
-    OutPort* q = (OutPort*)newcell();
-    ((Stags*)q)->stags = OUTPORT;
-    q->s = &coutStream;
-    outport = (sexp)q;
-
-    OutPort* r = (OutPort*)newcell();
-    ((Stags*)r)->stags = OUTPORT;
-    r->s = &cerrStream;
-    errport = (sexp)r;
+    inport  = newcell(INPORT,  (sexp)&cinStream);
+    outport = newcell(OUTPORT, (sexp)&coutStream);
+    errport = newcell(OUTPORT, (sexp)&cerrStream);
 
     closure         = atomize("closure");
     commaat         = atomize(",@");
@@ -3721,7 +3692,7 @@ int main(int argc, char **argv, char **envp)
             ugly ugly(s);
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             std::set<sexp> seenSet;
-            display(s, v, seenSet, ugly, false);
+            display(s, v, seenSet, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != v)
                 std::cout << std::endl;
