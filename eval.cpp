@@ -1392,25 +1392,67 @@ sexp current_output_port(sexp p) { return outport ? outport : 0; }
 sexp input_portp(sexp p) { return isInPort(p) ? t : 0; }
 
 // open-input-file
-sexp open_input_file(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(len); sstr(b, len, p); return newinport(b); }
+sexp open_input_file(sexp p)
+{
+    assertString(p);
+    int len = slen(p)+1;
+    char* b = (char*) alloca(len);
+    sstr(b, len, p);
+    return newinport(b);
+}
 
 // open-output-file
-sexp open_output_file(sexp p) { assertString(p); int len = slen(p)+1; char* b = (char*) alloca(slen(p)+1); sstr(b, len, p); return newoutport(b); }
+sexp open_output_file(sexp p)
+{
+    assertString(p);
+    int len = slen(p)+1;
+    char* b = (char*) alloca(slen(p)+1);
+    sstr(b, len, p);
+    return newoutport(b);
+}
 
 // output-port?
 sexp output_portp(sexp p) { return isOutPort(p) ? t : 0; }
 
 // with-input-from-file
-sexp with_input_from_file(sexp p, sexp f) { sexp t = inport; inport = open_input_file(p); sexp q = apply(f, 0); close_input_port(inport); inport = t; return q; }
+sexp with_input_from_file(sexp p, sexp f)
+{
+    sexp t = save(inport);
+    inport = save(open_input_file(p));
+    sexp q = save(apply(f, 0));
+    close_input_port(inport);
+    inport = t;
+    return lose(3, q);
+}
 
 // with-output-to-file
-sexp with_output_to_file(sexp p, sexp f) { sexp t = outport; outport = open_output_file(p); sexp q = apply(f, 0); close_output_port(outport); outport = t; return q; }
+sexp with_output_to_file(sexp p, sexp f)
+{
+    sexp t = save(outport);
+    outport = save(open_output_file(p));
+    sexp q = save(apply(f, 0));
+    close_output_port(outport);
+    outport = t;
+    return lose(3, q);
+}
 
 // call-with-input-file
-sexp call_with_input_file(sexp p, sexp f) { sexp inp = open_input_file(p); sexp q = apply(f, cons(inp, 0)); close_input_port(inp); return q; }
+sexp call_with_input_file(sexp p, sexp f)
+{
+    sexp inp = save(open_input_file(p));
+    sexp q = save(apply(f, save(cons(inp, 0))));
+    close_input_port(inp);
+    return lose(3, q);
+}
 
 // call-with-output-file
-sexp call_with_output_file(sexp p, sexp f) { sexp oup = open_output_file(p); sexp q = apply(f, cons(oup, 0)); close_output_port(oup); return q; }
+sexp call_with_output_file(sexp p, sexp f)
+{
+    sexp oup = save(open_output_file(p));
+    sexp q = save(apply(f, save(cons(oup, 0))));
+    close_output_port(oup);
+    return lose(3, q);
+}
 
 // open-input-string
 sexp open_input_string(sexp args)
@@ -1426,7 +1468,7 @@ sexp open_input_string(sexp args)
         error("open-input-string: bad arguments");
 
     std::stringstream* ss = new std::stringstream();
-    InPort* port = (InPort*)newcell();
+    InPort* port = (InPort*)save(newcell());
     ((Stags*)port)->stags = INPORT;
     port->avail = 0;
     port->peek = 0;
@@ -1442,7 +1484,7 @@ sexp open_input_string(sexp args)
             {
                 int n = k+m;
                 if (n == jj)
-                    return (sexp)port;
+                    return lose(1, (sexp)port);
                 else if (ii <= n && n < jj)
                     ss->put(t->text[m]);
             }
@@ -1472,18 +1514,18 @@ sexp open_output_string(sexp args)
 // call-with-output-string
 sexp call_with_output_string(sexp proc)
 {
-    sexp port = open_output_string(0);
-    apply(proc, cons(port, 0));
-    return get_output_string(port);
+    sexp port = save(open_output_string(0));
+    apply(proc, save(cons(port, 0)));
+    return lose(2, get_output_string(port));
 }
 
 // call-with-truncated-output-string
 sexp call_with_truncated_output_string(sexp limit, sexp proc)
 {
     // truncate somehow
-    sexp port = open_output_string(0);
-    apply(proc, cons(port, 0));
-    return get_output_string(port);
+    sexp port = save(open_output_string(0));
+    apply(proc, save(cons(port, 0)));
+    return lose(2, get_output_string(port));
 }
 
 // write-to-string
@@ -3012,7 +3054,7 @@ char whitespace(std::istream& fin, char c)
     return c;
 }
 
-enum NumStatus { NON_NUMERIC, FIXED, FLOATING };
+enum NumStatus { NON_NUMERIC, FIXED, RATIONAL, FLOATING };
 
 // scan a number from fin, copy it to s, set status, return next character
 int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
@@ -3029,6 +3071,7 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
         { status = FLOATING; s.put(c); c = fin.get(); }
     while (isdigit(c))
         { status = FLOATING; s.put(c); c = fin.get(); }
+
     if (status > NON_NUMERIC && ('e' == c || 'E' == c))
     {
         status = NON_NUMERIC;
@@ -3048,6 +3091,20 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
             c = fin.get();
         }
     }
+
+    if (status == FIXED && '/' == c)
+    {
+        s.put(c);
+        c = fin.get();
+        if ('-' == c)
+        {
+            s.put(c);
+            c = fin.get();
+        }
+        while (isdigit(c))
+            { status = RATIONAL; s.put(c); c = fin.get(); }
+    }
+
     fin.unget();
 //  std::cerr << "scanNumber: " << s.str() << std::endl;
     return c;
@@ -3113,56 +3170,47 @@ sexp scans(std::istream& fin)
     NumStatus status;
     c = scanNumber(s, fin, status);
 
-    if (status > NON_NUMERIC && '+' == c)
+    if ((FIXED == status || FLOATING == status) && '+' == c)
     {
         c = fin.get();
-        s << ' ';
+        s << '+';
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
             double re, im;
             c = fin.get();
-            s >> re >> im;
+            s >> re;
+            s.get();    // +
+            s >> im;
             return newcomplex(re, im);
         }
     }
-    else if (status > NON_NUMERIC && '-' == c)
+
+    else if ((FIXED == status || FLOATING == status) && '-' == c)
     {
-        s << ' ';
+        s << '-';
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
             double re, im;
             c = fin.get();
-            s >> re >> im;
+            s >> re;
+            s.get();    // -
+            s >> im;
             return newcomplex(re, im);
         }
     }
-    else if (status > NON_NUMERIC && '@' == c)
+
+    else if ((FIXED == status || FLOATING == status) && '@' == c)
     {
         double r, theta;
         c = fin.get();
-        s << ' ';
+        s << '@';
         c = scanNumber(s, fin, status);
-        s >> r >> theta;
+        s >> r;
+        s.get();    // @
+        s >> theta;
         return newcomplex(r * cos(theta), r * sin(theta));
-    }
-    else if (status > NON_NUMERIC && '/' == c)
-    {
-        long num, den;
-        c = fin.get();
-        s << ' ';
-        c = scanNumber(s, fin, status);
-        s >> num >> den;
-        return newrational(num, den);
-    }
-
-    if ('"' == c)
-    {
-        c = fin.get();
-        sexp r = newcell(STRING, save(readChunks(fin, "\"")));
-        (void)fin.get();  // read the " again
-        return lose(1, r);
     }
 
     if (FIXED == status)
@@ -3175,6 +3223,23 @@ sexp scans(std::istream& fin)
     {
         double re; s >> re;
         return newflonum(re);
+    }
+
+    if (RATIONAL == status)
+    {
+        long num, den;
+        s >> num;
+        s.get();    // /
+        s >> den;
+        return newrational(num, den);
+    }
+
+    if ('"' == c)
+    {
+        c = fin.get();
+        sexp r = newcell(STRING, save(readChunks(fin, "\"")));
+        (void)fin.get();  // read the " again
+        return lose(1, r);
     }
 
     return lose(2, intern(save(newcell(ATOM, save(readChunks(fin, "( )[,]\t\r\n"))))));

@@ -102,7 +102,7 @@
     (eq? 'd (cadddr '(a b c d)))
     (eqv? '(0 1 2) (let ((a 0) (b 1) (c 2)) (list a b c)))
     (eqv? '(0 1 2) (let* ((a 0) (b (+ a 1)) (c (+ b 1))) (list a b c)))
-    (eqv? 1/1 (* 2/3 3/2))
+    (eqv? 1 (* 2/3 3/2))
     (eqv? '(1 2 3) '(1 2 3))
     (eqv? '(1 2 3) (list 1 2 3))
     (eqv? 157 (numerator (rationalize 3.14)))
