@@ -3054,7 +3054,7 @@ char whitespace(std::istream& fin, char c)
     return c;
 }
 
-enum NumStatus { NON_NUMERIC, FIXED, RATIONAL, FLOATING };
+enum NumStatus { NON_NUMERIC, FIXED, RATIONAL, FLOATING, COMPLEX };
 
 // scan a number from fin, copy it to s, set status, return next character
 int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
@@ -3170,47 +3170,51 @@ sexp scans(std::istream& fin)
     NumStatus status;
     c = scanNumber(s, fin, status);
 
-    if ((FIXED == status || FLOATING == status) && '+' == c)
+    if (NON_NUMERIC < status && '+' == c)
     {
-        c = fin.get();
-        s << '+';
+        s << (char)fin.get();
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
-            double re, im;
-            c = fin.get();
-            s >> re;
-            s.get();    // +
-            s >> im;
-            return newcomplex(re, im);
+            s << (char)fin.get();
+            status = COMPLEX;
         }
     }
-
-    else if ((FIXED == status || FLOATING == status) && '-' == c)
+    else if (NON_NUMERIC < status && '-' == c)
     {
-        s << '-';
+        s << (char)fin.get();
         c = scanNumber(s, fin, status);
         if ('i' == c)
         {
-            double re, im;
-            c = fin.get();
-            s >> re;
-            s.get();    // -
-            s >> im;
-            return newcomplex(re, im);
+            s << (char)fin.get();
+            status = COMPLEX;
         }
     }
-
-    else if ((FIXED == status || FLOATING == status) && '@' == c)
+    else if (NON_NUMERIC < status && '@' == c)
     {
-        double r, theta;
-        c = fin.get();
-        s << '@';
+        s << (char)fin.get();
         c = scanNumber(s, fin, status);
-        s >> r;
-        s.get();    // @
-        s >> theta;
-        return newcomplex(r * cos(theta), r * sin(theta));
+        status = COMPLEX;
+    }
+
+    if (COMPLEX == status)
+    {
+        double re, im;
+        s >> re;
+        switch (s.get())
+        {
+        case '+':
+            s >> im;
+            c = s.get(); // assume 'i' but could be '/'
+            return newcomplex(re, im);
+        case '-':
+            s >> im;
+            c = s.get(); // assume 'i' but could be '/'
+            return newcomplex(re, -im);
+        case '@':
+            s >> im;
+            return newcomplex(re * cos(im), re * sin(im));
+        }
     }
 
     if (FIXED == status)
@@ -3229,7 +3233,7 @@ sexp scans(std::istream& fin)
     {
         long num, den;
         s >> num;
-        s.get();    // /
+        s.get();    // must be '/'
         s >> den;
         return newrational(num, den);
     }
