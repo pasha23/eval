@@ -13,7 +13,7 @@
 #include <cxxabi.h>
 #endif
 #include <assert.h>
-#include <cmath>
+#include <math.h>
 #include <csetjmp>
 #include <csignal>
 #include <cstring>
@@ -178,7 +178,7 @@ struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 class ugly
 {
     static const int tabs = 2;
-    static const int eol = 70;
+    static const int eol = 60;
 
     std::ostream& s;
     std::streampos pos;
@@ -764,9 +764,9 @@ sexp rational_reduce(long n, long d)
         return newrational(ng, dg);
 }
 
-static inline long num(sexp x) { return asFixnum(x->cdr->car); }
+static inline long num(sexp x) { return isRational(x) ? asFixnum(x->cdr->car) : asFixnum(x); }
 
-static inline long den(sexp x) { return asFixnum(x->cdr->cdr->car); }
+static inline long den(sexp x) { return isRational(x) ? asFixnum(x->cdr->cdr->car) : 1; }
 
 sexp rational_add(sexp x, sexp y)
 {
@@ -796,8 +796,21 @@ sexp rational_div(sexp x, sexp y)
     return rational_reduce(num(x) * den(y) / g, den(x) * num(y) / g);
 }
 
+// exact?
+sexp exactp(sexp x) { return (isFixnum(x) || isRational(x)) ? t : 0; }
+
+// inexact?
+sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
+
 sexp complex_add(sexp z, sexp w)
 {
+    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
+        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
+    {
+        sexp real = save(rational_add(z->cdr->car, w->cdr->car));
+        sexp imag = save(rational_add(z->cdr->cdr->car, w->cdr->cdr->car));
+        return lose(4, cons(complex, save(cons(real, save(cons(imag, 0))))));
+    }
     double re = realpart(z)+realpart(w);
     double im = imagpart(z)+imagpart(w);
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
@@ -805,6 +818,13 @@ sexp complex_add(sexp z, sexp w)
 
 sexp complex_sub(sexp z, sexp w)
 {
+    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
+        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
+    {
+        sexp real = save(rational_sub(z->cdr->car, w->cdr->car));
+        sexp imag = save(rational_sub(z->cdr->cdr->car, w->cdr->cdr->car));
+        return lose(4, cons(complex, save(cons(real, save(cons(imag, 0))))));
+    }
     double re = realpart(z)-realpart(w);
     double im = imagpart(z)-imagpart(w);
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
@@ -812,6 +832,17 @@ sexp complex_sub(sexp z, sexp w)
 
 sexp complex_mul(sexp z, sexp w)
 {
+    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
+        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
+    {
+        sexp x = z->cdr->car;
+        sexp y = z->cdr->cdr->car;
+        sexp u = w->cdr->car;
+        sexp v = w->cdr->cdr->car;
+        sexp real = save(rational_sub(save(rational_mul(x, u)), save(rational_mul(y, v))));
+        sexp imag = save(rational_add(save(rational_mul(x, v)), save(rational_mul(y, u))));
+        return lose(8, cons(complex, save(cons(real, save(cons(imag, 0))))));
+    }
     double x = realpart(z);
     double y = imagpart(z);
     double u = realpart(w);
@@ -823,6 +854,18 @@ sexp complex_mul(sexp z, sexp w)
 
 sexp complex_div(sexp z, sexp w)
 {
+    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
+        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
+    {
+        sexp x = z->cdr->car;
+        sexp y = z->cdr->cdr->car;
+        sexp u = w->cdr->car;
+        sexp v = w->cdr->cdr->car;
+        sexp d = save(rational_add(save(rational_mul(u, u)), save(rational_mul(v, v))));
+        sexp real = save(rational_div(save(rational_add(save(rational_mul(x, u)), save(rational_mul(y, v)))), d));
+        sexp imag = save(rational_div(save(rational_sub(save(rational_mul(y, u)), save(rational_mul(x, v)))), d));
+        return lose(8, cons(complex, save(cons(real, save(cons(imag, 0))))));
+    }
     double x = realpart(z);
     double y = imagpart(z);
     double u = realpart(w);
@@ -1114,33 +1157,77 @@ sexp unimod(sexp l)
 }
 
 // functions on real numbers
-sexp sinff(sexp x)     { assertFlonum(x); return newflonum(sin(asFlonum(x)));   } // sin
-sexp cosff(sexp x)     { assertFlonum(x); return newflonum(cos(asFlonum(x)));   } // cos
-sexp tanff(sexp x)     { assertFlonum(x); return newflonum(tan(asFlonum(x)));   } // tan
-sexp expff(sexp x)     { assertFlonum(x); return newflonum(exp(asFlonum(x)));   } // exp
-sexp logff(sexp x)     { assertFlonum(x); return newflonum(log(asFlonum(x)));   } // log
-sexp asinff(sexp x)    { assertFlonum(x); return newflonum(asin(asFlonum(x)));  } // asin
 sexp acosff(sexp x)    { assertFlonum(x); return newflonum(acos(asFlonum(x)));  } // acos
+sexp asinff(sexp x)    { assertFlonum(x); return newflonum(asin(asFlonum(x)));  } // asin
 sexp atanff(sexp x)    { assertFlonum(x); return newflonum(atan(asFlonum(x)));  } // atan
-sexp sqrtff(sexp x)    { assertFlonum(x); return newflonum(sqrt(asFlonum(x)));  } // sqrt
-sexp floorff(sexp x)   { assertFlonum(x); return newflonum(floor(asFlonum(x))); } // floor
-sexp roundff(sexp x)   { assertFlonum(x); return newflonum(round(asFlonum(x))); } // round
 sexp ceilingff(sexp x) { assertFlonum(x); return newflonum(ceil(asFlonum(x)));  } // ceiling
+sexp cosff(sexp x)     { assertFlonum(x); return newflonum(cos(asFlonum(x)));   } // cos
+sexp coshff(sexp x)    { assertFlonum(x); return newflonum(cosh(asFlonum(x)));  } // cosh
+sexp expff(sexp x)     { assertFlonum(x); return newflonum(exp(asFlonum(x)));   } // exp
+sexp floorff(sexp x)   { assertFlonum(x); return newflonum(floor(asFlonum(x))); } // floor
+sexp logff(sexp x)     { assertFlonum(x); return newflonum(log(asFlonum(x)));   } // log
+sexp roundff(sexp x)   { assertFlonum(x); return newflonum(round(asFlonum(x))); } // round
+sexp sinff(sexp x)     { assertFlonum(x); return newflonum(sin(asFlonum(x)));   } // sin
+sexp sinhff(sexp x)    { assertFlonum(x); return newflonum(sinh(asFlonum(x)));  } // sinh
+sexp tanff(sexp x)     { assertFlonum(x); return newflonum(tan(asFlonum(x)));   } // tan
+sexp tanhff(sexp x)    { assertFlonum(x); return newflonum(tanh(asFlonum(x)));  } // tanh
+
+uint32_t isqrt(uint64_t v)
+{
+    uint64_t t, r;
+
+    for (t=0x4000000000000000ULL, r=0; t; t >>= 2)
+      if (t + r <= v) {
+         v -= t + r;
+         r = (r >> 1) | t;
+      } else
+         r = r >> 1;
+   return (uint32_t)r;
+}
+
+sexp isqrtf(sexp x)
+{
+    if (isFixnum(x) && 0 <= asFixnum(x))
+        return newfixnum(isqrt(asFixnum(x)));
+    error("isqrt: not a positive integer");
+}
+
+// sqrt
+sexp sqrtff(sexp x)
+{
+    if (isFixnum(x) && 0 <= asFixnum(x))
+        return newflonum(sqrt((double)asFixnum(x)));
+    double re, im = 0.0;
+    if (isComplex(x))
+    {
+        re = asFlonum(x->cdr->car);
+        im = asFlonum(x->cdr->cdr->car);
+    } else if (isFlonum(x)) {
+        re = asFlonum(x);
+    } else if (isFixnum(x))
+        re = (double)asFixnum(x);
+
+    if (0.0 == im && 0.0 <= re)
+        return newflonum(sqrt(re));
+
+    double r = sqrt(re*re + im*im);
+    double theta = atan2(im, re);
+    re = sqrt(r) * cos(0.5 * theta);
+    im = sqrt(r) * sin(0.5 * theta);
+    return newcomplex(re, im);
+}
 
 // pow
 sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(pow(asFlonum(x), asFlonum(y))); }
 
+// atan2
+sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(atan2(asFlonum(x), asFlonum(y))); }
+
 // truncate
 sexp truncateff(sexp x) { assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x))); }
 
-// exact?
-sexp exactp(sexp x) { return isFixnum(x) ? t : 0; }
-
 // integer?
 sexp integerp(sexp x) { return isFixnum(x) ? t : isFlonum(x) && (long)asFlonum(x) == asFlonum(x) ? t : 0; }
-
-// inexact?
-sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
 
 // real?
 sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : 0; }
@@ -1285,9 +1372,7 @@ sexp newchunk(const char *t)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
-    std::stringstream s;
-    ugly ugly(s);
-    std::set<sexp> seenSet;
+    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, exp, seenSet, ugly, 0, true);
     return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
@@ -1373,10 +1458,10 @@ sexp string_fill(sexp s, sexp c)
 }
 
 // close-input-port
-sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); }
+sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); return 0; }
 
 // close-output-port
-sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); }
+sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); return 0; }
 
 // current-input-port
 sexp current_input_port(sexp p) { return inport ? inport : 0; }
@@ -1487,6 +1572,7 @@ sexp open_input_string(sexp args)
         }
         k += sizeof(t->text);
     }
+    return lose(1, (sexp)port);
 }
 
 // get-output-string
@@ -1531,9 +1617,7 @@ sexp write_to_string(sexp args)
     int limit = INT_MAX;
     if (args->cdr)
         limit = asFixnum(args->cdr->car);
-    std::stringstream s;
-    ugly ugly(s);
-    std::set<sexp> seenSet;
+    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, object, seenSet, ugly, 0, true);
     return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
@@ -1608,10 +1692,20 @@ sexp vector_fill(sexp vector, sexp value)
 }
 
 // vector-length
-sexp vector_length(sexp vector) { assertVector(vector); save(vector); return lose(1, newfixnum(((Vector*)vector)->l)); }
+sexp vector_length(sexp vector)
+{
+    assertVector(vector);
+    save(vector);
+    return lose(1, newfixnum(((Vector*)vector)->l));
+}
 
 // vector-ref
-sexp vector_ref(sexp vector, sexp index) { assertFixnum(index); assertVector(vector); return ((Vector*)vector)->e[asFixnum(index)]; }
+sexp vector_ref(sexp vector, sexp index)
+{
+    assertFixnum(index);
+    assertVector(vector);
+    return ((Vector*)vector)->e[asFixnum(index)];
+}
 
 // (vector e0 e1 e2 ...)
 sexp vector(sexp args)
@@ -2020,8 +2114,7 @@ sexp eqnp(sexp x, sexp y)
     } else if (isComplex(x) && isComplex(y))
         return (asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
                 asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car)) ? t : 0;
-    else
-        return 0;
+    return 0;
 }
 
 // ~ x
@@ -2151,10 +2244,8 @@ sexp eof_objectp(sexp a) { return eof == a ? t : 0; }
 // display
 sexp displayf(sexp args)
 {
-    std::stringstream s;
-    ugly ugly(s);
+    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, 0, false);
@@ -2165,10 +2256,8 @@ sexp displayf(sexp args)
 // write
 sexp writef(sexp args)
 {
-    std::stringstream s;
-    ugly ugly(s);
+    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    std::set<sexp> seenSet;
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(s, args->car, seenSet, ugly, 0, true);
@@ -2230,9 +2319,8 @@ sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
 // for prettyprinting
 int displayLength(sexp exp)
 {
-    std::set<sexp> seenSet;
-    std::stringstream ss;
-    ugly ugly(ss);
+    std::stringstream ss; ugly ugly(ss); std::set<sexp> seenSet;
+    ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(ss, exp, seenSet, ugly, 0, true);
     return ss.str().length();
 }
@@ -2304,12 +2392,12 @@ const char *character_table[] =
 
 std::ostream& displayAtom(std::ostream& s, sexp exp, bool write)
 {
-    displayChunks(s, ((Atom*)exp)->chunks, true, write);
+    return displayChunks(s, ((Atom*)exp)->chunks, true, write);
 }
 
 std::ostream& displayString(std::ostream& s, sexp exp, bool write)
 {
-    displayChunks(s, ((Atom*)exp)->chunks, false, write);
+    return displayChunks(s, ((Atom*)exp)->chunks, false, write);
 }
 
 // used for displaying functions, forms. and closures by name
@@ -2431,10 +2519,8 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
 // usual way to see what is happening
 void debug(const char *label, sexp exp)
 {
-    std::stringstream s;
-    ugly ugly(s);
+    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    std::set<sexp> seenSet;
     s << label << ": ";
     if (voida == exp)
         s << "void";
@@ -3451,106 +3537,116 @@ int main(int argc, char **argv, char **envp)
     define(atomize("tick"),     tick);
     define(atomize("void"),     voida);
 
-    define_funct(atomize("open-input-string"), 0, (void*)open_input_string);
-    define_funct(atomize("open-output-string"), 0, (void*)open_output_string);
-    define_funct(atomize("get-output-string"),  1, (void*)get_output_string);
-    define_funct(atomize("call-with-output-string"), 1, (void*)call_with_output_string);
-    define_funct(atomize("call-with-truncated-output-string"), 2, (void*)call_with_truncated_output_string);
-    define_funct(atomize("write-to-string"), 0, (void*)write_to_string);
-    define_funct(atomize("undefine"), 1, (void*)undefine);
-    define_funct(atomize("scan"),     0, (void*)scanff);
-    define_funct(atomize("string->symbol"), 1, (void*)string_symbol);
-    define_funct(atomize("acos"), 1, (void*)acosff);
-    define_funct(atomize("atom?"), 1, (void*)atomp);
-    define_funct(atomize("char-alphabetic?"), 1, (void*)char_alphabeticp);
     define_funct(atomize("&"), 0, (void*)andf);
+    define_funct(atomize("|"), 0, (void*)orf);
+    define_funct(atomize("^"), 0, (void*)xorf);
+    define_funct(atomize("~"), 1, (void*)complement);
+    define_funct(atomize("<<"), 2, (void*)lsh);
+    define_funct(atomize(">>"), 2, (void*)rsh);
+    define_funct(atomize("acos"), 1, (void*)acosff);
     define_funct(atomize("angle"), 1, (void*)angle);
     define_funct(atomize("append"), 2, (void*)append);
     define_funct(atomize("apply"), 2, (void*)apply);
     define_funct(atomize("asin"), 1, (void*)asinff);
     define_funct(atomize("atan"), 1, (void*)atanff);
+    define_funct(atomize("atan2"), 2, (void*)atan2ff);
+    define_funct(atomize("atom?"), 1, (void*)atomp);
     define_funct(atomize("atoms"), 0, (void*)atomsf);
     define_funct(atomize("boolean?"), 1, (void*)booleanp);
     define_funct(atomize("call-with-input-file"), 2, (void*)call_with_input_file);
     define_funct(atomize("call-with-output-file"), 2, (void*)call_with_output_file);
+    define_funct(atomize("call-with-output-string"), 1, (void*)call_with_output_string);
+    define_funct(atomize("call-with-truncated-output-string"), 2, (void*)call_with_truncated_output_string);
     define_funct(atomize("ceiling"), 1, (void*)ceilingff);
-    define_funct(atomize("char->integer"), 1, (void*)char_integer);
-    define_funct(atomize("char-ci=?"), 2, (void*)char_cieqp);
-    define_funct(atomize("char-ci>=?"), 2, (void*)char_cigep);
-    define_funct(atomize("char-ci>?"), 2, (void*)char_cigtp);
-    define_funct(atomize("char-ci<=?"), 2, (void*)char_cilep);
-    define_funct(atomize("char-ci<?"), 2, (void*)char_ciltp);
+    define_funct(atomize("char?"), 1, (void*)charp);
     define_funct(atomize("char=?"), 2, (void*)char_eqp);
     define_funct(atomize("char>=?"), 2, (void*)char_gep);
     define_funct(atomize("char>?"), 2, (void*)char_gtp);
     define_funct(atomize("char<=?"), 2, (void*)char_lep);
     define_funct(atomize("char<?"), 2, (void*)char_ltp);
-    define_funct(atomize("char?"), 1, (void*)charp);
+    define_funct(atomize("char-alphabetic?"), 1, (void*)char_alphabeticp);
+    define_funct(atomize("char-ci=?"), 2, (void*)char_cieqp);
+    define_funct(atomize("char-ci>=?"), 2, (void*)char_cigep);
+    define_funct(atomize("char-ci>?"), 2, (void*)char_cigtp);
+    define_funct(atomize("char-ci<=?"), 2, (void*)char_cilep);
+    define_funct(atomize("char-ci<?"), 2, (void*)char_ciltp);
+    define_funct(atomize("char-downcase"), 1, (void*)char_downcase);
+    define_funct(atomize("char->integer"), 1, (void*)char_integer);
+    define_funct(atomize("char-lower-case?"), 1, (void*)char_lower_casep);
+    define_funct(atomize("char-numeric?"), 1, (void*)char_numericp);
+    define_funct(atomize("char-ready?"), 0, (void*)char_readyp);
+    define_funct(atomize("char-upcase"), 1, (void*)char_upcase);
+    define_funct(atomize("char-upper-case?"), 1, (void*)char_upper_casep);
+    define_funct(atomize("char-whitespace?"), 1, (void*)char_whitespacep);
     define_funct(atomize("close-input-port"), 1, (void*)close_input_port);
-    define_funct(atomize("closure?"), 1, (void*)closurep);
     define_funct(atomize("close-output-port"), 1, (void*)close_output_port);
+    define_funct(atomize("closure?"), 1, (void*)closurep);
     define_funct(atomize("complex?"), 1, (void*)complexp);
     define_funct(atomize("cos"), 1, (void*)cosff);
+    define_funct(atomize("cosh"),  1, (void*)coshff);
     define_funct(atomize("current-input-port"), 0, (void*)current_input_port);
     define_funct(atomize("current-output-port"), 0, (void*)current_output_port);
     define_funct(atomize("cyclic?"), 1, (void*)cyclicp);
     define_funct(atomize("display"), 0, (void*)displayf);
-    define_funct(atomize("char-downcase"), 1, (void*)char_downcase);
-    define_funct(atomize("exact->inexact"), 1, (void*)exact_inexact);
     define_funct(atomize("eof-object?"), 1, (void*)eof_objectp);
     define_funct(atomize("eval"), 2, (void*)eval);
     define_funct(atomize("exact?"), 1, (void*)exactp);
+    define_funct(atomize("exact->inexact"), 1, (void*)exact_inexact);
     define_funct(atomize("exp"), 1, (void*)expff);
     define_funct(atomize("floor"), 1, (void*)floorff);
     define_funct(atomize("force"), 1, (void*)force);
-    define_funct(atomize("promise-forced?"), 1, (void*)promise_forcedp);
     define_funct(atomize("gc"), 0, (void*)gc);
     define_funct(atomize("gcd"), 2, (void*)gcdf);
-    define_funct(atomize("inexact->exact"), 1, (void*)inexact_exact);
+    define_funct(atomize("get-output-string"),  1, (void*)get_output_string);
     define_funct(atomize("inexact?"), 1, (void*)inexactp);
+    define_funct(atomize("inexact->exact"), 1, (void*)inexact_exact);
     define_funct(atomize("input-port?"), 1, (void*)input_portp);
-    define_funct(atomize("integer->char"), 1, (void*)integer_char);
     define_funct(atomize("integer?"), 1, (void*)integerp);
+    define_funct(atomize("integer->char"), 1, (void*)integer_char);
     define_funct(atomize("lcm"), 2, (void*)lcmf);
+    define_funct(atomize("list?"), 1, (void*)listp);
     define_funct(atomize("list->string"), 1, (void*)list_string);
     define_funct(atomize("list->vector"), 1, (void*)list_vector);
-    define_funct(atomize("list?"), 1, (void*)listp);
     define_funct(atomize("load"), 1, (void*)load);
     define_funct(atomize("log"), 1, (void*)logff);
-    define_funct(atomize("char-lower-case?"), 1, (void*)char_lower_casep);
-    define_funct(atomize("<<"), 2, (void*)lsh);
     define_funct(atomize("magnitude"), 1, (void*)magnitude);
     define_funct(atomize("make-string"), 0, (void*)make_string);
     define_funct(atomize("make-vector"), 0, (void*)make_vector);
     define_funct(atomize("newline"), 0, (void*)newline);
-    define_funct(atomize("number->string"), 1, (void*)number_string);
     define_funct(atomize("number?"), 1, (void*)numberp);
-    define_funct(atomize("char-numeric?"), 1, (void*)char_numericp);
+    define_funct(atomize("number->string"), 1, (void*)number_string);
     define_funct(atomize("open-input-file"), 1, (void*)open_input_file);
+    define_funct(atomize("open-input-string"), 0, (void*)open_input_string);
     define_funct(atomize("open-output-file"), 1, (void*)open_output_file);
+    define_funct(atomize("open-output-string"), 0, (void*)open_output_string);
     define_funct(atomize("output-port?"), 1, (void*)output_portp);
     define_funct(atomize("peek-char"), 0, (void*)peek_char);
-    define_funct(atomize("|"), 0, (void*)orf);
     define_funct(atomize("pow"), 2, (void*)powff);
     define_funct(atomize("procedure?"), 1, (void*)procedurep);
     define_funct(atomize("promise?"), 1, (void*)promisep);
+    define_funct(atomize("promise-forced?"), 1, (void*)promise_forcedp);
     define_funct(atomize("promise-value"), 1, (void*)promise_value);
     define_funct(atomize("rational?"), 1, (void*)rationalp);
     define_funct(atomize("read"), 0, (void*)readf);
     define_funct(atomize("read-char"), 0, (void*)read_char);
-    define_funct(atomize("char-ready?"), 0, (void*)char_readyp);
     define_funct(atomize("real?"), 1, (void*)realp);
     define_funct(atomize("reverse"), 1, (void*)reverse);
     define_funct(atomize("round"), 1, (void*)roundff);
-    define_funct(atomize(">>"), 2, (void*)rsh);
-    define_funct(atomize("string->list"), 1, (void*)string_list);
-    define_funct(atomize("string->number"), 1, (void*)string_number);
+    define_funct(atomize("scan"),     0, (void*)scanff);
     define_funct(atomize("set-car!"), 2, (void*)set_car);
     define_funct(atomize("set-cdr!"), 2, (void*)set_cdr);
     define_funct(atomize("sin"), 1, (void*)sinff);
+    define_funct(atomize("sinh"),  1, (void*)sinhff);
     define_funct(atomize("space"), 0, (void*)space);
     define_funct(atomize("sqrt"), 1, (void*)sqrtff);
+    define_funct(atomize("isqrt"), 1, (void*)isqrtf);
     define_funct(atomize("string"), 0, (void*)string);
+    define_funct(atomize("string?"), 1, (void*)stringp);
+    define_funct(atomize("string=?"), 2, (void*)string_eqp);
+    define_funct(atomize("string>=?"), 2, (void*)string_gep);
+    define_funct(atomize("string>?"), 2, (void*)string_gtp);
+    define_funct(atomize("string<=?"), 2, (void*)string_lep);
+    define_funct(atomize("string<?"), 2, (void*)string_ltp);
     define_funct(atomize("string-append"), 2, (void*)string_append);
     define_funct(atomize("string-ci=?"), 2, (void*)string_cieqp);
     define_funct(atomize("string-ci>=?"), 2, (void*)string_cigep);
@@ -3558,38 +3654,34 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("string-ci<=?"), 2, (void*)string_cilep);
     define_funct(atomize("string-ci<?"), 2, (void*)string_ciltp);
     define_funct(atomize("string-copy"), 1, (void*)string_copy);
-    define_funct(atomize("string=?"), 2, (void*)string_eqp);
     define_funct(atomize("string-fill!"), 2, (void*)string_fill);
-    define_funct(atomize("string>=?"), 2, (void*)string_gep);
-    define_funct(atomize("string>?"), 2, (void*)string_gtp);
-    define_funct(atomize("string<=?"), 2, (void*)string_lep);
     define_funct(atomize("string-length"), 1, (void*)string_length);
-    define_funct(atomize("string<?"), 2, (void*)string_ltp);
-    define_funct(atomize("string?"), 1, (void*)stringp);
+    define_funct(atomize("string->list"), 1, (void*)string_list);
+    define_funct(atomize("string->number"), 1, (void*)string_number);
     define_funct(atomize("string-ref"), 2, (void*)string_ref);
     define_funct(atomize("string-set!"), 3, (void*)string_set);
+    define_funct(atomize("string->symbol"), 1, (void*)string_symbol);
     define_funct(atomize("substring"), 0, (void*)substringf);
-    define_funct(atomize("symbol->string"), 1, (void*)symbol_string);
     define_funct(atomize("symbol?"), 1, (void*)symbolp);
+    define_funct(atomize("symbol->string"), 1, (void*)symbol_string);
     define_funct(atomize("tan"), 1, (void*)tanff);
-    define_funct(atomize("~"), 1, (void*)complement);
+    define_funct(atomize("tanh"),  1, (void*)tanhff);
     define_funct(atomize("trace"), 1, (void*)trace);
     define_funct(atomize("truncate"), 1, (void*)truncateff);
-    define_funct(atomize("char-upcase"), 1, (void*)char_upcase);
-    define_funct(atomize("char-upper-case?"), 1, (void*)char_upper_casep);
-    define_funct(atomize("vector->list"), 1, (void*)vector_list);
+    define_funct(atomize("undefine"), 1, (void*)undefine);
     define_funct(atomize("vector"), 0, (void*)vector);
+    define_funct(atomize("vector?"), 1, (void*)vectorp);
     define_funct(atomize("vector-fill!"), 2, (void*)vector_fill);
     define_funct(atomize("vector-length"), 1, (void*)vector_length);
-    define_funct(atomize("vector?"), 1, (void*)vectorp);
+    define_funct(atomize("vector->list"), 1, (void*)vector_list);
     define_funct(atomize("vector-ref"), 2, (void*)vector_ref);
     define_funct(atomize("vector-set!"), 3, (void*)vector_set);
-    define_funct(atomize("char-whitespace?"), 1, (void*)char_whitespacep);
     define_funct(atomize("with-input-from-file"), 2, (void*)with_input_from_file);
     define_funct(atomize("with-output-to-file"), 2, (void*)with_output_to_file);
     define_funct(atomize("write"), 0, (void*)writef);
     define_funct(atomize("write-char"), 0, (void*)write_char);
-    define_funct(atomize("^"), 0, (void*)xorf);
+    define_funct(atomize("write-to-string"), 0, (void*)write_to_string);
+
     define_funct(atomize("null?"), 1, (void*)nullp);
     define_funct(atomize("pair?"), 1, (void*)pairp);
     define_funct(atomize("negative?"), 1, (void*)negativep);
@@ -3688,10 +3780,8 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         sexp v = eval(e, global);
         {
-            std::stringstream s;
-            ugly ugly(s);
+            std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-            std::set<sexp> seenSet;
             display(s, v, seenSet, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != v)

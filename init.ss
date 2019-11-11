@@ -249,23 +249,23 @@
 
 (define (cdadadr x) (cdr (cadadr x)))
 
+(define (caadadr x) (car (cadadr x)))
+
 (define (definition name)
         (let ((value (eval name (null-environment))))
              (if (closure? value)
                  (if (and (list? (cadadr value)) (cdadadr value))
                      (list 'define (cons name (cadadr value))  (caddadr value))
-                     (list 'define (cadadr value) (caddadr value)))
-                 (list 'define name value))))
+                     (if (eq? name (caadadr value))
+                         (list 'define (cadadr value) (caddadr value))
+                         (list 'define (cons name (cadadr value)) (caddadr value)))
+                 (list 'define name value)))))
 
-(define (definitions e)
-        (if (null? e)
-            #f
-            (if (closure? (cdar e))
-                (cons (definition (caar e))
-                      (definitions (cdr e)))
-                (definitions (cdr e)))))
-
-(define (definitions) (for-each (lambda (x) (display (definition (car x))) (newline)) (null-environment)))
+(define (definitions)
+        (for-each (lambda (x)
+                  (if (closure? (cdr x))
+                      (begin (display (definition (car x))) (newline) (newline))))
+                  (reverse (null-environment))))
 
 (define (ttytest)
         (while (not (eqv? #\return (peek-char)))
