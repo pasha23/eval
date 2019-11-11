@@ -12,8 +12,8 @@
 #include <libunwind.h>
 #include <cxxabi.h>
 #endif
+#include <alloca.h>
 #include <assert.h>
-#include <math.h>
 #include <csetjmp>
 #include <csignal>
 #include <cstring>
@@ -24,9 +24,12 @@
 #include <iostream>
 #include <istream>
 #include <limits.h>
+#include <math.h>
 #include <ostream>
 #include <set>
 #include <sstream>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string>
 #include <termios.h>
 #include <unistd.h>
@@ -271,17 +274,23 @@ int  marked = 0;        	// how many cells were marked during gc
 int  allocated = 0;     	// how many cells have been allocated
 int  total = 0;         	// total allocation across gc's
 int  collected = 0;     	// how many gc's
+sexp *psend = 0;            // protection stack end
 sexp *protect = 0;      	// protection stack
 sexp *psp = 0;          	// protection stack pointer
 
 /*
  * save the argument on the protection stack, return it
  */
-sexp save(sexp p)
+void psoverflow(void)
+{
+    error("protection stack overflow");
+}
+
+static inline sexp save(sexp p)
 {
     *psp++ = p;
-    if (psp >= protect+PSIZE)
-        error("error: protection stack overflow");
+    if (psp >= psend)
+        psoverflow();
     return p;
 }
 
@@ -528,34 +537,37 @@ sexp newflonum(double number)
 
 sexp define_form(sexp name, Formp f)
 {
+    sexp* mark = psp;
     assert(name);
     Form* p = (Form*)save(newcell());
     ((Stags*)p)->stags = FORM;
     p->formp = f;
     define(name, (sexp)p);
-    return lose(1, name);
+    return lose(mark, name);
 }
 
 sexp define_funct(sexp name, int arity, void* f)
 {
+    sexp* mark = psp;
     assert(name);
     Funct* p = (Funct*)save(newcell());
     ((Stags*)p)->stags = FUNCT;
     p->tags[2] = arity;
     p->funcp = f;
     define(name, (sexp)p);
-    return lose(1, name);
+    return lose(mark, name);
 }
 
 // cons
 sexp cons(sexp car, sexp cdr)
 {
+    sexp* mark = psp;
     save(car);
     save(cdr);
     sexp p = newcell();
     p->car = car;
     p->cdr = cdr;
-    return lose(2, p);
+    return lose(mark, p);
 }
 
 // car
@@ -705,12 +717,14 @@ sexp gtp(sexp x, sexp y) { return cmple(x, y) ? 0 : t; }
 
 sexp newrational(long n, long d)
 {
-    return lose(2, cons(rational, replace(cons(save(newfixnum(n)), replace(cons(save(newfixnum(d)), 0))))));
+    sexp* mark = psp;
+    return lose(mark, cons(rational, replace(cons(save(newfixnum(n)), replace(cons(save(newfixnum(d)), 0))))));
 }
 
 sexp newcomplex(double re, double im)
 {
-    return lose(2, cons(complex, replace(cons(save(newflonum(re)), replace(cons(save(newflonum(im)), 0))))));
+    sexp* mark = psp;
+    return lose(mark, cons(complex, replace(cons(save(newflonum(re)), replace(cons(save(newflonum(im)), 0))))));
 }
 
 double realpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->car); }
@@ -804,12 +818,13 @@ sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
 
 sexp complex_add(sexp z, sexp w)
 {
+    sexp* mark = psp;
     if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
         exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
     {
         sexp real = save(rational_add(z->cdr->car, w->cdr->car));
         sexp imag = save(rational_add(z->cdr->cdr->car, w->cdr->cdr->car));
-        return lose(4, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
     }
     double re = realpart(z)+realpart(w);
     double im = imagpart(z)+imagpart(w);
@@ -818,12 +833,13 @@ sexp complex_add(sexp z, sexp w)
 
 sexp complex_sub(sexp z, sexp w)
 {
+    sexp* mark = psp;
     if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
         exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
     {
         sexp real = save(rational_sub(z->cdr->car, w->cdr->car));
         sexp imag = save(rational_sub(z->cdr->cdr->car, w->cdr->cdr->car));
-        return lose(4, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
     }
     double re = realpart(z)-realpart(w);
     double im = imagpart(z)-imagpart(w);
@@ -832,6 +848,7 @@ sexp complex_sub(sexp z, sexp w)
 
 sexp complex_mul(sexp z, sexp w)
 {
+    sexp* mark = psp;
     if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
         exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
     {
@@ -841,7 +858,7 @@ sexp complex_mul(sexp z, sexp w)
         sexp v = w->cdr->cdr->car;
         sexp real = save(rational_sub(save(rational_mul(x, u)), save(rational_mul(y, v))));
         sexp imag = save(rational_add(save(rational_mul(x, v)), save(rational_mul(y, u))));
-        return lose(8, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
     }
     double x = realpart(z);
     double y = imagpart(z);
@@ -854,6 +871,7 @@ sexp complex_mul(sexp z, sexp w)
 
 sexp complex_div(sexp z, sexp w)
 {
+    sexp* mark = psp;
     if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
         exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
     {
@@ -864,7 +882,7 @@ sexp complex_div(sexp z, sexp w)
         sexp d = save(rational_add(save(rational_mul(u, u)), save(rational_mul(v, v))));
         sexp real = save(rational_div(save(rational_add(save(rational_mul(x, u)), save(rational_mul(y, v)))), d));
         sexp imag = save(rational_div(save(rational_sub(save(rational_mul(y, u)), save(rational_mul(x, v)))), d));
-        return lose(8, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
     }
     double x = realpart(z);
     double y = imagpart(z);
@@ -957,7 +975,8 @@ sexp unisub(sexp l)
         return newfixnum(0);
     if (!l->cdr)
         return negf(l->car);
-    return lose(1, uniadd(replace(cons(l->car, replace(cons(replace(negf(save(uniadd(l->cdr)))), 0))))));
+    sexp* mark = psp;
+    return lose(mark, uniadd(replace(cons(l->car, replace(cons(replace(negf(save(uniadd(l->cdr)))), 0))))));
 }
 
 // x0 * x1 * x2 ...
@@ -1335,6 +1354,7 @@ sexp newchunk(const char *t)
     if (0 == *t)
         return 0;
 
+    sexp* mark = psp;
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
@@ -1353,7 +1373,7 @@ sexp newchunk(const char *t)
         {
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
-            return lose(1, p);
+            return lose(mark, p);
         }
 
         r->text[i++] = c;
@@ -1372,10 +1392,11 @@ sexp newchunk(const char *t)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
+    sexp* mark = psp;
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, exp, seenSet, ugly, 0, true);
-    return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
+    return lose(mark, newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
 // make-string
@@ -1384,6 +1405,7 @@ sexp make_string(sexp args)
     if (!args || !isFixnum(args->car))
         error("make-string: args expected");
 
+    sexp* mark = psp;
     int l = asFixnum(args->car);
     char *b = (char*) alloca(l+1);
     char *q = b;
@@ -1393,7 +1415,7 @@ sexp make_string(sexp args)
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
-    return lose(1, newcell(STRING, save(newchunk(b))));
+    return lose(mark, newcell(STRING, save(newchunk(b))));
 }
 
 // copy characters from a String or Atom into a buffer
@@ -1419,10 +1441,11 @@ char* sstr(char* b, int len, sexp s)
 // string-copy
 sexp string_copy(sexp s)
 {
+    sexp* mark = psp;
     assertString(s);
 
     int len = slen(s)+1;
-    return lose(1, newcell(STRING, save(newchunk(sstr((char*)alloca(len), len, s)))));
+    return lose(mark, newcell(STRING, save(newchunk(sstr((char*)alloca(len), len, s)))));
 }
 
 // string-append
@@ -1439,7 +1462,8 @@ sexp string_append(sexp p, sexp q)
     sstr(b, pl+1, p);
     sstr(b+pl, ql+1, q);
 
-    return lose(1, newcell(STRING, save(newchunk(b))));
+    sexp* mark = psp;
+    return lose(mark, newcell(STRING, save(newchunk(b))));
 }
 
 // string-fill
@@ -1498,41 +1522,45 @@ sexp output_portp(sexp p) { return isOutPort(p) ? t : 0; }
 // with-input-from-file
 sexp with_input_from_file(sexp p, sexp f)
 {
+    sexp* mark = psp;
     sexp t = save(inport);
     inport = save(open_input_file(p));
     sexp q = save(apply(f, 0));
     close_input_port(inport);
     inport = t;
-    return lose(3, q);
+    return lose(mark, q);
 }
 
 // with-output-to-file
 sexp with_output_to_file(sexp p, sexp f)
 {
+    sexp* mark = psp;
     sexp t = save(outport);
     outport = save(open_output_file(p));
     sexp q = save(apply(f, 0));
     close_output_port(outport);
     outport = t;
-    return lose(3, q);
+    return lose(mark, q);
 }
 
 // call-with-input-file
 sexp call_with_input_file(sexp p, sexp f)
 {
+    sexp* mark = psp;
     sexp inp = save(open_input_file(p));
     sexp q = save(apply(f, save(cons(inp, 0))));
     close_input_port(inp);
-    return lose(3, q);
+    return lose(mark, q);
 }
 
 // call-with-output-file
 sexp call_with_output_file(sexp p, sexp f)
 {
+    sexp* mark = psp;
     sexp oup = save(open_output_file(p));
     sexp q = save(apply(f, save(cons(oup, 0))));
     close_output_port(oup);
-    return lose(3, q);
+    return lose(mark, q);
 }
 
 // open-input-string
@@ -1548,6 +1576,7 @@ sexp open_input_string(sexp args)
     if (ii < 0 || jj <= ii)
         error("open-input-string: bad arguments");
 
+    sexp* mark = psp;
     std::stringstream* ss = new std::stringstream();
     InPort* port = (InPort*)save(newcell());
     ((Stags*)port)->stags = INPORT;
@@ -1565,22 +1594,23 @@ sexp open_input_string(sexp args)
             {
                 int n = k+m;
                 if (n == jj)
-                    return lose(1, (sexp)port);
+                    return lose(mark, (sexp)port);
                 else if (ii <= n && n < jj)
                     ss->put(t->text[m]);
             }
         }
         k += sizeof(t->text);
     }
-    return lose(1, (sexp)port);
+    return lose(mark, (sexp)port);
 }
 
 // get-output-string
 sexp get_output_string(sexp port)
 {
+    sexp* mark = psp;
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    return lose(1, newcell(STRING, save(newchunk(ss->str().c_str()))));
+    return lose(mark, newcell(STRING, save(newchunk(ss->str().c_str()))));
 }
 
 // open-output-string
@@ -1596,23 +1626,26 @@ sexp open_output_string(sexp args)
 // call-with-output-string
 sexp call_with_output_string(sexp proc)
 {
+    sexp* mark = psp;
     sexp port = save(open_output_string(0));
     apply(proc, save(cons(port, 0)));
-    return lose(2, get_output_string(port));
+    return lose(mark, get_output_string(port));
 }
 
 // call-with-truncated-output-string
 sexp call_with_truncated_output_string(sexp limit, sexp proc)
 {
+    sexp* mark = psp;
     // truncate somehow
     sexp port = save(open_output_string(0));
     apply(proc, save(cons(port, 0)));
-    return lose(2, get_output_string(port));
+    return lose(mark, get_output_string(port));
 }
 
 // write-to-string
 sexp write_to_string(sexp args)
 {
+    sexp* mark = psp;
     sexp object = args->car;
     int limit = INT_MAX;
     if (args->cdr)
@@ -1620,7 +1653,7 @@ sexp write_to_string(sexp args)
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, object, seenSet, ugly, 0, true);
-    return lose(1, newcell(STRING, save(newchunk(s.str().c_str()))));
+    return lose(mark, newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
 // vector?
@@ -1628,17 +1661,19 @@ sexp vectorp(sexp v) { return isVector(v) ? t : 0; }
 
 sexp newvector(int len, sexp fill)
 {
+    sexp* mark = psp;
     Vector* v = (Vector*) save(newcell());
     ((Stags*)v)->stags = VECTOR;
     v->l = len;
     v->e = new sexp[len];
     for (int i = v->l; --i >= 0; v->e[i] = fill) {}
-    return lose(1, (sexp)v);
+    return lose(mark, (sexp)v);
 }
 
 // make-vector
 sexp make_vector(sexp args)
 {
+    sexp* mark = psp;
     save(args);
     int len = 0;
     if (args->car && isFixnum(args->car))
@@ -1646,12 +1681,13 @@ sexp make_vector(sexp args)
     sexp fill = 0;
     if (args->cdr && args->cdr->car)
         fill = args->cdr->car;
-    return lose(1, newvector(len, fill));
+    return lose(mark, newvector(len, fill));
 }
 
 // list->vector
 sexp list_vector(sexp list)
 {
+    sexp* mark = psp;
     save(list);
     int length = 0;
     for (sexp p = list; p; p = p->cdr)
@@ -1660,7 +1696,7 @@ sexp list_vector(sexp list)
     int index = 0;
     for (sexp p = list; p; p = p->cdr)
         v->e[index++] = p->car;
-    return lose(2, (sexp)v);
+    return lose(mark, (sexp)v);
 }
 
 void assertVector(sexp v) { if (!isVector(v)) error("not a vector"); }
@@ -1668,6 +1704,7 @@ void assertVector(sexp v) { if (!isVector(v)) error("not a vector"); }
 // vector->list
 sexp vector_list(sexp vector)
 {
+    sexp* mark = psp;
     assertVector(vector);
     save(vector);
     Vector* v = (Vector*)vector;
@@ -1675,12 +1712,13 @@ sexp vector_list(sexp vector)
     sexp list = save(0);
     while (index > 0)
         replace(list = cons(v->e[--index], list));
-    return lose(2, list);
+    return lose(mark, list);
 }
 
 // vector-fill
 sexp vector_fill(sexp vector, sexp value)
 {
+    sexp* mark = psp;
     assertVector(vector);
     save(value);
     save(vector);
@@ -1688,15 +1726,16 @@ sexp vector_fill(sexp vector, sexp value)
     int index = v->l;
     while (index > 0)
         v->e[--index] = value;
-    return lose(2, vector);
+    return lose(mark, vector);
 }
 
 // vector-length
 sexp vector_length(sexp vector)
 {
+    sexp* mark = psp;
     assertVector(vector);
     save(vector);
-    return lose(1, newfixnum(((Vector*)vector)->l));
+    return lose(mark, newfixnum(((Vector*)vector)->l));
 }
 
 // vector-ref
@@ -1710,6 +1749,7 @@ sexp vector_ref(sexp vector, sexp index)
 // (vector e0 e1 e2 ...)
 sexp vector(sexp args)
 {
+    sexp* mark = psp;
     save(args);
     int index = 0;
     for (sexp p = args; p; p = p->cdr)
@@ -1718,7 +1758,7 @@ sexp vector(sexp args)
     index = 0;
     for (sexp p = args; p; p = p->cdr)
         v->e[index++] = p->car;
-    return lose(2, (sexp)v);
+    return lose(mark, (sexp)v);
 }
 
 // vector-set
@@ -2048,6 +2088,7 @@ sexp substringf(sexp s, sexp i, sexp j)
     if (!s || !isString(s->car) || !s->cdr || !isFixnum(s->cdr->car))
         error("substring: bad arguments");
 
+    sexp* mark = psp;
     int ii = asFixnum(s->cdr->car);
     int jj = slen(s->car);
     if (s->cdr->cdr && isFixnum(s->cdr->cdr->car))
@@ -2071,7 +2112,7 @@ sexp substringf(sexp s, sexp i, sexp j)
                 int n = k+m;
                 if (n == jj) {
                     b[n-ii] = 0;
-                    return lose(1, newcell(STRING, save(newchunk(b))));
+                    return lose(mark, newcell(STRING, save(newchunk(b))));
                 } else if (ii <= n && n < jj)
                     b[n-ii] = t->text[m];
             }
@@ -2083,7 +2124,7 @@ sexp substringf(sexp s, sexp i, sexp j)
 }
 
 // (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
-sexp append(sexp p, sexp q) { return p ? lose(3, cons(p->car, save(append(save(p)->cdr, save(q))))) : q; }
+sexp append(sexp p, sexp q) { sexp* mark = psp; return p ? lose(mark, cons(p->car, save(append(save(p)->cdr, save(q))))) : q; }
 
 // reverse
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
@@ -2132,43 +2173,47 @@ sexp allfixnums(sexp args)
 // x0 & x1 & x2 ...
 sexp andf(sexp args)
 {
+    sexp* mark = psp;
     if (allfixnums(save(args))) {
         long result = ~0;
         for (sexp p = args; p; p = p->cdr)
             result = result & asFixnum(p->car);
-        return lose(1, newfixnum(result));
+        return lose(mark, newfixnum(result));
     } else
-        return lose(1, 0);
+        return lose(mark, 0);
 }
 
 // x0 | x1 | x2 ...
 sexp orf(sexp args)
 {
+    sexp* mark = psp;
     if (allfixnums(save(args))) {
         long result = 0;
         for (sexp p = args; p; p = p->cdr)
             result = result | asFixnum(p->car);
-        return lose(1, newfixnum(result));
+        return lose(mark, newfixnum(result));
     } else
-        return lose(1, 0);
+        return lose(mark, 0);
 }
 
 // x0 ^ x1 ^ x2 ...
 sexp xorf(sexp args)
 {
+    sexp* mark = psp;
     if (allfixnums(save(args))) {
         long result = 0;
         for (sexp p = args; p; p = p->cdr)
             result = result ^ asFixnum(p->car);
-        return lose(1, newfixnum(result));
+        return lose(mark, newfixnum(result));
     } else
-        return lose(1, 0);
+        return lose(mark, 0);
 }
 
 // delay
 sexp delayform(sexp exp, sexp env)
 {
-    return lose(1, cons(promise, replace(cons(0, replace(cons(0, replace(cons(exp->cdr->car, save(cons(env, 0))))))))));
+    sexp* mark = psp;
+    return lose(mark, cons(promise, replace(cons(0, replace(cons(0, replace(cons(exp->cdr->car, save(cons(env, 0))))))))));
 }
 
 // force
@@ -2544,18 +2589,19 @@ sexp intern(sexp p)
 }
 
 // string->symbol
-sexp string_symbol(sexp x) { assertString(x); return lose(1, intern(newcell(ATOM, save((((String*)x)->chunks))))); }
+sexp string_symbol(sexp x) { sexp* mark = psp; assertString(x); return lose(mark, intern(newcell(ATOM, save((((String*)x)->chunks))))); }
 
 // symbol->string
-sexp symbol_string(sexp x) { assertAtom(x); return lose(1, newcell(STRING, save(((Atom*)x)->chunks))); }
+sexp symbol_string(sexp x) { sexp* mark = psp; assertAtom(x); return lose(mark, newcell(STRING, save(((Atom*)x)->chunks))); }
 
 // string->number (actually we will convert arbitrary s-expressions)
 sexp string_number(sexp exp)
 {
+    sexp* mark = psp;
     std::stringstream s;
     displayChunks(s, ((String*)exp)->chunks, false, false);
     sexp r = save(read(s, 0));
-    return lose(1, r);
+    return lose(mark, r);
 }
 
 // string->list
@@ -2583,6 +2629,7 @@ sexp list_string(sexp s)
     if (!s)
         return newcell(STRING, 0);
 
+    sexp* mark = psp;
     save(s);
     sexp p = save(newcell());
     sexp q = p;
@@ -2610,7 +2657,7 @@ sexp list_string(sexp s)
     while (i < sizeof(r->text))
         r->text[i++] = 0;
 
-    return lose(2, newcell(STRING, p));
+    return lose(mark, newcell(STRING, p));
 }
 
 // string
@@ -2682,6 +2729,7 @@ void fixenvs(sexp env)
 // define
 sexp define(sexp p, sexp r)
 {
+    sexp* mark = psp;
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
@@ -2689,7 +2737,7 @@ sexp define(sexp p, sexp r)
             return voida;
         }
     global = cons(save(cons(p, r)), global);
-    return lose(1, voida);
+    return lose(mark, voida);
 }
 
 // undefine
@@ -2756,7 +2804,8 @@ sexp set(sexp p, sexp r, sexp env)
 // evaluate a list of arguments in an environment
 sexp evlis(sexp p, sexp env)
 {
-    return p ? lose(4, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env))))) : 0;
+    sexp* mark = psp;
+    return p ? lose(mark, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env))))) : 0;
 }
 
 // associate a list of formal parameters and actual parameters in an environment
@@ -2764,8 +2813,9 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 {
     if (!actuals || !formals)
         return env;
-    return lose(5, cons(save(cons(formals->car, actuals->car)),
-                       save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
+    sexp* mark = psp;
+    return lose(mark, cons(save(cons(formals->car, actuals->car)),
+                           save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
 }
 
 // null-environment
@@ -2813,7 +2863,8 @@ sexp cond(sexp exp, sexp env)
 // lambda creates a closure
 sexp lambdaform(sexp exp, sexp env)
 {
-    return lose(1, cons(closure, replace(cons(exp, save(cons(env, 0))))));
+    sexp* mark = psp;
+    return lose(mark, cons(closure, replace(cons(exp, save(cons(env, 0))))));
 }
 
 /*
@@ -2931,7 +2982,8 @@ sexp ifform(sexp exp, sexp env)
  */
 sexp setform(sexp exp, sexp env)
 {
-    return lose(1, set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
+    sexp* mark = psp;
+    return lose(mark, set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
 }
 
 // (let ((var val) (var val) ..) body )
@@ -3015,9 +3067,6 @@ sexp apply(sexp fun, sexp args)
 {
     sexp* mark = psp;
 
-    save(fun);
-    save(args);
-
     if (false && tracing)
     {
         debug("apply-fun", fun);
@@ -3026,15 +3075,13 @@ sexp apply(sexp fun, sexp args)
 
     if (isFunct(fun))
     {
-        if (0 == arity(fun))
-            return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
-        if (1 == arity(fun))
-                return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : 0));
-        if (2 == arity(fun) && args->cdr)
-            return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car));
-        if (3 == arity(fun) && args->cdr && args->cdr->cdr)
-            return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(args->car, args->cdr->car, args->cdr->cdr->car));
-
+        switch (arity(fun))
+        {
+        case 0: return (*(Varargp)((Funct*)fun)->funcp)(args);
+        case 1: return (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : 0);
+        case 2: return (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car);
+        case 3: return (*(Threeargp)((Funct*)fun)->funcp)(args->car, args->cdr->car, args->cdr->cdr->car);
+        }
         debug("missing args", fun);
     }
 
@@ -3047,10 +3094,10 @@ sexp apply(sexp fun, sexp args)
             // fun->cdr->car = (lambda () foo)
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, cenv);
-            return lose(mark, s);
+            return s;
         } else if (isAtom(fun->cdr->car->cdr->car->cdr)) {
             // fun->cdr->car = (lambda (f . s) foo)
-            sexp e = save(cons(save(cons(fun->cdr->car->cdr->car->cdr, args)), cenv));
+            sexp e = replace(cons(save(cons(fun->cdr->car->cdr->car->cdr, args)), cenv));
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, e);
             return lose(mark, s);
@@ -3064,8 +3111,6 @@ sexp apply(sexp fun, sexp args)
 
         debug("bad closure", fun);
     }
-
-    debug("apply function", fun);
 
     error("apply bad function");
 
@@ -3090,7 +3135,13 @@ sexp eval(sexp p, sexp env)
         return p;
 
     if (isAtom(p))
-        return get(p, env);
+    {
+        // it pays to inline get() here
+        for (sexp q = env; q; q = q->cdr)
+            if (q->car && p == q->car->car)
+                return q->car->cdr;
+        debug("eval: undefined ", p); error("");
+    }
 
     sexp* mark = psp;
 
@@ -3105,10 +3156,11 @@ sexp eval(sexp p, sexp env)
 }
 
 /*
- * read Chunks terminated by some character
+ * read Chunks terminated by some character or eof
  */
 sexp readChunks(std::istream& fin, const char *ends)
 {
+    sexp* mark = psp;
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
@@ -3124,7 +3176,7 @@ sexp readChunks(std::istream& fin, const char *ends)
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
             fin.unget();
-            return lose(1, p);
+            return lose(mark, p);
         }
 
         if ('\\' == c)
@@ -3215,7 +3267,6 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
     }
 
     fin.unget();
-//  std::cerr << "scanNumber: " << s.str() << std::endl;
     return c;
 }
 
@@ -3351,10 +3402,10 @@ sexp scans(std::istream& fin)
         c = fin.get();
         sexp r = newcell(STRING, save(readChunks(fin, "\"")));
         (void)fin.get();  // read the " again
-        return lose(1, r);
+        return lose(mark, r);
     }
 
-    return lose(2, intern(save(newcell(ATOM, save(readChunks(fin, "( )[,]\t\r\n"))))));
+    return lose(mark, intern(save(newcell(ATOM, save(readChunks(fin, "( )[,]\t\r\n"))))));
 }
 
 // stub to enable tracing of scans()
@@ -3363,6 +3414,7 @@ sexp scan(std::istream& fin) { sexp r = scans(fin); if (tracing) debug("scan", r
 // finish reading a list
 sexp readTail(std::istream& fin, int level)
 {
+    sexp* mark = psp;
     sexp q = read(fin, level);
     if (rparen == q)
         return 0;
@@ -3370,7 +3422,7 @@ sexp readTail(std::istream& fin, int level)
         return 0;
     save(q);
     sexp r = save(readTail(fin, level));
-    return lose(2, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
+    return lose(mark, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
 }
 
 // finish reading a vector
@@ -3401,6 +3453,7 @@ sexp readVector(std::istream& fin, int level)
  */
 sexp read(std::istream& fin, int level)
 {
+    sexp* mark = psp;
     sexp p = scan(fin);
     if (nil == p)
         return 0;
@@ -3409,20 +3462,20 @@ sexp read(std::istream& fin, int level)
     if (lbracket == p)
         return readVector(fin, level+1);
     if (qchar == p)
-        return lose(2, cons(quote, save(cons(save(read(fin, level)), 0))));
+        return lose(mark, cons(quote, save(cons(save(read(fin, level)), 0))));
     if (tick == p)
-        return lose(2, cons(quasiquote, save(cons(save(read(fin, level)), 0))));
+        return lose(mark, cons(quasiquote, save(cons(save(read(fin, level)), 0))));
     if (comma == p)
-        return lose(2, cons(unquote, save(cons(save(read(fin, level)), 0))));
+        return lose(mark, cons(unquote, save(cons(save(read(fin, level)), 0))));
     if (commaat == p)
-        return lose(2, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
+        return lose(mark, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
     if (level == 0 && (rbracket == p || rparen == p))
         error("error: an s-expression cannot begin with ')' or ']'");
     return p;
 }
 
 // construct an atom and keep a unique copy
-sexp atomize(const char *s) { return lose(2, intern(save(newcell(ATOM, save(newchunk(s)))))); }
+sexp atomize(const char *s) { sexp* mark = psp; return lose(mark, intern(save(newcell(ATOM, save(newchunk(s)))))); }
 
 // the first interrupt will stop everything. the second will exit.
 void intr_handler(int sig, siginfo_t *si, void *ctx)
@@ -3489,6 +3542,7 @@ int main(int argc, char **argv, char **envp)
 
     // allocate the protection stack
     psp = protect = (sexp*)new sexp[PSIZE];
+    psend = protect + PSIZE;
 
     // allocate ports for cin, cout, cerr
     inport  = newcell(INPORT,  (sexp)&cinStream);
