@@ -883,9 +883,10 @@ sexp complex_div(sexp z, sexp w)
 sexp uniadd(sexp l)
 {
     sexp* mark = psp;
-    sexp sum = l->car;
+    sexp sum = zero;
     save(l, sum);
-    while (l = l->cdr) {
+    while (l)
+    {
         sexp x = l->car;
         if (isComplex(sum)) {
             if (isComplex(x))
@@ -927,12 +928,13 @@ sexp uniadd(sexp l)
                 error("not a number");
         } else
             error("not a number");
+        l = l->cdr;
     }
     return lose(mark, sum);
 }
 
 // - x
-sexp negf(sexp x)
+sexp unineg(sexp x)
 {
     if (isRational(x))
         return rational_reduce(-asFixnum(x->cdr->car), asFixnum(x->cdr->cdr->car));
@@ -940,7 +942,7 @@ sexp negf(sexp x)
     if (isComplex(x))
     {
         sexp* mark = psp;
-        return lose(mark, make_complex(save(negf(x->cdr->car)), save(negf(x->cdr->cdr->car))));
+        return lose(mark, make_complex(save(unineg(x->cdr->car)), save(unineg(x->cdr->cdr->car))));
     }
 
     switch (shortType(x))
@@ -960,18 +962,19 @@ sexp unisub(sexp l)
     if (!l)
         return zero;
     if (!l->cdr)
-        return negf(l->car);
+        return unineg(l->car);
     sexp* mark = psp;
-    return lose(mark, uniadd(replace(cons(l->car, replace(cons(replace(negf(save(uniadd(l->cdr)))), 0))))));
+    return lose(mark, uniadd(replace(cons(l->car, replace(cons(replace(unineg(save(uniadd(l->cdr)))), 0))))));
 }
 
 // x0 * x1 * x2 ...
 sexp unimul(sexp l)
 {
     sexp* mark = psp;
-    sexp product = l->car;
+    sexp product = one;
     save(l, product);
-    while (l = l->cdr) {
+    while (l)
+    {
         sexp x = l->car;
         if (isComplex(product)) {
             if (isComplex(x))
@@ -1013,6 +1016,7 @@ sexp unimul(sexp l)
                 error("not a number");
         } else
             error("not a number");
+        l = l->cdr;
     }
     return lose(mark, product);
 }
@@ -1021,9 +1025,18 @@ sexp unimul(sexp l)
 sexp unidiv(sexp l)
 {
     sexp* mark = psp;
-    sexp product = l->car;
+
+    sexp product;
+    if (l && l->cdr)
+    {
+        product = l->car;
+        l = l->cdr;
+    } else
+        product = one;
+
     save(l, product);
-    while (l = l->cdr) {
+    while (l)
+    {
         sexp x = l->car;
         if (isComplex(product)) {
             if (isComplex(x))
@@ -1044,10 +1057,8 @@ sexp unidiv(sexp l)
         } else if (isFixnum(product)) {
             if (isComplex(x))
                 product = replace(complex_div(x, save(make_complex(product, zero))));
-            else if (isRational(x))
+            else if (isFixnum(x) || isRational(x))
                 product = replace(rational_div(save(make_rational(product, one)), x));
-            else if (isFixnum(x))
-                product = replace(newfixnum(asFixnum(product) / asFixnum(x)));
             else if (isFlonum(x))
                 product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
             else
@@ -1065,6 +1076,7 @@ sexp unidiv(sexp l)
                 error("not a number");
         } else
             error("not a number");
+        l = l->cdr;
     }
     return lose(mark, product);
 }
@@ -1415,7 +1427,7 @@ sexp string_append(sexp p, sexp q)
 
     char *b = (char*) alloca(pl+ql+1);
 
-    sstr(b, pl+1, p);
+    sstr(b,    pl+1, p);
     sstr(b+pl, ql+1, q);
 
     sexp* mark = psp;
@@ -2446,6 +2458,12 @@ std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
     return s;
 }
 
+std::ostream& displayRational(std::ostream& s, sexp exp)
+{
+    s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
+    return s;
+}
+
 std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
 {
     if (!exp)
@@ -2467,14 +2485,14 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
         if (quoted)
             display(s, exp->cdr->car, seenSet, ugly, level, write);
         else if (isRational(exp))
-            s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
+            displayRational(s, exp);
         else if (isClosure(exp))
             displayNamed(s, "closure", exp, write);
         else if (isPromise(exp))
             displayNamed(s, "promise", exp, write);
         else if (isComplex(exp)) {
             if (isRational(exp->cdr->car))
-                s << asFixnum(exp->cdr->car->cdr->car) << '/' << asFixnum(exp->cdr->car->cdr->cdr->car);
+                displayRational(s, exp->cdr->car);
             else
                 s << asFlonum(exp->cdr->car);
             double im = asFlonum(exp->cdr->cdr->car);
@@ -2483,7 +2501,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
             if (im)
             {
                 if (isRational(exp->cdr->cdr->car))
-                    s << asFixnum(exp->cdr->cdr->car->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car->cdr->cdr->car);
+                    displayRational(s, exp->cdr->cdr->car);
                 else
                     s << asFlonum(exp->cdr->cdr->car);
                 s << 'i';
@@ -3339,7 +3357,7 @@ sexp scans(std::istream& fin)
         case '+':
             return lose(mark, make_complex(real, imag));
         case '-':
-            return lose(mark, make_complex(real, save(negf(imag))));
+            return lose(mark, make_complex(real, save(unineg(imag))));
         case '@':
             double r = isRational(real) ? rat2real(real) : asFlonum(real);
             double theta = isRational(imag) ? rat2real(imag) : asFlonum(imag);
@@ -3706,7 +3724,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("%"), 0, (void*)unimod);
     define_funct(atomize("/"), 0, (void*)unidiv);
     define_funct(atomize("not"), 1, (void*)isnot);
-    define_funct(atomize("neg"), 1, (void*)negf);
+    define_funct(atomize("neg"), 1, (void*)unineg);
     define_funct(atomize("<"), 2, (void*)ltp);
     define_funct(atomize("<="), 2, (void*)lep);
     define_funct(atomize(">="), 2, (void*)gep);
