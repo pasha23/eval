@@ -3,7 +3,7 @@
  * 
  * Robert Kelley October 2019
  */
-#define PSIZE   16384
+#define PSIZE   32768
 #define CELLS   262144
 #undef  BROKEN
 
@@ -345,6 +345,8 @@ sexp lose(int n, sexp p)
 
 static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 
+static inline sexp lose(sexp p) { --psp; return p; }
+
 static inline void markCell(sexp p)   { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
 static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; }
 
@@ -564,25 +566,23 @@ sexp newflonum(double number)
 
 sexp define_form(sexp name, Formp f)
 {
-    sexp* mark = psp;
     assert(name);
     Form* p = (Form*)save(newcell());
     ((Stags*)p)->stags = FORM;
     p->formp = f;
     define(name, (sexp)p);
-    return lose(mark, name);
+    return lose(name);
 }
 
 sexp define_funct(sexp name, int arity, void* f)
 {
-    sexp* mark = psp;
     assert(name);
     Funct* p = (Funct*)save(newcell());
     ((Stags*)p)->stags = FUNCT;
     p->tags[2] = arity;
     p->funcp = f;
     define(name, (sexp)p);
-    return lose(mark, name);
+    return lose(name);
 }
 
 // cons
@@ -690,8 +690,7 @@ sexp gtp(sexp x, sexp y) { return asFlonum(x) > asFlonum(y) ? t : 0; }
 
 sexp make_rational(sexp num, sexp den)
 {
-    sexp* mark = psp;
-    return lose(mark, cons(rational, replace(cons(num, save(cons(den, 0))))));
+    return lose(cons(rational, replace(cons(num, save(cons(den, 0))))));
 }
 
 sexp newrational(long n, long d)
@@ -892,12 +891,12 @@ sexp uniadd(sexp l)
             if (isComplex(x))
                 sum = replace(complex_add(sum, x));
             else if (isRational(x) || isFixnum(x) || isFlonum(x))
-                sum = replace(complex_add(sum, save(make_complex(x, zero))));
+                sum = replace(lose(complex_add(sum, save(make_complex(x, zero)))));
             else
                 error("not a number");
         } else if (isRational(sum)) {
             if (isComplex(x))
-                sum = replace(complex_add(x, save(make_complex(sum, zero))));
+                sum = replace(lose(complex_add(x, save(make_complex(sum, zero)))));
             else if (isRational(x) || isFixnum(x))
                 sum = replace(rational_add(sum, x));
             else if (isFlonum(x))
@@ -906,9 +905,9 @@ sexp uniadd(sexp l)
                 error("not a number");
         } else if (isFixnum(sum)) {
             if (isComplex(x))
-                sum = replace(complex_add(x, save(make_complex(sum, zero))));
+                sum = replace(lose(complex_add(x, save(make_complex(sum, zero)))));
             else if (isRational(x))
-                sum = replace(rational_add(replace(make_rational(sum, one)), x));
+                sum = replace(lose(rational_add(save(make_rational(sum, one)), x)));
             else if (isFixnum(x))
                 sum = replace(newfixnum(asFixnum(sum) + asFixnum(x)));
             else if (isFlonum(x))
@@ -917,7 +916,7 @@ sexp uniadd(sexp l)
                 error("not a number");
         } else if (isFlonum(sum)) {
             if (isComplex(x))
-                sum = replace(complex_add(save(make_complex(sum, zero)), x));
+                sum = replace(lose(complex_add(save(make_complex(sum, zero)), x)));
             else if (isRational(x))
                 sum = replace(newflonum(asFlonum(sum) + rat2real(x)));
             else if (isFixnum(x))
@@ -964,7 +963,7 @@ sexp unisub(sexp l)
     if (!l->cdr)
         return unineg(l->car);
     sexp* mark = psp;
-    return lose(mark, uniadd(replace(cons(l->car, replace(cons(replace(unineg(save(uniadd(l->cdr)))), 0))))));
+    return lose(uniadd(replace(cons(l->car, replace(cons(replace(unineg(save(uniadd(l->cdr)))), 0))))));
 }
 
 // x0 * x1 * x2 ...
@@ -980,12 +979,12 @@ sexp unimul(sexp l)
             if (isComplex(x))
                 product = replace(complex_mul(product, x));
             else if (isRational(x) || isFixnum(x) || isFlonum(x))
-                product = replace(complex_mul(product, save(make_complex(x, zero))));
+                product = replace(lose(complex_mul(product, save(make_complex(x, zero)))));
             else
                 error("not a number");
         } else if (isRational(product)) {
             if (isComplex(x))
-                product = replace(complex_mul(x, save(make_complex(product, zero))));
+                product = replace(lose(complex_mul(x, save(make_complex(product, zero)))));
             else if (isRational(x) || isFixnum(x))
                 product = replace(rational_mul(product, x));
             else if (isFlonum(x))
@@ -994,9 +993,9 @@ sexp unimul(sexp l)
                 error("not a number");
         } else if (isFixnum(product)) {
             if (isComplex(x))
-                product = replace(complex_mul(x, save(make_complex(product, zero))));
+                product = replace(lose(complex_mul(x, save(make_complex(product, zero)))));
             else if (isRational(x))
-                product = replace(rational_mul(save(make_rational(product, one)), x));
+                product = replace(lose(rational_mul(save(make_rational(product, one)), x)));
             else if (isFixnum(x))
                 product = replace(newfixnum(asFixnum(product) * asFixnum(x)));
             else if (isFlonum(x))
@@ -1005,7 +1004,7 @@ sexp unimul(sexp l)
                 error("not a number");
         } else if (isFlonum(product)) {
             if (isComplex(x))
-                product = replace(complex_mul(save(make_complex(product, zero)), x));
+                product = replace(lose(complex_mul(save(make_complex(product, zero)), x)));
             else if (isRational(x))
                 product = replace(newflonum(asFlonum(product) * rat2real(x)));
             else if (isFixnum(x))
@@ -1042,12 +1041,12 @@ sexp unidiv(sexp l)
             if (isComplex(x))
                 product = replace(complex_div(product, x));
             else if (isRational(x) || isFixnum(x) || isFlonum(x))
-                product = replace(complex_div(product, save(make_complex(x, zero))));
+                product = replace(lose(complex_div(product, save(make_complex(x, zero)))));
             else
                 error("not a number");
         } else if (isRational(product)) {
             if (isComplex(x))
-                product = replace(complex_div(x, save(make_complex(product, zero))));
+                product = replace(lose(complex_div(x, save(make_complex(product, zero)))));
             else if (isRational(x) || isFixnum(x))
                 product = replace(rational_div(product, x));
             else if (isFlonum(x))
@@ -1056,16 +1055,16 @@ sexp unidiv(sexp l)
                 error("not a number");
         } else if (isFixnum(product)) {
             if (isComplex(x))
-                product = replace(complex_div(x, save(make_complex(product, zero))));
+                product = replace(lose(complex_div(x, save(make_complex(product, zero)))));
             else if (isFixnum(x) || isRational(x))
-                product = replace(rational_div(save(make_rational(product, one)), x));
+                product = replace(lose(rational_div(save(make_rational(product, one)), x)));
             else if (isFlonum(x))
                 product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
             else
                 error("not a number");
         } else if (isFlonum(product)) {
             if (isComplex(x))
-                product = replace(complex_div(save(make_complex(product, zero)), x));
+                product = replace(lose(complex_div(save(make_complex(product, zero)), x)));
             else if (isRational(x))
                 product = replace(newflonum(asFlonum(product) / rat2real(x)));
             else if (isFixnum(x))
@@ -1103,12 +1102,12 @@ sexp unimod(sexp l)
             if (isComplex(x))
                 product = replace(complex_mod(product, x));
             else if (isRational(x) || isFixnum(x) || isFlonum(x))
-                product = replace(complex_mod(product, save(make_complex(x, zero))));
+                product = replace(lose(complex_mod(product, save(make_complex(x, zero)))));
             else
                 error("not a number");
         } else if (isRational(product)) {
             if (isComplex(x))
-                product = replace(complex_mod(x, save(make_complex(product, zero))));
+                product = replace(lose(complex_mod(x, save(make_complex(product, zero)))));
             else if (isRational(x) || isFixnum(x))
                 product = replace(rational_mod(product, x));
             else if (isFlonum(x))
@@ -1117,9 +1116,9 @@ sexp unimod(sexp l)
                 error("not a number");
         } else if (isFixnum(product)) {
             if (isComplex(x))
-                product = replace(complex_mod(x, save(make_complex(product, zero))));
+                product = replace(lose(complex_mod(x, save(make_complex(product, zero)))));
             else if (isRational(x))
-                product = replace(rational_mod(save(make_rational(product, one)), x));
+                product = replace(lose(rational_mod(save(make_rational(product, one)), x)));
             else if (isFixnum(x))
                 product = replace(newfixnum(asFixnum(product) % asFixnum(x)));
             else if (isFlonum(x))
@@ -1128,7 +1127,7 @@ sexp unimod(sexp l)
                 error("not a number");
         } else if (isFlonum(product)) {
             if (isComplex(x))
-                product = replace(complex_mod(save(make_complex(product, zero)), x));
+                product = replace(lose(complex_mod(save(make_complex(product, zero)), x)));
             else if (isRational(x))
                 product = replace(newflonum(fmod(asFlonum(product), rat2real(x))));
             else if (isFixnum(x))
@@ -1322,7 +1321,6 @@ sexp newchunk(const char *t)
     if (0 == *t)
         return 0;
 
-    sexp* mark = psp;
     sexp p = save(newcell());
     sexp q = p;
     Chunk* r = (Chunk*) newcell();
@@ -1341,7 +1339,7 @@ sexp newchunk(const char *t)
         {
             while (i < sizeof(r->text))
                 r->text[i++] = 0;
-            return lose(mark, p);
+            return lose(p);
         }
 
         r->text[i++] = c;
@@ -1360,11 +1358,10 @@ sexp newchunk(const char *t)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
-    sexp* mark = psp;
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, exp, seenSet, ugly, 0, true);
-    return lose(mark, newcell(STRING, save(newchunk(s.str().c_str()))));
+    return lose(newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
 // make-string
@@ -1373,7 +1370,6 @@ sexp make_string(sexp args)
     if (!args || !isFixnum(args->car))
         error("make-string: args expected");
 
-    sexp* mark = psp;
     int l = asFixnum(args->car);
     char *b = (char*) alloca(l+1);
     char *q = b;
@@ -1383,7 +1379,7 @@ sexp make_string(sexp args)
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
-    return lose(mark, newcell(STRING, save(newchunk(b))));
+    return lose(newcell(STRING, save(newchunk(b))));
 }
 
 // copy characters from a String or Atom into a buffer
@@ -1409,11 +1405,9 @@ char* sstr(char* b, int len, sexp s)
 // string-copy
 sexp string_copy(sexp s)
 {
-    sexp* mark = psp;
     assertString(s);
-
     int len = slen(s)+1;
-    return lose(mark, newcell(STRING, save(newchunk(sstr((char*)alloca(len), len, s)))));
+    return lose(newcell(STRING, save(newchunk(sstr((char*)alloca(len), len, s)))));
 }
 
 // string-append
@@ -1421,17 +1415,12 @@ sexp string_append(sexp p, sexp q)
 {
     assertString(p);
     assertString(q);
-
     int pl = slen(p);
     int ql = slen(q);
-
     char *b = (char*) alloca(pl+ql+1);
-
     sstr(b,    pl+1, p);
     sstr(b+pl, ql+1, q);
-
-    sexp* mark = psp;
-    return lose(mark, newcell(STRING, save(newchunk(b))));
+    return lose(newcell(STRING, save(newchunk(b))));
 }
 
 // string-fill
@@ -1544,7 +1533,6 @@ sexp open_input_string(sexp args)
     if (ii < 0 || jj <= ii)
         error("open-input-string: bad arguments");
 
-    sexp* mark = psp;
     std::stringstream* ss = new std::stringstream();
     InPort* port = (InPort*)save(newcell());
     ((Stags*)port)->stags = INPORT;
@@ -1562,23 +1550,22 @@ sexp open_input_string(sexp args)
             {
                 int n = k+m;
                 if (n == jj)
-                    return lose(mark, (sexp)port);
+                    return lose((sexp)port);
                 else if (ii <= n && n < jj)
                     ss->put(t->text[m]);
             }
         }
         k += sizeof(t->text);
     }
-    return lose(mark, (sexp)port);
+    return lose((sexp)port);
 }
 
 // get-output-string
 sexp get_output_string(sexp port)
 {
-    sexp* mark = psp;
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    return lose(mark, newcell(STRING, save(newchunk(ss->str().c_str()))));
+    return lose(newcell(STRING, save(newchunk(ss->str().c_str()))));
 }
 
 // open-output-string
@@ -1617,7 +1604,6 @@ sexp call_with_truncated_output_string(sexp limit, sexp proc)
 // write-to-string
 sexp write_to_string(sexp args)
 {
-    sexp* mark = psp;
     sexp object = args->car;
     int limit = INT_MAX;
     if (args->cdr)
@@ -1625,7 +1611,7 @@ sexp write_to_string(sexp args)
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, object, seenSet, ugly, 0, true);
-    return lose(mark, newcell(STRING, save(newchunk(s.str().c_str()))));
+    return lose(newcell(STRING, save(newchunk(s.str().c_str()))));
 }
 
 // vector?
@@ -1633,27 +1619,24 @@ sexp vectorp(sexp v) { return isVector(v) ? t : 0; }
 
 sexp newvector(int len, sexp fill)
 {
-    sexp* mark = psp;
     Vector* v = (Vector*) save(newcell());
     ((Stags*)v)->stags = VECTOR;
     v->l = len;
     v->e = new sexp[len];
     for (int i = v->l; --i >= 0; v->e[i] = fill) {}
-    return lose(mark, (sexp)v);
+    return lose((sexp)v);
 }
 
 // make-vector
 sexp make_vector(sexp args)
 {
-    sexp* mark = psp;
-    save(args);
     int len = 0;
     if (args->car && isFixnum(args->car))
         len = asFixnum(args->car);
     sexp fill = 0;
     if (args->cdr && args->cdr->car)
         fill = args->cdr->car;
-    return lose(mark, newvector(len, fill));
+    return newvector(len, fill);
 }
 
 // list->vector
@@ -1690,23 +1673,19 @@ sexp vector_list(sexp vector)
 // vector-fill
 sexp vector_fill(sexp vector, sexp value)
 {
-    sexp* mark = psp;
     assertVector(vector);
-    save(value, vector);
     Vector* v = (Vector*)vector;
     int index = v->l;
     while (index > 0)
         v->e[--index] = value;
-    return lose(mark, vector);
+    return vector;
 }
 
 // vector-length
 sexp vector_length(sexp vector)
 {
-    sexp* mark = psp;
     assertVector(vector);
-    save(vector);
-    return lose(mark, newfixnum(((Vector*)vector)->l));
+    return newfixnum(((Vector*)vector)->l);
 }
 
 // vector-ref
@@ -2059,7 +2038,6 @@ sexp substringf(sexp s, sexp i, sexp j)
     if (!s || !isString(s->car) || !s->cdr || !isFixnum(s->cdr->car))
         error("substring: bad arguments");
 
-    sexp* mark = psp;
     int ii = asFixnum(s->cdr->car);
     int jj = slen(s->car);
     if (s->cdr->cdr && isFixnum(s->cdr->cdr->car))
@@ -2083,7 +2061,7 @@ sexp substringf(sexp s, sexp i, sexp j)
                 int n = k+m;
                 if (n == jj) {
                     b[n-ii] = 0;
-                    return lose(mark, newcell(STRING, save(newchunk(b))));
+                    return lose(newcell(STRING, save(newchunk(b))));
                 } else if (ii <= n && n < jj)
                     b[n-ii] = t->text[m];
             }
@@ -2137,47 +2115,43 @@ sexp allfixnums(sexp args)
 // x0 & x1 & x2 ...
 sexp andf(sexp args)
 {
-    sexp* mark = psp;
     if (allfixnums(save(args))) {
         long result = ~0;
         for (sexp p = args; p; p = p->cdr)
             result = result & asFixnum(p->car);
-        return lose(mark, newfixnum(result));
+        return lose(newfixnum(result));
     } else
-        return lose(mark, 0);
+        return lose(0);
 }
 
 // x0 | x1 | x2 ...
 sexp orf(sexp args)
 {
-    sexp* mark = psp;
     if (allfixnums(save(args))) {
         long result = 0;
         for (sexp p = args; p; p = p->cdr)
             result = result | asFixnum(p->car);
-        return lose(mark, newfixnum(result));
+        return lose(newfixnum(result));
     } else
-        return lose(mark, 0);
+        return lose(0);
 }
 
 // x0 ^ x1 ^ x2 ...
 sexp xorf(sexp args)
 {
-    sexp* mark = psp;
     if (allfixnums(save(args))) {
         long result = 0;
         for (sexp p = args; p; p = p->cdr)
             result = result ^ asFixnum(p->car);
-        return lose(mark, newfixnum(result));
+        return lose(newfixnum(result));
     } else
-        return lose(mark, 0);
+        return lose(0);
 }
 
 // delay
 sexp delayform(sexp exp, sexp env)
 {
-    sexp* mark = psp;
-    return lose(mark, cons(promise, replace(cons(0, replace(cons(0, replace(cons(exp->cdr->car, save(cons(env, 0))))))))));
+    return lose(cons(promise, replace(cons(0, replace(cons(0, replace(cons(exp->cdr->car, save(cons(env, 0))))))))));
 }
 
 // force
@@ -2559,19 +2533,17 @@ sexp intern(sexp p)
 }
 
 // string->symbol
-sexp string_symbol(sexp x) { sexp* mark = psp; assertString(x); return lose(mark, intern(newcell(ATOM, save((((String*)x)->chunks))))); }
+sexp string_symbol(sexp x) { assertString(x); return lose(intern(newcell(ATOM, save((((String*)x)->chunks))))); }
 
 // symbol->string
-sexp symbol_string(sexp x) { sexp* mark = psp; assertAtom(x); return lose(mark, newcell(STRING, save(((Atom*)x)->chunks))); }
+sexp symbol_string(sexp x) { assertAtom(x); return lose(newcell(STRING, save(((Atom*)x)->chunks))); }
 
 // string->number (actually we will convert arbitrary s-expressions)
 sexp string_number(sexp exp)
 {
-    sexp* mark = psp;
     std::stringstream s;
     displayChunks(s, ((String*)exp)->chunks, false, false);
-    sexp r = save(read(s, 0));
-    return lose(mark, r);
+    return read(s, 0);
 }
 
 // string->list
@@ -2588,7 +2560,7 @@ sexp string_list(sexp x)
 
     sexp p = 0;
     while (--q >= b)
-        p = lose(2, cons(save(newcharacter(*q)), save(p)));
+        p = lose(lose(cons(save(newcharacter(*q)), save(p))));
 
     return p;
 }
@@ -2702,7 +2674,6 @@ void fixenvs(sexp env)
 // define
 sexp define(sexp p, sexp r)
 {
-    sexp* mark = psp;
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
@@ -2710,7 +2681,7 @@ sexp define(sexp p, sexp r)
             return voida;
         }
     global = cons(save(cons(p, r)), global);
-    return lose(mark, voida);
+    return lose(voida);
 }
 
 // undefine
@@ -2838,8 +2809,7 @@ sexp cond(sexp exp, sexp env)
 // lambda creates a closure
 sexp lambdaform(sexp exp, sexp env)
 {
-    sexp* mark = psp;
-    return lose(mark, cons(closure, replace(cons(exp, save(cons(env, 0))))));
+    return lose(cons(closure, replace(cons(exp, save(cons(env, 0))))));
 }
 
 /*
@@ -2952,13 +2922,64 @@ sexp ifform(sexp exp, sexp env)
     return voida;
 }
 
+sexp whenform(sexp exp, sexp env)
+{
+    if (!exp->cdr)
+        error("when: missing predicate");
+    if (!exp->cdr->cdr)
+        error("when: missing consequent");
+    if (eval(exp->cdr->car, env))
+        eval(exp->cdr->cdr->car, env);
+    return voida;
+}
+
+sexp unlessform(sexp exp, sexp env)
+{
+    if (!exp->cdr)
+        error("unless: missing predicate");
+    if (!exp->cdr->cdr)
+        error("unless: missing consequent");
+    if (!eval(exp->cdr->car, env))
+        eval(exp->cdr->cdr->car, env);
+    return voida;
+}
+
+sexp caseform(sexp exp, sexp env)
+{
+    sexp* mark = psp;
+
+    if (!exp->cdr)
+        error("case: missing key");
+
+    sexp key = exp->cdr->car;
+
+    sexp r = save(voida);
+    for (exp = exp->cdr->cdr; exp; exp = exp->cdr)
+    {
+        if (elsea = exp->car)
+        {
+            for (sexp p = exp->cdr; p; p = p->cdr)
+                r = replace(eval(p->car, env));
+            return lose(r);
+        }
+
+        for (sexp p = exp->car->car; p; p = p->cdr)
+            if (key == p->car)
+            {
+                for (p = exp->cdr; p; p = p->cdr)
+                    r = replace(eval(p->car, env));
+                return lose(r);
+            }
+    }
+    return lose(voida);
+}
+
 /*
  * (set! name value) alters an existing binding
  */
 sexp setform(sexp exp, sexp env)
 {
-    sexp* mark = psp;
-    return lose(mark, set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
+    return lose(set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
 }
 
 // (let ((var val) (var val) ..) body )
@@ -3391,7 +3412,6 @@ sexp scan(std::istream& fin) { sexp r = scans(fin); if (tracing) debug("scan", r
 // finish reading a list
 sexp readTail(std::istream& fin, int level)
 {
-    sexp* mark = psp;
     sexp q = read(fin, level);
     if (rparen == q)
         return 0;
@@ -3400,7 +3420,7 @@ sexp readTail(std::istream& fin, int level)
     if (dot == q)
         return readTail(fin, level)->car;
     else
-        return lose(mark, cons(q, save(readTail(fin, level))));
+        return lose(cons(q, save(readTail(fin, level))));
 }
 
 // finish reading a vector
@@ -3742,6 +3762,7 @@ int main(int argc, char **argv, char **envp)
 
     define_form(atomize("begin"), begin);
     define_form(atomize("bound?"), boundp);
+    define_form(atomize("case"), caseform);
     define_form(atomize("cond"), cond);
     define_form(atomize("define"), defineform);
     define_form(atomize("delay"), delayform);
@@ -3754,6 +3775,8 @@ int main(int argc, char **argv, char **envp)
     define_form(atomize("quasiquote"), quasiquoteform);
     define_form(atomize("set!"), setform);
     define_form(atomize("while"), whileform);
+    define_form(atomize("when"), whenform);
+    define_form(atomize("unless"), unlessform);
     define_form(atomize("and"), andform);
     define_form(atomize("or"), orform);
     define_form(atomize("if"), ifform);
