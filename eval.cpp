@@ -81,9 +81,9 @@ typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
-sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda;
-sexp lbracket, lparen, minus, nil, promise, qchar, quasiquote, quote;
-sexp rational, rbracket, rparen, t, tick, unquote, unquotesplicing, voida;
+sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda, lbracket, lparen;
+sexp minus, nil, one, promise, qchar, quasiquote, quote, rational, rbracket, rparen;
+sexp t, tick, unquote, unquotesplicing, voida, zero;
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
@@ -439,6 +439,8 @@ sexp gc(sexp args)
     mark(inport);
     mark(errport);
     mark(outport);
+    mark(zero);
+    mark(one);
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
 
@@ -686,16 +688,28 @@ sexp gep(sexp x, sexp y) { return asFlonum(x) >= asFlonum(y) ? t : 0; }
 // >
 sexp gtp(sexp x, sexp y) { return asFlonum(x) > asFlonum(y) ? t : 0; }
 
+sexp make_rational(sexp num, sexp den)
+{
+    sexp* mark = psp;
+    return lose(mark, cons(rational, replace(cons(num, save(cons(den, 0))))));
+}
+
 sexp newrational(long n, long d)
 {
     sexp* mark = psp;
-    return lose(mark, cons(rational, replace(cons(save(newfixnum(n)), replace(cons(save(newfixnum(d)), 0))))));
+    return lose(mark, make_rational(save(newfixnum(n)), save(newfixnum(d))));
+}
+
+sexp make_complex(sexp re, sexp im)
+{
+    sexp* mark = psp;
+    return lose(mark, cons(complex, replace(cons(save(re), replace(cons(save(im), 0))))));
 }
 
 sexp newcomplex(double re, double im)
 {
     sexp* mark = psp;
-    return lose(mark, cons(complex, replace(cons(save(newflonum(re)), replace(cons(save(newflonum(im)), 0))))));
+    return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
 }
 
 double realpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->car); }
@@ -795,7 +809,7 @@ sexp complex_add(sexp z, sexp w)
     {
         sexp real = save(rational_add(z->cdr->car, w->cdr->car));
         sexp imag = save(rational_add(z->cdr->cdr->car, w->cdr->cdr->car));
-        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, make_complex(real, imag));
     }
     double re = realpart(z)+realpart(w);
     double im = imagpart(z)+imagpart(w);
@@ -810,7 +824,7 @@ sexp complex_sub(sexp z, sexp w)
     {
         sexp real = save(rational_sub(z->cdr->car, w->cdr->car));
         sexp imag = save(rational_sub(z->cdr->cdr->car, w->cdr->cdr->car));
-        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, make_complex(real, imag));
     }
     double re = realpart(z)-realpart(w);
     double im = imagpart(z)-imagpart(w);
@@ -829,7 +843,7 @@ sexp complex_mul(sexp z, sexp w)
         sexp v = w->cdr->cdr->car;
         sexp real = save(rational_sub(save(rational_mul(x, u)), save(rational_mul(y, v))));
         sexp imag = save(rational_add(save(rational_mul(x, v)), save(rational_mul(y, u))));
-        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, make_complex(real, imag));
     }
     double x = realpart(z);
     double y = imagpart(z);
@@ -853,7 +867,7 @@ sexp complex_div(sexp z, sexp w)
         sexp d = save(rational_add(save(rational_mul(u, u)), save(rational_mul(v, v))));
         sexp real = save(rational_div(save(rational_add(save(rational_mul(x, u)), save(rational_mul(y, v)))), d));
         sexp imag = save(rational_div(save(rational_sub(save(rational_mul(y, u)), save(rational_mul(x, v)))), d));
-        return lose(mark, cons(complex, save(cons(real, save(cons(imag, 0))))));
+        return lose(mark, make_complex(real, imag));
     }
     double x = realpart(z);
     double y = imagpart(z);
@@ -873,48 +887,42 @@ sexp uniadd(sexp l)
     save(l, sum);
     while (l = l->cdr) {
         sexp x = l->car;
-        if (isFixnum(sum)) {
-            if (isFixnum(x))
-                sum = replace(newfixnum(asFixnum(sum) + asFixnum(x)));
-            else if (isRational(x))
-                sum = replace(rational_add(replace(newrational(asFixnum(sum), 1)), x));
-            else if (isFlonum(x))
-                sum = replace(newflonum((double)asFixnum(sum) + asFlonum(x)));
-            else if (isComplex(x))
-                sum = replace(complex_add(replace(newcomplex((double)asFixnum(sum), 0.0)), x));
+        if (isComplex(sum)) {
+            if (isComplex(x))
+                sum = replace(complex_add(sum, x));
+            else if (isRational(x) || isFixnum(x) || isFlonum(x))
+                sum = replace(complex_add(sum, save(make_complex(x, zero))));
             else
                 error("not a number");
         } else if (isRational(sum)) {
-            if (isFixnum(x))
-                sum = replace(rational_add(sum, save(newrational(asFixnum(x), 1))));
-            else if (isRational(x))
+            if (isComplex(x))
+                sum = replace(complex_add(x, save(make_complex(sum, zero))));
+            else if (isRational(x) || isFixnum(x))
                 sum = replace(rational_add(sum, x));
             else if (isFlonum(x))
                 sum = replace(newflonum(rat2real(sum) + asFlonum(x)));
-            else if (isComplex(x))
-                sum = replace(complex_add(save(newcomplex(rat2real(sum), 0.0)), x));
+            else
+                error("not a number");
+        } else if (isFixnum(sum)) {
+            if (isComplex(x))
+                sum = replace(complex_add(x, save(make_complex(sum, zero))));
+            else if (isRational(x))
+                sum = replace(rational_add(replace(make_rational(sum, one)), x));
+            else if (isFixnum(x))
+                sum = replace(newfixnum(asFixnum(sum) + asFixnum(x)));
+            else if (isFlonum(x))
+                sum = replace(newflonum((double)asFixnum(sum) + asFlonum(x)));
             else
                 error("not a number");
         } else if (isFlonum(sum)) {
-            if (isFixnum(x))
-                sum = replace(newflonum(asFlonum(sum) + (double)asFixnum(x)));
+            if (isComplex(x))
+                sum = replace(complex_add(save(make_complex(sum, zero)), x));
             else if (isRational(x))
                 sum = replace(newflonum(asFlonum(sum) + rat2real(x)));
+            else if (isFixnum(x))
+                sum = replace(newflonum(asFlonum(sum) + (double)asFixnum(x)));
             else if (isFlonum(x))
                 sum = replace(newflonum(asFlonum(sum) + asFlonum(x)));
-            else if (isComplex(x))
-                sum = replace(complex_add(save(newcomplex(asFlonum(sum), 0.0)), x));
-            else
-                error("not a number");
-        } else if (isComplex(sum)) {
-            if (isFixnum(x))
-                sum = replace(complex_add(sum, save(newcomplex((double)asFixnum(x), 0.0))));
-            else if (isRational(x))
-                sum = replace(complex_add(sum, save(newcomplex(rat2real(x), 0.0))));
-            else if (isFlonum(x))
-                sum = replace(complex_add(sum, save(newcomplex(asFlonum(x), 0.0))));
-            else if (isComplex(x))
-                sum = replace(complex_add(sum, x));
             else
                 error("not a number");
         } else
@@ -930,7 +938,10 @@ sexp negf(sexp x)
         return rational_reduce(-asFixnum(x->cdr->car), asFixnum(x->cdr->cdr->car));
 
     if (isComplex(x))
-        return newcomplex(-asFlonum(x->cdr->car), -asFlonum(x->cdr->cdr->car));
+    {
+        sexp* mark = psp;
+        return lose(mark, make_complex(save(negf(x->cdr->car)), save(negf(x->cdr->cdr->car))));
+    }
 
     switch (shortType(x))
     {
@@ -947,7 +958,7 @@ sexp negf(sexp x)
 sexp unisub(sexp l)
 {
     if (!l)
-        return newfixnum(0);
+        return zero;
     if (!l->cdr)
         return negf(l->car);
     sexp* mark = psp;
@@ -960,57 +971,44 @@ sexp unimul(sexp l)
     sexp* mark = psp;
     sexp product = l->car;
     save(l, product);
-
     while (l = l->cdr) {
         sexp x = l->car;
-        if (isFixnum(product)) {
-            if (isFixnum(x))
-                product = replace(newfixnum(asFixnum(product) * asFixnum(x)));
-            else if (isRational(x))
-                product = replace(rational_mul(save(newrational(asFixnum(product), 1)), x));
-            else if (isFlonum(x))
-                product = replace(newflonum((double)asFixnum(product) * asFlonum(x)));
-            else if (isComplex(x))
-                product = replace(complex_mul(save(newcomplex((double)asFixnum(product), 0.0)), x));
+        if (isComplex(product)) {
+            if (isComplex(x))
+                product = replace(complex_mul(product, x));
+            else if (isRational(x) || isFixnum(x) || isFlonum(x))
+                product = replace(complex_mul(product, save(make_complex(x, zero))));
             else
                 error("not a number");
         } else if (isRational(product)) {
-            if (isFixnum(x))
-                product = replace(rational_mul(product, save(newrational(asFixnum(x), 1))));
-            else if (isRational(x))
+            if (isComplex(x))
+                product = replace(complex_mul(x, save(make_complex(product, zero))));
+            else if (isRational(x) || isFixnum(x))
                 product = replace(rational_mul(product, x));
             else if (isFlonum(x))
                 product = replace(newflonum(rat2real(product) * asFlonum(x)));
-            else if (isComplex(x))
-                product = replace(newcomplex(rat2real(product)*realpart(x), rat2real(product)*imagpart(x)));
+            else
+                error("not a number");
+        } else if (isFixnum(product)) {
+            if (isComplex(x))
+                product = replace(complex_mul(x, save(make_complex(product, zero))));
+            else if (isRational(x))
+                product = replace(rational_mul(save(make_rational(product, one)), x));
+            else if (isFixnum(x))
+                product = replace(newfixnum(asFixnum(product) * asFixnum(x)));
+            else if (isFlonum(x))
+                product = replace(newflonum((double)asFixnum(product) * asFlonum(x)));
             else
                 error("not a number");
         } else if (isFlonum(product)) {
-            if (isFixnum(x))
-                product = replace(newflonum(asFlonum(product) * (double)asFixnum(x)));
+            if (isComplex(x))
+                product = replace(complex_mul(save(make_complex(product, zero)), x));
             else if (isRational(x))
                 product = replace(newflonum(asFlonum(product) * rat2real(x)));
+            else if (isFixnum(x))
+                product = replace(newflonum(asFlonum(product) * (double)asFixnum(x)));
             else if (isFlonum(x))
                 product = replace(newflonum(asFlonum(product) * asFlonum(x)));
-            else if (isComplex(x))
-                product = replace(newcomplex(asFlonum(product)*realpart(x), asFlonum(product)*imagpart(x)));
-            else
-                error("not a number");
-        } else if (isComplex(product)) {
-            if (isFixnum(x)) {
-                double re = realpart(product) * (double)asFixnum(x);
-                double im = realpart(product) * (double)asFixnum(x);
-                product = replace(0.0 == im ? newflonum(re) : newcomplex(re, im));
-            } else if (isRational(x)) {
-                double re = realpart(product) * rat2real(x);
-                double im = realpart(product) * rat2real(x);
-                product = replace(0.0 == im ? newflonum(re) : newcomplex(re, im));
-            } else if (isFlonum(x)) {
-                double re = realpart(product) * asFlonum(x);
-                double im = realpart(product) * asFlonum(x);
-                product = replace(0.0 == im ? newflonum(re) : newcomplex(re, im));
-            } else if (isComplex(x))
-                product = replace(complex_mul(product, x));
             else
                 error("not a number");
         } else
@@ -1025,51 +1023,44 @@ sexp unidiv(sexp l)
     sexp* mark = psp;
     sexp product = l->car;
     save(l, product);
-
     while (l = l->cdr) {
         sexp x = l->car;
-        if (isFixnum(product)) {
-            if (isFixnum(x))
-                product = replace(rational_reduce(asFixnum(product), asFixnum(x)));
-            else if (isRational(x))
-                product = replace(rational_div(replace(newrational(asFixnum(product), 1)), x));
-            else if (isFlonum(x))
-                product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
-            else if (isComplex(x))
-                product = replace(complex_div(replace(newcomplex((double)asFixnum(product), 0.0)), x));
+        if (isComplex(product)) {
+            if (isComplex(x))
+                product = replace(complex_div(product, x));
+            else if (isRational(x) || isFixnum(x) || isFlonum(x))
+                product = replace(complex_div(product, save(make_complex(x, zero))));
             else
                 error("not a number");
         } else if (isRational(product)) {
-            if (isFixnum(x))
-                product = replace(rational_div(product, save(newrational(asFixnum(x), 1))));
-            else if (isRational(x))
+            if (isComplex(x))
+                product = replace(complex_div(x, save(make_complex(product, zero))));
+            else if (isRational(x) || isFixnum(x))
                 product = replace(rational_div(product, x));
             else if (isFlonum(x))
                 product = replace(newflonum(rat2real(product) / asFlonum(x)));
-            else if (isComplex(x))
-                product = replace(complex_div(replace(newcomplex(rat2real(product), 0.0)), x));
+            else
+                error("not a number");
+        } else if (isFixnum(product)) {
+            if (isComplex(x))
+                product = replace(complex_div(x, save(make_complex(product, zero))));
+            else if (isRational(x))
+                product = replace(rational_div(save(make_rational(product, one)), x));
+            else if (isFixnum(x))
+                product = replace(newfixnum(asFixnum(product) / asFixnum(x)));
+            else if (isFlonum(x))
+                product = replace(newflonum((double)asFixnum(product) / asFlonum(x)));
             else
                 error("not a number");
         } else if (isFlonum(product)) {
-            if (isFixnum(x))
-                product = replace(newflonum(asFlonum(product) / (double)asFixnum(x)));
+            if (isComplex(x))
+                product = replace(complex_div(save(make_complex(product, zero)), x));
             else if (isRational(x))
                 product = replace(newflonum(asFlonum(product) / rat2real(x)));
+            else if (isFixnum(x))
+                product = replace(newflonum(asFlonum(product) / (double)asFixnum(x)));
             else if (isFlonum(x))
                 product = replace(newflonum(asFlonum(product) / asFlonum(x)));
-            else if (isComplex(x))
-                product = replace(complex_div(replace(newcomplex(asFlonum(product), 0.0)), x));
-            else
-                error("not a number");
-        } else if (isComplex(product)) {
-            if (isFixnum(x))
-                product = replace(complex_div(product, save(newcomplex((double)asFixnum(x), 0.0))));
-            else if (isRational(x))
-                product = replace(newcomplex(realpart(product)/rat2real(x), imagpart(product)/rat2real(x)));
-            else if (isFlonum(x))
-                product = replace(complex_div(product, save(newcomplex(asFlonum(x), 0.0))));
-            else if (isComplex(x))
-                product = replace(complex_div(product, x));
             else
                 error("not a number");
         } else
@@ -1094,54 +1085,44 @@ sexp unimod(sexp l)
     sexp* mark = psp;
     sexp product = l->car;
     save(l, product);
-
     while (l = l->cdr) {
         sexp x = l->car;
-        if (isFixnum(product)) {
-            if (isFixnum(x))
-                product = replace(newfixnum(asFixnum(product) % asFixnum(x)));
-            else if (isRational(x))
-                product = replace(rational_mod(replace(newrational(asFixnum(product), 1)), x));
-            else if (isFlonum(x))
-                product = replace(newflonum(fmod((double)asFixnum(product), asFlonum(x))));
-            else if (isComplex(x))
-                product = replace(complex_mod(replace(newcomplex((double)asFixnum(product), 0.0)), x));
+        if (isComplex(product)) {
+            if (isComplex(x))
+                product = replace(complex_mod(product, x));
+            else if (isRational(x) || isFixnum(x) || isFlonum(x))
+                product = replace(complex_mod(product, save(make_complex(x, zero))));
             else
                 error("not a number");
         } else if (isRational(product)) {
-            if (isFixnum(x))
-                product = replace(rational_mod(product, save(newrational(asFixnum(x), 1))));
-            else if (isRational(x))
+            if (isComplex(x))
+                product = replace(complex_mod(x, save(make_complex(product, zero))));
+            else if (isRational(x) || isFixnum(x))
                 product = replace(rational_mod(product, x));
             else if (isFlonum(x))
                 product = replace(newflonum(fmod(rat2real(product), asFlonum(x))));
-            else if (isComplex(x))
-                product = replace(complex_mod(replace(newcomplex(rat2real(product), 0.0)), x));
+            else
+                error("not a number");
+        } else if (isFixnum(product)) {
+            if (isComplex(x))
+                product = replace(complex_mod(x, save(make_complex(product, zero))));
+            else if (isRational(x))
+                product = replace(rational_mod(save(make_rational(product, one)), x));
+            else if (isFixnum(x))
+                product = replace(newfixnum(asFixnum(product) % asFixnum(x)));
+            else if (isFlonum(x))
+                product = replace(newflonum(fmod((double)asFixnum(product), asFlonum(x))));
             else
                 error("not a number");
         } else if (isFlonum(product)) {
-            if (isFixnum(x))
-                product = replace(newflonum(fmod(asFlonum(product), (double)asFixnum(x))));
+            if (isComplex(x))
+                product = replace(complex_mod(save(make_complex(product, zero)), x));
             else if (isRational(x))
                 product = replace(newflonum(fmod(asFlonum(product), rat2real(x))));
+            else if (isFixnum(x))
+                product = replace(newflonum(fmod(asFlonum(product), (double)asFixnum(x))));
             else if (isFlonum(x))
                 product = replace(newflonum(fmod(asFlonum(product), asFlonum(x))));
-            else if (isComplex(x))
-                product = replace(complex_mod(replace(newcomplex(asFlonum(product), 0.0)), x));
-            else
-                error("not a number");
-        } else if (isComplex(product)) {
-            if (isFixnum(x))
-                product = replace(newcomplex(fmod(realpart(product), (double)asFixnum(x)),
-                                             fmod(imagpart(product), (double)asFixnum(x))));
-            else if (isRational(x))
-                product = replace(newcomplex(fmod(realpart(product), rat2real(x)),
-                                             fmod(imagpart(product), rat2real(x))));
-            else if (isFlonum(x))
-                product = replace(newcomplex(fmod(realpart(product), asFlonum(x)),
-                                             fmod(imagpart(product), asFlonum(x))));
-            else if (isComplex(x))
-                product = replace(complex_mod(product, x));
             else
                 error("not a number");
         } else
@@ -3356,13 +3337,13 @@ sexp scans(std::istream& fin)
         switch (c)
         {
         case '+':
-            return lose(mark, cons(complex, replace(cons(real, save(cons(imag, 0))))));
+            return lose(mark, make_complex(real, imag));
         case '-':
-            return lose(mark, cons(complex, save(cons(real, save(cons(save(negf(imag)), 0))))));
+            return lose(mark, make_complex(real, save(negf(imag))));
         case '@':
             double r = isRational(real) ? rat2real(real) : asFlonum(real);
             double theta = isRational(imag) ? rat2real(imag) : asFlonum(imag);
-            return lose(mark, newcomplex(r * cos(theta), r * sin(theta)));
+            return lose(mark, make_complex(save(newflonum(r * cos(theta))), save(newflonum(r * sin(theta)))));
         }
     }
 
@@ -3527,6 +3508,9 @@ int main(int argc, char **argv, char **envp)
     inport  = newcell(INPORT,  (sexp)&cinStream);
     outport = newcell(OUTPORT, (sexp)&coutStream);
     errport = newcell(OUTPORT, (sexp)&cerrStream);
+
+    zero = newfixnum(0);
+    one  = newfixnum(1);
 
     closure         = atomize("closure");
     commaat         = atomize(",@");
