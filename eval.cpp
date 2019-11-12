@@ -2814,51 +2814,30 @@ sexp lambdaform(sexp exp, sexp env)
 
 /*
  * rewrite
- *      (define (mycar x) (car x))
- * as
- *      (define mycar (lambda (x) (car x)))
- * or
- *      (define (mycar . x) (car x))
- * as
- *      (define mycar (lambda (mycar . x) (car x)))
+ * (define (foo . x) body ..)       as (define foo (lambda x body ..)
+ * (define (foo x)   body ..)       as (define foo (lambda (x) body ..))
+ * (define (foo a b c . x) body ..) as (define foo (lambda (a b c . x) body ..))
  */
 sexp defineform(sexp p, sexp env)
 {
     sexp* mark = psp;
     if (isCons(p->cdr->car))
     {
-        if (isCons(p->cdr->car->cdr))
-        {
-            sexp k = p->cdr->car->car;
-            sexp v = replace(cons(lambda, save(cons(p->cdr->car->cdr, p->cdr->cdr))));
-            // v is the transformed definition (lambda (x) ...)
-            v = save(lambdaform(v, env));
-            // v is a closure (closure exp env)
-            for (sexp q = global; q; q = q->cdr)
-                if (k == q->car->car)
-                {
-                    q->car->cdr = v;
-                    return lose(mark, voida);
-                }
-            // update the closure definition to include the one we just made
-            global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
-            return lose(mark, voida);
-        } else {
-            sexp k = p->cdr->car->car;
-            sexp v = replace(cons(lambda, replace(cons(save(cons(p->cdr->car->car, p->cdr->car->cdr)), p->cdr->cdr))));
-            // v is the transformed definition (lambda (mycar . x) ...)
-            v = save(lambdaform(v, env));
-            // v is a closure (closure exp env)
-            for (sexp q = global; q; q = q->cdr)
-                if (k == q->car->car)
-                {
-                    q->car->cdr = v;
-                    return lose(mark, voida);
-                }
-            // update the closure definition to include the one we just made
-            global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, v)), global);
-            return lose(mark, voida);
-        }
+        // (define (foo ...)
+        sexp k = p->cdr->car->car;
+        sexp v = replace(cons(lambda, save(cons(p->cdr->car->cdr, p->cdr->cdr))));
+        // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
+        v = save(lambdaform(v, env));
+        // v is a closure (closure exp env)
+        for (sexp q = global; q; q = q->cdr)
+            if (k == q->car->car)
+            {
+                q->car->cdr = v;
+                return lose(mark, voida);
+            }
+        // update the closure definition to include the one we just made
+        global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
+        return lose(mark, voida);
     } else {
         for (sexp q = global; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
@@ -3091,9 +3070,9 @@ sexp apply(sexp fun, sexp args)
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, cenv);
             return s;
-        } else if (isAtom(fun->cdr->car->cdr->car->cdr)) {
-            // fun->cdr->car = (lambda (f . s) foo)
-            sexp e = replace(cons(save(cons(fun->cdr->car->cdr->car->cdr, args)), cenv));
+        } else if (isAtom(fun->cdr->car->cdr->car)) {
+            // fun->cdr->car = (lambda s foo)
+            sexp e = replace(cons(save(cons(fun->cdr->car->cdr->car, args)), cenv));
             for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
                 s = eval(r->car, e);
             return lose(mark, s);

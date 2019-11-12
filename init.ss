@@ -171,6 +171,8 @@
                 (set! i (- i 1)))
          s))
 
+;; (define (iota n) (if (= 0 n) #f (cons n (iota (- n 1)))))
+
 (define (pairs a b)
         (if b
             (cons (cons a (cons (car b) #f)) (pairs a (cdr b)))
@@ -254,12 +256,8 @@
 (define (definition name)
         (let ((value (eval name (null-environment))))
              (if (closure? value)
-                 (if (and (list? (cadadr value)) (cdadadr value))
-                     (list 'define (cons name (cadadr value))  (caddadr value))
-                     (if (eq? name (caadadr value))
-                         (list 'define (cadadr value) (caddadr value))
-                         (list 'define (cons name (cadadr value)) (caddadr value)))
-                 (list 'define name value)))))
+                 (list 'define (cons name (cadadr value)) (caddadr value))
+                 (list 'define name value))))
 
 (define (definitions)
         (for-each (lambda (x)
