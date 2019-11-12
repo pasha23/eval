@@ -202,7 +202,7 @@
 (let ((t tests))
      (while t
             (if (eqv? #t (eval (car t) (interaction-environment)))
-                (begin (write (car t)) (space) (display 'pass) (newline))
-                (begin (write (car t)) (space) (display 'fail) (newline)))
+                (begin (display (car t)) (space) (display 'pass) (newline))
+                (begin (display (car t)) (space) (display 'fail) (newline)))
             (set! t (cdr t))))
 

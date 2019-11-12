@@ -4,7 +4,7 @@
  * Robert Kelley October 2019
  */
 #define PSIZE   16384
-#define MAX     262144
+#define CELLS   262144
 #undef  BROKEN
 
 #define UNW_LOCAL_ONLY
@@ -146,19 +146,28 @@ struct OfsPortStream : public PortStream
 
 struct StrPortStream : public PortStream
 {
-    StrPortStream(std::stringstream& stringstream) : PortStream(&stringstream) {}
+    long limit;
+
+    StrPortStream(std::stringstream& stringstream, long limit) : PortStream(&stringstream), limit(limit) {}
     virtual int get(void) { return ((std::stringstream*)streamPointer)->get(); }
     virtual void unget(void) { ((std::stringstream*)streamPointer)->unget(); }
     virtual void put(int ch) { ((std::stringstream*)streamPointer)->put(ch); }
-    virtual void write(const char *s, int len) { ((std::stringstream*)streamPointer)->write(s, len); }
+    virtual void write(const char *s, int len);
     virtual sexp read(void) { return ::read(*(std::stringstream*)streamPointer, 0); }
     virtual sexp scan(void) { return ::scan(*(std::stringstream*)streamPointer); }
     virtual bool good(void) { return ((std::stringstream*)streamPointer)->good(); }
     virtual ~StrPortStream() { delete (std::stringstream*) streamPointer; }
 };
 
+void StrPortStream::write(const char *s, int len)
+{
+    std::stringstream* ss = (std::stringstream*)streamPointer;
+    if (limit && (long)ss->tellp() + len > limit)
+        len = limit - (long)ss->tellp() - 1;
+    ss->write(s, len);
+}
+
 /*
- * setting up union declarations isn't all that fun but casts are ugly and error-prone.
  * note that there is just no room for virtual function pointers
  */
 struct Cons    { sexp                cdr; sexp                         car; };
@@ -261,22 +270,22 @@ sexp complexp(sexp s) { return isComplex(s) ? t : 0; }
 
 jmp_buf the_jmpbuf;
 
-bool collecting = false;	// collecting garbage now
-sexp tracing = 0;       	// trace everything
-sexp atoms = 0;         	// all atoms are linked in a list
-sexp block = 0;         	// all the storage starts here
-sexp global = 0;        	// this is the global symbol table (a list)
-sexp inport = 0;        	// the current input port
-sexp errport = 0;       	// the stderr port
-sexp outport = 0;       	// the current output port
-sexp freelist = 0;      	// available cells are linked in a list
+int  total = 0;         	// total allocation across gc's
 int  marked = 0;        	// how many cells were marked during gc
 int  allocated = 0;     	// how many cells have been allocated
-int  total = 0;         	// total allocation across gc's
 int  collected = 0;     	// how many gc's
+bool collecting = false;	// collecting garbage now
+sexp cell = 0;         	    // all the storage starts here
+sexp atoms = 0;         	// all atoms are linked in a list
+sexp global = 0;        	// this is the global symbol table (a list)
+sexp inport = 0;        	// the current input port
+sexp outport = 0;       	// the current output port
+sexp tracing = 0;       	// trace everything
+sexp errport = 0;       	// the stderr port
+sexp freelist = 0;      	// available cells are linked in a list
+sexp *psp = 0;          	// protection stack pointer
 sexp *psend = 0;            // protection stack end
 sexp *protect = 0;      	// protection stack
-sexp *psp = 0;          	// protection stack pointer
 
 /*
  * save the argument on the protection stack, return it
@@ -292,6 +301,27 @@ static inline sexp save(sexp p)
     if (psp >= psend)
         psoverflow();
     return p;
+}
+
+static inline void save(sexp p, sexp q)
+{
+    sexp* s = psp;
+    if (s + 2 >= psend)
+        psoverflow();
+    *s++ = p;
+    *s++ = q;
+    psp = s;
+}
+
+static inline void save(sexp p, sexp q, sexp r)
+{
+    sexp* s = psp;
+    if (s + 3 >= psend)
+        psoverflow();
+    *s++ = p;
+    *s++ = q;
+    *s++ = r;
+    psp = s;
 }
 
 /*
@@ -315,8 +345,7 @@ sexp lose(int n, sexp p)
 
 static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 
-static inline void markCell(sexp p) { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
-
+static inline void markCell(sexp p)   { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
 static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; }
 
 void mark(sexp p);
@@ -401,7 +430,7 @@ sexp gc(sexp args)
 {
     collecting = true;
     bool verbose = isCons(args) && args->car;
-    int werefree = MAX-allocated;
+    int werefree = CELLS-allocated;
     int wereprot = psp-protect;
 
     marked = 0;
@@ -417,19 +446,15 @@ sexp gc(sexp args)
     int reclaimed = 0;
     int weremark = marked;
 
-    for (sexp p = block; p < block+MAX; ++p)
+    for (sexp p = cell; p < cell+CELLS; ++p)
     {
         if (!isMarked(p))
         {
-            switch (((Stags*)p)->stags) {
-            case OUTPORT:
-                deleteoutport(p);
-                break;
-            case INPORT:
-                deleteinport(p);
-                break;
-            case VECTOR:
-                deletevector(p);
+            switch (((Stags*)p)->stags)
+            {
+            case OUTPORT: deleteoutport(p); break;
+            case INPORT:  deleteinport(p);  break;
+            case VECTOR:  deletevector(p);  break;
             }
             p->car = 0;
             p->cdr = freelist;
@@ -453,13 +478,13 @@ sexp gc(sexp args)
 }
 
 void assertAtom(sexp s)        { if (!isAtom(s))        error("not symbol"); }
-void assertChar(sexp c)        { if (!isChar(c))        error("not a character"); }
-void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
-void assertFixnum(sexp i)      { if (!isFixnum(i))      error("not an integer"); }
-void assertRational(sexp s)    { if (!isRational(s))    error("not rational"); }
+void assertChar(sexp s)        { if (!isChar(s))        error("not a character"); }
+void assertFixnum(sexp s)      { if (!isFixnum(s))      error("not an integer"); }
+void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
 void assertInPort(sexp s)      { if (!isInPort(s))      error("not an input port"); }
 void assertOutPort(sexp s)     { if (!isOutPort(s))     error("not an output port"); }
-void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
+void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
+void assertRational(sexp s)    { if (!isRational(s))    error("not rational"); }
 
 void assertFlonum(sexp s) { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) error("not a real number"); }
 
@@ -468,13 +493,13 @@ void assertFlonum(sexp s) { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) 
  */
 sexp newcell(void)
 {
-    if (allocated >= MAX)
+    if (allocated >= CELLS)
         gc(0);
 
     ++allocated;
     Cons* p = freelist;
     freelist = freelist->cdr;
-    p->cdr = 0;
+    p->cdr = 0; // this is important!
     return p;
 }
 
@@ -562,9 +587,12 @@ sexp define_funct(sexp name, int arity, void* f)
 sexp cons(sexp car, sexp cdr)
 {
     sexp* mark = psp;
-    save(car);
-    save(cdr);
-    sexp p = newcell();
+    save(car, cdr);
+    if (allocated >= CELLS)
+        gc(0);
+    ++allocated;
+    sexp p = freelist;
+    freelist = freelist->cdr;
     p->car = car;
     p->cdr = cdr;
     return lose(mark, p);
@@ -607,113 +635,56 @@ double rat2real(sexp x) { return (double)asFixnum(x->cdr->car) / (double)asFixnu
 
 double asFlonum(sexp p)
 {
-    if (sizeof(double) > sizeof(void*)) {
-        if (isFloat(p))
-            return ((Float*)p)->flonum;
-    } else {
-        if (isDouble(p))
-            return ((Double*)p)->flonum;
-    }
-
-    if (isFixnum(p))
-        return (double) asFixnum(p);
-
     if (isRational(p))
         return rat2real(p);
 
-    error("asFlonum: not a flonum");
+    switch (shortType(p))
+    {
+    default:     error("asFlonum: not a flonum");
+    case FLOAT:  return ((Float*)p)->flonum;
+    case DOUBLE: return ((Double*)p)->flonum;
+    case FIXNUM: return (double) asFixnum(p);
+    }
 }
 
 // negative?
 sexp negativep(sexp x)
 {
-    if (isFixnum(x)) return asFixnum(x) < 0 ? t : 0;
-    if (isFlonum(x)) return asFlonum(x) < 0.0 ? t : 0;
     if (isRational(x))
-        return asFixnum(x->cdr->car) < 0 && asFixnum(x->cdr->cdr->car) > 0 ||
-               asFixnum(x->cdr->car) > 0 && asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
-    error("negative? needs a real number");
+        if (asFixnum(x->cdr->car) < 0)
+            return asFixnum(x->cdr->cdr->car) < 0 ? 0 : t;
+        else
+            return asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
+
+    return asFlonum(x) < 0 ? t : 0;
 }
 
 // positive?
 sexp positivep(sexp x)
 {
-    if (isFixnum(x)) return asFixnum(x) > 0 ? t : 0;
-    if (isFlonum(x)) return asFlonum(x) > 0.0 ? t : 0;
     if (isRational(x))
-        return asFixnum(x->cdr->car) > 0 && asFixnum(x->cdr->cdr->car) > 0 ||
-               asFixnum(x->cdr->car) < 0 && asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
-    error("positive? needs a real number");
+        if (asFixnum(x->cdr->car) < 0)
+            return asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
+        else
+            return asFixnum(x->cdr->cdr->car) < 0 ? 0 : t;
+
+    return asFlonum(x) > 0 ? t : 0;
 }
 
 // boolean?
 sexp booleanp(sexp x) { return t == x || 0 == x ? t : 0; }
 
-bool cmplt(sexp x, sexp y)
-{
-    if (isFixnum(x)) {
-        if (isFixnum(y))
-            return asFixnum(x) < asFixnum(y);
-        if (isRational(y))
-            return asFixnum(x) < rat2real(y);
-        if (isFlonum(y))
-            return (double)asFixnum(x) < asFlonum(y);
-    } else if (isRational(x)) {
-        if (isFlonum(y))
-            return rat2real(x) < asFlonum(y);
-        if (isRational(y))
-            return rat2real(x) < rat2real(y);
-        if (isFixnum(y))
-            return rat2real(x) < (double)asFixnum(y);
-    } else if (isFlonum(x)) {
-        if (isFixnum(y))
-            return asFlonum(x) < (double)asFixnum(y);
-        if (isRational(y))
-            return asFlonum(x) < rat2real(y);
-        if (isFlonum(y))
-            return asFlonum(x) < asFlonum(y);
-    }
-    error("error: comparison bad argument");
-}
-
-bool cmple(sexp x, sexp y)
-{
-    if (isFixnum(x)) {
-        if (isFixnum(y))
-            return asFixnum(x) <= asFixnum(y);
-        if (isRational(y))
-            return asFixnum(x) <= rat2real(y);
-        if (isFlonum(y))
-            return (double)asFixnum(x) <= asFlonum(y);
-    } else if (isRational(x)) {
-        if (isFixnum(y))
-            return rat2real(x) <= (double)asFixnum(y);
-        if (isRational(y))
-            return rat2real(x) <= rat2real(y);
-        if (isFlonum(y))
-            return rat2real(x) <= asFlonum(y);
-    } else if (isFlonum(x)) {
-        if (isFixnum(y))
-            return asFlonum(x) <= (double)asFixnum(y);
-        if (isRational(y))
-            return asFlonum(x) <= rat2real(y);
-        if (isFlonum(y))
-            return asFlonum(x) <= asFlonum(y);
-    }
-    error("error: comparison bad argument");
-}
-
 // <
-sexp ltp(sexp x, sexp y) { return cmplt(x, y) ? t : 0; }
+sexp ltp(sexp x, sexp y) { return asFlonum(x) < asFlonum(y) ? t : 0; }
 
 // <=
-sexp lep(sexp x, sexp y) { return cmple(x, y) ? t : 0; }
+sexp lep(sexp x, sexp y) { return asFlonum(x) <= asFlonum(y) ? t : 0; }
 
 // >=
-sexp gep(sexp x, sexp y) { return cmplt(x, y) ? 0 : t; }
+sexp gep(sexp x, sexp y) { return asFlonum(x) >= asFlonum(y) ? t : 0; }
 
 // >
-sexp gtp(sexp x, sexp y) { return cmple(x, y) ? 0 : t; }
+sexp gtp(sexp x, sexp y) { return asFlonum(x) > asFlonum(y) ? t : 0; }
 
 sexp newrational(long n, long d)
 {
@@ -899,7 +870,7 @@ sexp uniadd(sexp l)
 {
     sexp* mark = psp;
     sexp sum = l->car;
-    save(l); save(sum);
+    save(l, sum);
     while (l = l->cdr) {
         sexp x = l->car;
         if (isFixnum(sum)) {
@@ -955,15 +926,19 @@ sexp uniadd(sexp l)
 // - x
 sexp negf(sexp x)
 {
-    if (isFixnum(x))
-        return newfixnum(-asFixnum(x));
     if (isRational(x))
         return rational_reduce(-asFixnum(x->cdr->car), asFixnum(x->cdr->cdr->car));
-    if (isFlonum(x))
-        return newflonum(-asFlonum(x));
+
     if (isComplex(x))
         return newcomplex(-asFlonum(x->cdr->car), -asFlonum(x->cdr->cdr->car));
-    error("neg: not a number");
+
+    switch (shortType(x))
+    {
+    default:     error("neg: not a number");
+    case FIXNUM: return newfixnum(-((Fixnum*)x)->fixnum);
+    case FLOAT:  return newflonum(-((Float*)x)->flonum);
+    case DOUBLE: return newflonum(-((Double*)x)->flonum);
+    }
 }
 
 // - x0
@@ -984,7 +959,7 @@ sexp unimul(sexp l)
 {
     sexp* mark = psp;
     sexp product = l->car;
-    save(product); save(l);
+    save(l, product);
 
     while (l = l->cdr) {
         sexp x = l->car;
@@ -1049,7 +1024,7 @@ sexp unidiv(sexp l)
 {
     sexp* mark = psp;
     sexp product = l->car;
-    save(l); save(product);
+    save(l, product);
 
     while (l = l->cdr) {
         sexp x = l->car;
@@ -1118,7 +1093,7 @@ sexp unimod(sexp l)
 {
     sexp* mark = psp;
     sexp product = l->car;
-    save(l); save(product);
+    save(l, product);
 
     while (l = l->cdr) {
         sexp x = l->car;
@@ -1488,10 +1463,10 @@ sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; de
 sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); return 0; }
 
 // current-input-port
-sexp current_input_port(sexp p) { return inport ? inport : 0; }
+sexp current_input_port(sexp p) { return inport; }
 
 // current-output-port
-sexp current_output_port(sexp p) { return outport ? outport : 0; }
+sexp current_output_port(sexp p) { return outport; }
 
 // input-port?
 sexp input_portp(sexp p) { return isInPort(p) ? t : 0; }
@@ -1582,7 +1557,7 @@ sexp open_input_string(sexp args)
     ((Stags*)port)->stags = INPORT;
     port->avail = 0;
     port->peek = 0;
-    port->s = new StrPortStream(*ss);
+    port->s = new StrPortStream(*ss, 0);
 
     int k = 0;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
@@ -1619,7 +1594,7 @@ sexp open_output_string(sexp args)
     std::stringstream* ss = new std::stringstream();
     OutPort* p = (OutPort*)newcell();
     ((Stags*)p)->stags = OUTPORT;
-    p->s = new StrPortStream(*ss);
+    p->s = new StrPortStream(*ss, 0);
     return (sexp)p;
 }
 
@@ -1636,8 +1611,12 @@ sexp call_with_output_string(sexp proc)
 sexp call_with_truncated_output_string(sexp limit, sexp proc)
 {
     sexp* mark = psp;
-    // truncate somehow
-    sexp port = save(open_output_string(0));
+    assertFixnum(limit);
+    std::stringstream* ss = new std::stringstream();
+    sexp port = save(newcell());
+    OutPort* p = (OutPort*)port;
+    ((Stags*)p)->stags = OUTPORT;
+    p->s = new StrPortStream(*ss, asFixnum(limit));
     apply(proc, save(cons(port, 0)));
     return lose(mark, get_output_string(port));
 }
@@ -1720,8 +1699,7 @@ sexp vector_fill(sexp vector, sexp value)
 {
     sexp* mark = psp;
     assertVector(vector);
-    save(value);
-    save(vector);
+    save(value, vector);
     Vector* v = (Vector*)vector;
     int index = v->l;
     while (index > 0)
@@ -2124,7 +2102,12 @@ sexp substringf(sexp s, sexp i, sexp j)
 }
 
 // (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
-sexp append(sexp p, sexp q) { sexp* mark = psp; return p ? lose(mark, cons(p->car, save(append(save(p)->cdr, save(q))))) : q; }
+sexp append(sexp p, sexp q)
+{
+    sexp* mark = psp;
+    save(p, q);
+    return lose(mark, p ? cons(p->car, save(append(p->cdr, q))) : q);
+}
 
 // reverse
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
@@ -2135,27 +2118,15 @@ sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
 // =
 sexp eqnp(sexp x, sexp y)
 {
-    if (isFixnum(x)) {
-        if (isFixnum(y))
-            return asFixnum(x) == asFixnum(y) ? t : 0;
-        else if (isRational(y))
-            return asFixnum(x) == asFlonum(y) ? t : 0;
-        else if (isFlonum(y))
-            return asFixnum(x) == asFlonum(y) ? t : 0;
-    } else if (isRational(x) && isRational(y))
+    if (isRational(x) && isRational(y))
         return (asFixnum(x->cdr->car) == asFixnum(y->cdr->car) &&
                 asFixnum(x->cdr->car) == asFixnum(y->cdr->car)) ? t : 0;
-    else if (isFlonum(x)) {
-        if (isFixnum(y))
-            return asFlonum(x) == asFixnum(y) ? t : 0;
-        else if (isRational(y))
-            return asFlonum(x) == asFlonum(y) ? t : 0;
-        else if (isFlonum(y))
-            return asFlonum(x) == asFlonum(y) ? t : 0;
-    } else if (isComplex(x) && isComplex(y))
+ 
+    if (isComplex(x) && isComplex(y))
         return (asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
                 asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car)) ? t : 0;
-    return 0;
+
+    return asFlonum(x) == asFlonum(y) ? t : 0;
 }
 
 // ~ x
@@ -2505,13 +2476,13 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
         if (isCons(exp->cdr))
         {
             quoted = true;
-            if      (quote           == exp->car) s << '\'';
-            else if (quasiquote      == exp->car) s <<  '`';
-            else if (unquote         == exp->car) s <<  ',';
-            else if (unquotesplicing == exp->car) s << ",@";
+            sexp p = exp->car;
+            if      (quote           == p) s << '\'';
+            else if (quasiquote      == p) s <<  '`';
+            else if (unquote         == p) s <<  ',';
+            else if (unquotesplicing == p) s << ",@";
             else quoted = false;
         }
-
         if (quoted)
             display(s, exp->cdr->car, seenSet, ugly, level, write);
         else if (isRational(exp))
@@ -2544,10 +2515,10 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
     switch (((Stags*)exp)->stags)
     {
     default:      error("display: unknown object");
-    case CHUNK:   s << "#<chunk>";                                          break;
-    case FIXNUM:  s << asFixnum(exp);                                       break;
     case FLOAT: 
     case DOUBLE:  s << asFlonum(exp);                                       break;
+    case CHUNK:   s << "#<chunk>";                                          break;
+    case FIXNUM:  s << asFixnum(exp);                                       break;
     case STRING:  displayString(s, exp, write);                             break;
     case ATOM:    displayAtom(s, exp, write);                               break;
     case FUNCT:   displayFunction(s, exp, write);                           break;
@@ -2688,6 +2659,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
         return false;
     if (isAtom(x) || isAtom(y))
         return false;
+
     if (isCons(x) && isCons(y))
     {
         if (seenx.find(x) != seenx.end() && seeny.find(y) != seeny.end())
@@ -2696,15 +2668,17 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
         seeny.insert(y);
         return eqvb(seenx, seeny, x->car, y->car) && eqvb(seenx, seeny, x->cdr, y->cdr);
     }
+
     if (shortType(x) != shortType(y))
         return false;
+
     switch (shortType(x)) 
     {
-    case FLOAT :
-    case DOUBLE: return asFlonum(x) == asFlonum(y);
+    case FLOAT : return ((Float*)x)->flonum  == ((Float*)y)->flonum;
+    case DOUBLE: return ((Double*)x)->flonum == ((Double*)y)->flonum;
     case CHUNK : return 0 == scmp(x, y);
     case STRING: return 0 == scmp(((String*)x)->chunks, ((String*)y)->chunks);
-    case FIXNUM: return asFixnum(x) == asFixnum(y);
+    case FIXNUM: return ((Fixnum*)x)->fixnum == ((Fixnum*)y)->fixnum;
     case VECTOR: return cmpv(seenx, seeny, x, y);
     case CHAR:   return ((Char*)x)->ch == ((Char*)y)->ch;
     default:     return 0;
@@ -2805,7 +2779,8 @@ sexp set(sexp p, sexp r, sexp env)
 sexp evlis(sexp p, sexp env)
 {
     sexp* mark = psp;
-    return p ? lose(mark, cons(save(eval(p->car, env)), save(evlis(save(p)->cdr, save(env))))) : 0;
+    save(p, env);
+    return p ? lose(mark, cons(save(eval(p->car, env)), save(evlis(p->cdr, env)))) : 0;
 }
 
 // associate a list of formal parameters and actual parameters in an environment
@@ -2814,8 +2789,9 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
     if (!actuals || !formals)
         return env;
     sexp* mark = psp;
+    save(actuals, formals, env);
     return lose(mark, cons(save(cons(formals->car, actuals->car)),
-                           save(assoc(save(formals)->cdr, save(actuals)->cdr, save(env)))));
+                           save(assoc(formals->cdr, actuals->cdr, env))));
 }
 
 // null-environment
@@ -3145,7 +3121,9 @@ sexp eval(sexp p, sexp env)
 
     sexp* mark = psp;
 
-    sexp fun = save(eval(save(p)->car, save(env)));
+    save(p, env);
+
+    sexp fun = save(eval(p->car, env));
 
     if (isForm(fun))
         return lose(mark, (*((Form*)fun)->formp)(p, env));
@@ -3420,9 +3398,10 @@ sexp readTail(std::istream& fin, int level)
         return 0;
     if (eof == q)
         return 0;
-    save(q);
-    sexp r = save(readTail(fin, level));
-    return lose(mark, r && dot == r->car ? cons(q, r->cdr->car) : cons(q, r));
+    if (dot == q)
+        return readTail(fin, level)->car;
+    else
+        return lose(mark, cons(q, save(readTail(fin, level))));
 }
 
 // finish reading a vector
@@ -3532,12 +3511,12 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
 int main(int argc, char **argv, char **envp)
 {
     // allocate all the cells we will ever have
-    block = (sexp)new Cons[MAX];
-    for (int i = MAX; --i >= 0; )
+    cell = (sexp)new Cons[CELLS];
+    for (int i = CELLS; --i >= 0; )
     {
-        block[i].car = 0;
-        block[i].cdr = freelist;
-        freelist = block+i;
+        cell[i].car = 0;
+        cell[i].cdr = freelist;
+        freelist = cell+i;
     }
 
     // allocate the protection stack
