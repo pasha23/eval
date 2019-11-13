@@ -2934,15 +2934,18 @@ sexp caseform(sexp exp, sexp env)
 {
     sexp* mark = psp;
 
-    if (!exp->cdr)
+    exp = exp->cdr;
+
+    if (!exp)
         error("case: missing key");
 
-    sexp key = exp->cdr->car;
+    sexp key = eval(exp->car, env);
 
     sexp r = save(voida);
-    for (exp = exp->cdr->cdr; exp; exp = exp->cdr)
+
+    for (exp = exp->cdr; exp; exp = exp->cdr)
     {
-        if (elsea = exp->car)
+        if (elsea == exp->car->car)
         {
             for (sexp p = exp->cdr; p; p = p->cdr)
                 r = replace(eval(p->car, env));
@@ -2950,13 +2953,16 @@ sexp caseform(sexp exp, sexp env)
         }
 
         for (sexp p = exp->car->car; p; p = p->cdr)
-            if (key == p->car)
+        {
+            if (eqvp(key, p->car))
             {
-                for (p = exp->cdr; p; p = p->cdr)
+                for (p = exp->car->cdr; p; p = p->cdr)
                     r = replace(eval(p->car, env));
                 return lose(r);
             }
+        }
     }
+
     return lose(voida);
 }
 

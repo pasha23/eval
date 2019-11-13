@@ -1,7 +1,20 @@
-
 (define counter (make-counter 0))
 
+(define integers
+    (letrec ((next
+              (lambda (n)
+                (delay (cons n (next (+ n 1)))))))
+            (next 0)))
+
+(define head
+    (lambda (stream) (car (force stream))))
+
+(define tail
+    (lambda (stream) (cdr (force stream))))
+
 (define tests '(
+    (eq? 'composite (case (* 2 3) ((2 3 5 7) 'prime) ((2 4 6 8 9) 'composite)))
+    (= 2 (head (tail (tail integers))))
     (= 0 0)
     (= (~ 0) -1)
     (= 1.0 (cos (acos 1.0)))
