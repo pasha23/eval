@@ -180,6 +180,8 @@
     (string-ci>? "ABd" "abC")
     (string? (string #\a #\b #\c))
     (symbol? 'a)
+    (= 3 (let ((r 0)) (begin (when   #t 1 2 (set! r 3)) r)))
+    (= 3 (let ((r 0)) (begin (unless #f 1 2 (set! r 3)) r)))
     (vector? (list->vector (list 1 2 3)))
     (vector? (make-vector 3))
 

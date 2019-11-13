@@ -5,7 +5,7 @@
  */
 #define PSIZE   32768
 #define CELLS   262144
-#undef  BROKEN
+#define BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -2756,10 +2756,13 @@ sexp evlis(sexp p, sexp env)
 // associate a list of formal parameters and actual parameters in an environment
 sexp assoc(sexp formals, sexp actuals, sexp env)
 {
-    if (!actuals || !formals)
-        return env;
     sexp* mark = psp;
     save(actuals, formals, env);
+    if (!isCons(formals))
+        return lose(mark, cons(save(cons(formals, actuals)), env));
+    if (!actuals)
+        return lose(mark, cons(save(cons(formals->car, voida)),
+                               save(assoc(formals->cdr, actuals, env))));
     return lose(mark, cons(save(cons(formals->car, actuals->car)),
                            save(assoc(formals->cdr, actuals->cdr, env))));
 }
@@ -2903,23 +2906,27 @@ sexp ifform(sexp exp, sexp env)
 
 sexp whenform(sexp exp, sexp env)
 {
-    if (!exp->cdr)
+    exp = exp->cdr;
+    if (!exp)
         error("when: missing predicate");
-    if (!exp->cdr->cdr)
-        error("when: missing consequent");
-    if (eval(exp->cdr->car, env))
-        eval(exp->cdr->cdr->car, env);
+    if (!exp->cdr)
+        error("when: missing consequents");
+    if (eval(exp->car, env))
+        while (exp = exp->cdr)
+            eval(exp->car, env);
     return voida;
 }
 
 sexp unlessform(sexp exp, sexp env)
 {
+    exp = exp->cdr;
+    if (!exp)
+        error("when: missing predicate");
     if (!exp->cdr)
-        error("unless: missing predicate");
-    if (!exp->cdr->cdr)
-        error("unless: missing consequent");
-    if (!eval(exp->cdr->car, env))
-        eval(exp->cdr->cdr->car, env);
+        error("when: missing consequents");
+    if (!eval(exp->car, env))
+        while (exp = exp->cdr)
+            eval(exp->car, env);
     return voida;
 }
 
