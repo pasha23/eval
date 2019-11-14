@@ -508,44 +508,45 @@ sexp newcell(void)
     return p;
 }
 
-sexp newcell(short stags, sexp car)
+sexp newcell(short stags)
 {
     Stags* t = (Stags*)newcell();
     t->stags = stags;
+    return (sexp)t;
+}
+
+sexp newcell(short stags, sexp car)
+{
+    Stags* t = (Stags*)newcell(stags);
     t->car = car;
     return (sexp)t;
 }
 
 sexp newfixnum(long number)
 {
-    Fixnum* p = (Fixnum*)newcell();
-    ((Stags*)p)->stags = FIXNUM;
+    Fixnum* p = (Fixnum*)newcell(FIXNUM);
     p->fixnum = number;
     return (sexp)p;
 }
 
 sexp newcharacter(char c)
 {
-    Char* p = (Char*)newcell();
-    ((Stags*)p)->stags = CHAR;
+    Char* p = (Char*)newcell(CHAR);
     p->ch = c;
     return (sexp)p;
 }
 
 sexp newinport(char* name)
 {
-    InPort* p = (InPort*)newcell();
-    ((Stags*)p)->stags = INPORT;
-    p->avail = 0;
-    p->peek = 0;
+    InPort* p = (InPort*)newcell(INPORT);
+    p->avail = 0; p->peek = 0;
     p->s = new IfsPortStream(name, std::ifstream::ios_base::in);
     return (sexp)p;
 }
 
 sexp newoutport(char* name)
 {
-    OutPort* p = (OutPort*)newcell();
-    ((Stags*)p)->stags = OUTPORT;
+    OutPort* p = (OutPort*)newcell(OUTPORT);
     p->s = new OfsPortStream(name, std::ofstream::ios_base::out);
     return (sexp)p;
 }
@@ -553,13 +554,11 @@ sexp newoutport(char* name)
 sexp newflonum(double number)
 {
     if (sizeof(double) > sizeof(void*)) {
-        Float* p = (Float*)newcell();
-        ((Stags*)p)->stags = FLOAT;
+        Float* p = (Float*)newcell(FLOAT);
         p->flonum = number;
         return (sexp)p;
     } else {
-        Double* p = (Double*)newcell();
-        ((Stags*)p)->stags = DOUBLE;
+        Double* p = (Double*)newcell(DOUBLE);
         p->flonum = number;
         return (sexp)p;
     }
@@ -568,8 +567,7 @@ sexp newflonum(double number)
 sexp define_form(sexp name, Formp f)
 {
     assert(name);
-    Form* p = (Form*)save(newcell());
-    ((Stags*)p)->stags = FORM;
+    Form* p = (Form*)save(newcell(FORM));
     p->formp = f;
     define(name, (sexp)p);
     return lose(name);
@@ -578,10 +576,8 @@ sexp define_form(sexp name, Formp f)
 sexp define_funct(sexp name, int arity, void* f)
 {
     assert(name);
-    Funct* p = (Funct*)save(newcell());
-    ((Stags*)p)->stags = FUNCT;
-    p->tags[2] = arity;
-    p->funcp = f;
+    Funct* p = (Funct*)save(newcell(FUNCT));
+    p->tags[2] = arity; p->funcp = f;
     define(name, (sexp)p);
     return lose(name);
 }
@@ -1326,8 +1322,7 @@ sexp newchunk(const char *t)
 
     sexp p = save(newcell());
     sexp q = p;
-    Chunk* r = (Chunk*) newcell();
-    ((Stags*)r)->stags = CHUNK;
+    Chunk* r = (Chunk*) newcell(CHUNK);
     q->car = (sexp) r;
 
     int i = 0;
@@ -1351,8 +1346,7 @@ sexp newchunk(const char *t)
         {
             i = 0;
             q = q->cdr = newcell();
-            r = (Chunk*) newcell();
-            ((Stags*)r)->stags = CHUNK;
+            r = (Chunk*) newcell(CHUNK);
             q->car = (sexp) r;
         }
     }
@@ -1537,8 +1531,7 @@ sexp open_input_string(sexp args)
         error("open-input-string: bad arguments");
 
     std::stringstream* ss = new std::stringstream();
-    InPort* port = (InPort*)save(newcell());
-    ((Stags*)port)->stags = INPORT;
+    InPort* port = (InPort*)save(newcell(INPORT));
     port->avail = 0;
     port->peek = 0;
     port->s = new StrPortStream(*ss, 0);
@@ -1575,8 +1568,7 @@ sexp get_output_string(sexp port)
 sexp open_output_string(sexp args)
 {
     std::stringstream* ss = new std::stringstream();
-    OutPort* p = (OutPort*)newcell();
-    ((Stags*)p)->stags = OUTPORT;
+    OutPort* p = (OutPort*)newcell(OUTPORT);
     p->s = new StrPortStream(*ss, 0);
     return (sexp)p;
 }
@@ -1596,9 +1588,8 @@ sexp call_with_truncated_output_string(sexp limit, sexp proc)
     sexp* mark = psp;
     assertFixnum(limit);
     std::stringstream* ss = new std::stringstream();
-    sexp port = save(newcell());
+    sexp port = save(newcell(OUTPORT));
     OutPort* p = (OutPort*)port;
-    ((Stags*)p)->stags = OUTPORT;
     p->s = new StrPortStream(*ss, asFixnum(limit));
     apply(proc, save(cons(port, 0)));
     return lose(mark, get_output_string(port));
@@ -1622,8 +1613,7 @@ sexp vectorp(sexp v) { return isVector(v) ? t : 0; }
 
 sexp newvector(int len, sexp fill)
 {
-    Vector* v = (Vector*) save(newcell());
-    ((Stags*)v)->stags = VECTOR;
+    Vector* v = (Vector*) save(newcell(VECTOR));
     v->l = len;
     v->e = new sexp[len];
     for (int i = v->l; --i >= 0; v->e[i] = fill) {}
@@ -1840,17 +1830,24 @@ sexp char_upper_casep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t 
 // char-whitespace?
 sexp char_whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
 
-// copy the original termios then modify it for cbreak style input
-void setTermios(struct termios* original, struct termios* working, int vmin)
+// save the original termios then modify it for cbreak style input
+bool setTermios(struct termios& original, int vmin)
 {
-    memcpy((void*)working, (void*)original, sizeof(struct termios));
-    working->c_cc[VMIN] = vmin;
-    working->c_cc[VTIME] = 0;
-    working->c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-    working->c_oflag &= ~OPOST;
-    working->c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-    working->c_cflag &= ~(CSIZE | PARENB);
-    working->c_cflag |= CS8;
+    if (0 == tcgetattr(0, &original))
+    {
+        struct termios working;
+        //memcpy((void*)&working, (void*)&original, sizeof(struct termios));
+        working = original;
+        working.c_cc[VMIN] = vmin;
+        working.c_cc[VTIME] = 0;
+        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+        working.c_oflag &= ~OPOST;
+        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+        working.c_cflag &= ~(CSIZE | PARENB);
+        working.c_cflag |= CS8;
+        return 0 == tcsetattr(0, TCSANOW, &working);
+    }
+    return false;
 }
 
 // char-ready?
@@ -1862,25 +1859,18 @@ sexp char_readyp(sexp args)
 
     InPort* inPort = (InPort*)port;
 
-    struct termios original;
-
-    if (&cinStream == inPort->s && 0 == tcgetattr(0, &original))
+    if (!inPort->avail && &cinStream == inPort->s)
     {
-        struct termios working;
-
-        if (inPort->avail)
-            return t;
-
-        setTermios(&original, &working, 0);
-
-        if (0 == tcsetattr(0, TCSANOW, &working))
+        struct termios original;
+        if (setTermios(original, 0))
         {
             inPort->avail = read(0, &inPort->peek, 1) > 0;
             tcsetattr(0, TCSANOW, &original);
+            return inPort->avail ? t : 0;
         }
-        return inPort->avail ? t : 0;
-    } else
-        return t;
+    }
+
+    return t;
 }
 
 // read-char
@@ -1892,31 +1882,23 @@ sexp read_char(sexp args)
 
     InPort* inPort = (InPort*)port;
 
-    struct termios original;
+    if (inPort->avail)
+    {
+        inPort->avail = false;
+        return newcharacter(inPort->peek);
+    }
 
     if (&cinStream == inPort->s)
     {
-        if (0 == tcgetattr(0, &original))
+        struct termios original;
+        if (setTermios(original, 1))
         {
-            if (inPort->avail)
-            {
-                inPort->avail = false;
-                return newcharacter(inPort->peek);
-            }
-
-            struct termios working;
-
-            setTermios(&original, &working, 1);
-
-            if (0 == tcsetattr(0, TCSANOW, &working))
-            {
-                while (0 == read(0, &inPort->peek, 1)) {}
-                tcsetattr(0, TCSANOW, &original);
-            }
+            while (0 == read(0, &inPort->peek, 1)) {}
+            tcsetattr(0, TCSANOW, &original);
             return newcharacter(inPort->peek);
         }
-        return newcharacter(std::cin.get());
     }
+
     return newcharacter(inPort->s->get());
 }
 
@@ -1929,25 +1911,17 @@ sexp peek_char(sexp args)
 
     InPort* inPort = (InPort*)port;
 
-    struct termios original;
+    if (inPort->avail)
+        return newcharacter(inPort->peek);
 
     if (&cinStream == inPort->s)
     {
-        if (0 == tcgetattr(0, &original))
+        struct termios original;
+        if (setTermios(original, 1))
         {
-            if (inPort->avail)
-                return newcharacter(inPort->peek);
-
-            struct termios working;
-
-            setTermios(&original, &working, 1);
-
-            if (0 == tcsetattr(0, TCSANOW, &working))
-            {
-                while (0 == read(0, &inPort->peek, 1)) {}
-                inPort->avail = true;
-                tcsetattr(0, TCSANOW, &original);
-            }
+            while (0 == read(0, &inPort->peek, 1)) {}
+            inPort->avail = true;
+            tcsetattr(0, TCSANOW, &original);
             return newcharacter(inPort->peek);
         }
         return newcharacter(std::cin.get());
@@ -2578,8 +2552,7 @@ sexp list_string(sexp s)
     save(s);
     sexp p = save(newcell());
     sexp q = p;
-    Chunk* r = (Chunk*) newcell();
-    ((Stags*)r)->stags = CHUNK;
+    Chunk* r = (Chunk*) newcell(CHUNK);
     q->car = (sexp) r;
 
     int i = 0;
@@ -2593,8 +2566,7 @@ sexp list_string(sexp s)
         {
             i = 0;
             q = q->cdr = newcell();
-            r = (Chunk*) newcell();
-            ((Stags*)r)->stags = CHUNK;
+            r = (Chunk*) newcell(CHUNK);
             q->car = (sexp) r;
         }
     }
@@ -3164,8 +3136,7 @@ sexp readChunks(std::istream& fin, const char *ends)
     sexp* mark = psp;
     sexp p = save(newcell());
     sexp q = p;
-    Chunk* r = (Chunk*) newcell();
-    ((Stags*)r)->stags = CHUNK;
+    Chunk* r = (Chunk*) newcell(CHUNK);
     q->car = (sexp) r;
 
     for (int i = 0; ; )
@@ -3189,8 +3160,7 @@ sexp readChunks(std::istream& fin, const char *ends)
         {
             i = 0;
             q = q->cdr = newcell();
-            r = (Chunk*) newcell();
-            ((Stags*)r)->stags = CHUNK;
+            r = (Chunk*) newcell(CHUNK);
             q->car = (sexp) r;
         }
     }
