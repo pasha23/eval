@@ -40,21 +40,29 @@
 
 (define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
 
-;; (rationalize 1.5) does not terminate
+;; adapted from stklos
+(define (rationalize x e)
+        (letrec ((simplest-rational
+                  (lambda (x y)
+                          (letrec ((sr
+                                   (lambda (x y)
+                                       (let ((fx (floor x))
+                                             (fy (floor y)))
+                                       (cond ((>= fx x) fx)
+                                             ((= fx fy) (+ fx (/ (sr (/ (- y fy)) (/ (- x fx))))))
+                                             (else      (+ 1 fx)))))))
+                                  (cond ((>= x y)      x)
+                                        ((positive? x) (sr x y))
+                                        ((negative? y) (- (sr (- y) (- x))))
+                                        (else          (if (and (exact? x) (exact? y)) 0 0.0)))))))
+                   (when (eq? e void)
+                         (set! e 1e-15))
+                   (let ((x (- x e))
+                         (y (+ x e)))
+                        (if (< y x)
+                            (simplest-rational y x)
+                            (simplest-rational x y)))))
 
-(define (rationalize real)
-   (let ((maxden 268435456)
-         (t 0) (x real)
-         (m00 1) (m11 1)
-         (m01 0) (m10 0)
-         (ai (inexact->exact real)))
-     (while (<= (+ (* m10 ai) m11) maxden)
-       (set! t (+ (* m00 ai) m01)) (set! m01 m00) (set! m00 t)
-       (set! t (+ (* m10 ai) m11)) (set! m11 m10) (set! m10 t)
-       (set! x (/ 1 (- x (exact->inexact ai))))
-       (set! ai (inexact->exact x)))
-     (make-rational m00 m10)))
- 
 (define (make-complex re im)
     (cons 'rectangular (cons re (cons im #f))))
 

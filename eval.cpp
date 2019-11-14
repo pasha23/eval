@@ -1143,17 +1143,38 @@ sexp unimod(sexp l)
 sexp acosff(sexp x)    { assertFlonum(x); return newflonum(acos(asFlonum(x)));  } // acos
 sexp asinff(sexp x)    { assertFlonum(x); return newflonum(asin(asFlonum(x)));  } // asin
 sexp atanff(sexp x)    { assertFlonum(x); return newflonum(atan(asFlonum(x)));  } // atan
-sexp ceilingff(sexp x) { assertFlonum(x); return newflonum(ceil(asFlonum(x)));  } // ceiling
 sexp cosff(sexp x)     { assertFlonum(x); return newflonum(cos(asFlonum(x)));   } // cos
 sexp coshff(sexp x)    { assertFlonum(x); return newflonum(cosh(asFlonum(x)));  } // cosh
 sexp expff(sexp x)     { assertFlonum(x); return newflonum(exp(asFlonum(x)));   } // exp
-sexp floorff(sexp x)   { assertFlonum(x); return newflonum(floor(asFlonum(x))); } // floor
 sexp logff(sexp x)     { assertFlonum(x); return newflonum(log(asFlonum(x)));   } // log
-sexp roundff(sexp x)   { assertFlonum(x); return newflonum(round(asFlonum(x))); } // round
 sexp sinff(sexp x)     { assertFlonum(x); return newflonum(sin(asFlonum(x)));   } // sin
 sexp sinhff(sexp x)    { assertFlonum(x); return newflonum(sinh(asFlonum(x)));  } // sinh
 sexp tanff(sexp x)     { assertFlonum(x); return newflonum(tan(asFlonum(x)));   } // tan
 sexp tanhff(sexp x)    { assertFlonum(x); return newflonum(tanh(asFlonum(x)));  } // tanh
+
+// ceil
+sexp ceilingff(sexp x)
+{
+    assertFlonum(x);
+    double r = ceil(asFlonum(x));
+    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
+}
+
+// floor
+sexp floorff(sexp x)
+{
+    assertFlonum(x);
+    double r = floor(asFlonum(x));
+    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
+}
+
+// round
+sexp roundff(sexp x)
+{
+    assertFlonum(x);
+    double r = round(asFlonum(x));
+    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
+}
 
 uint32_t isqrt(uint64_t v)
 {
@@ -1836,7 +1857,6 @@ bool setTermios(struct termios& original, int vmin)
     if (0 == tcgetattr(0, &original))
     {
         struct termios working;
-        //memcpy((void*)&working, (void*)&original, sizeof(struct termios));
         working = original;
         working.c_cc[VMIN] = vmin;
         working.c_cc[VTIME] = 0;
