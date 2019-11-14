@@ -1,4 +1,4 @@
-(define counter (make-counter 0))
+(define counter (make-counter))
 
 (define integers
     (letrec ((next
@@ -12,9 +12,13 @@
 (define tail
     (lambda (stream) (cdr (force stream))))
 
+(define (fibs)
+    (let ((f '(1 1)))
+         (while (> (car f) 0)
+                (set! f (cons (+ (car f) (cadr f)) f)))
+         (cdr f)))
+
 (define tests '(
-    (eq? 'composite (case (* 2 3) ((2 3 5 7) 'prime) ((2 4 6 8 9) 'composite)))
-    (= 2 (head (tail (tail integers))))
     (= 0 0)
     (= (~ 0) -1)
     (= 1.0 (cos (acos 1.0)))
@@ -29,11 +33,12 @@
     (= 157 (numerator (rationalize 3.14)))
     (= 1 (>> 8 3))
     (= 1 (counter))
+    (= 2 (counter))
+    (= 3 (counter))
     (= 2.0 (exact->inexact 2))
     (< 2 3)
     (= 2 (- 5 3))
     (= 29 (ack 3 2))
-    (= 2 (counter))
     (= 2 (gcd 12 10))
     (= 3.0 (imag-part 5.0+3.0i))
     (= 30 (lcm 12 10))
@@ -193,10 +198,14 @@
     (string-ci>? "ABd" "abC")
     (string? (string #\a #\b #\c))
     (symbol? 'a)
-    (= 3 (let ((r 0)) (begin (when   #t 1 2 (set! r 3)) r)))
-    (= 3 (let ((r 0)) (begin (unless #f 1 2 (set! r 3)) r)))
     (vector? (list->vector (list 1 2 3)))
     (vector? (make-vector 3))
+
+    (= 3 (let ((r 0)) (begin (when   #t 1 2 (set! r 3)) r)))
+    (= 3 (let ((r 0)) (begin (unless #f 1 2 (set! r 3)) r)))
+    (eq? 'composite (case (* 2 3) ((2 3 5 7) 'prime) ((4 6 8 9) 'composite)))
+    (let ((f (fibs))) (= (+ 0.0 (/ (car f) (cadr f))) (/ (+ 1 (sqrt 5)) 2)))
+    (= 2 (head (tail (tail integers))))
 
     (begin (call-with-output-file "/tmp/fac20.out" (lambda (port) (display (fac 20) port)))
            (call-with-input-file "/tmp/fac20.out" (lambda (port) (= (fac 20) (read port)))))

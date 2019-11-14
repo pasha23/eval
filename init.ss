@@ -236,9 +236,9 @@
 
 (define (map f s) (if s (cons (f (car s)) (map f (cdr s))) s))
 
-(define (make-counter i)
-        (let ((n i))
-             (lambda (j) (begin (set! n (+ n 1)) n))))
+(define (make-counter)
+        (let ((n 0))
+             (lambda #f (begin (set! n (+ n 1)) n))))
 
 (define (polar->rectangular r theta)
     (cons 'complex (cons (* r (cos theta)) (cons (* r (sin theta)) #f))))
@@ -270,12 +270,6 @@
                (write (read-char))
                (newline))
         (read-char))
-
-(define (fibs)
-    (let ((f '(1 1)))
-         (while (> (car f) 0)
-                (set! f (cons (+ (car f) (cadr f)) f)))
-         (cdr f)))
 
 (display (map car (interaction-environment))) (newline)
 

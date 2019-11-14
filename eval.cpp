@@ -5,7 +5,7 @@
  */
 #define PSIZE   32768
 #define CELLS   262144
-#define BROKEN
+#undef  BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -238,7 +238,7 @@ bool isPromise(sexp p)
            isCons(p = p->cdr) &&                        //  value
            isCons(p = p->cdr) &&                        //  exp
            isCons(p = p->cdr) &&                        //  env)
-          !p->cdr;
+           !p->cdr;
 }
 
 // promise?
@@ -348,6 +348,7 @@ static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 static inline sexp lose(sexp p) { --psp; return p; }
 
 static inline void markCell(sexp p)   { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
+
 static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; }
 
 void mark(sexp p);
@@ -1260,8 +1261,10 @@ sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : 0; }
 // length of String or Atom
 int slen(sexp s)
 {
-    if (!isString(s) && !isAtom(s))
-        error("length of non-string, non-atom");
+    if (!isString(s))
+        assertAtom(s);
+    if (!isAtom(s))
+        assertString(s);
 
     int length = 0;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
@@ -1426,8 +1429,8 @@ sexp string_append(sexp p, sexp q)
 // string-fill
 sexp string_fill(sexp s, sexp c)
 {
-    assertString(s);
     assertChar(c);
+    assertString(s);
 
     char k = ((Char*)c)->ch;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
@@ -2701,6 +2704,12 @@ sexp undefine(sexp p)
 
 static char errorBuffer[128];   // used by get and set
 
+// form?
+sexp formp(sexp p)
+{
+    return isForm(p) ? t : 0;
+}
+
 // bound?
 sexp boundp(sexp p, sexp env)
 {
@@ -2904,6 +2913,7 @@ sexp ifform(sexp exp, sexp env)
     return voida;
 }
 
+// (when predicate form..)
 sexp whenform(sexp exp, sexp env)
 {
     exp = exp->cdr;
@@ -2917,6 +2927,7 @@ sexp whenform(sexp exp, sexp env)
     return voida;
 }
 
+// (unless predicate form..)
 sexp unlessform(sexp exp, sexp env)
 {
     exp = exp->cdr;
@@ -2930,6 +2941,7 @@ sexp unlessform(sexp exp, sexp env)
     return voida;
 }
 
+// (case key ((k1 k2 ..) v1) ((k5 k6 ..) v2) (else v3))
 sexp caseform(sexp exp, sexp env)
 {
     sexp* mark = psp;
@@ -3065,39 +3077,38 @@ sexp apply(sexp fun, sexp args)
     {
         switch (arity(fun))
         {
+        default: error("unsupported arity");
         case 0: return (*(Varargp)((Funct*)fun)->funcp)(args);
-        case 1: return (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : 0);
-        case 2: return (*(Twoargp)((Funct*)fun)->funcp)(args->car, args->cdr->car);
-        case 3: return (*(Threeargp)((Funct*)fun)->funcp)(args->car, args->cdr->car, args->cdr->cdr->car);
+        case 1: return (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : voida);
+        case 2: return (*(Twoargp)((Funct*)fun)->funcp)(args ? args->car : voida,
+                                                        args && args->cdr ? args->cdr->car : voida);
+        case 3: return (*(Threeargp)((Funct*)fun)->funcp)(args ? args->car : voida,
+                                                          args && args->cdr ? args->cdr->car : voida,
+                                                          args && args->cdr && args->cdr->cdr ? args->cdr->cdr->car : voida);
         }
-        debug("missing args", fun);
     }
 
     if (isClosure(fun))
     {
-        sexp cenv = fun->cdr->cdr->car;
+        fun          = fun->cdr;
+        sexp env     = fun->cdr->car;
+        sexp fcc     = fun->car->cdr;
 
-        sexp s = 0;
-        if (!fun->cdr->car->cdr->car) {
+        if (!fcc->car) {
             // fun->cdr->car = (lambda () foo)
-            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
-                s = eval(r->car, cenv);
-            return s;
-        } else if (isAtom(fun->cdr->car->cdr->car)) {
+        } else if (isAtom(fcc->car)) {
             // fun->cdr->car = (lambda s foo)
-            sexp e = replace(cons(save(cons(fun->cdr->car->cdr->car, args)), cenv));
-            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
-                s = eval(r->car, e);
-            return lose(mark, s);
+            env = replace(cons(save(cons(fcc->car, args)), env));
         } else {
             // fun->cdr->car = (lambda (n) (car x))
-            sexp e = save(assoc(fun->cdr->car->cdr->car, args, cenv));
-            for (sexp r = fun->cdr->car->cdr->cdr; r; r = r->cdr)
-                s = eval(r->car, e);
-            return lose(mark, s);
+            env = save(assoc(fcc->car, args, env));
         }
 
-        debug("bad closure", fun);
+        sexp s = 0;
+        for (sexp r = fcc->cdr; r; r = r->cdr)
+            s = eval(r->car, env);
+
+        return lose(mark, s);
     }
 
     error("apply bad function");
@@ -3298,8 +3309,9 @@ sexp scans(std::istream& fin)
                case 't': return t;
                case '\\':
                     c = fin.get();
-                    while (0 <= c && !isspace(c) && ')' != c && ']' != c && ',' != c)
+                    do
                         { s.put(c); c = fin.get(); }
+                    while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
                     fin.unget();
                     const char* buf = s.str().c_str();
                     for (int i = 0; character_table[i]; ++i)
@@ -3642,6 +3654,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("exp"), 1, (void*)expff);
     define_funct(atomize("floor"), 1, (void*)floorff);
     define_funct(atomize("force"), 1, (void*)force);
+    define_funct(atomize("form?"), 1, (void*)formp);
     define_funct(atomize("gc"), 0, (void*)gc);
     define_funct(atomize("gcd"), 2, (void*)gcdf);
     define_funct(atomize("get-output-string"),  1, (void*)get_output_string);
@@ -3820,6 +3833,7 @@ int main(int argc, char **argv, char **envp)
                 std::cout << (long)(psp-protect) << " items remain on protection stack" << std::endl;
             else
                 std::cout << "one item remains on protection stack" << std::endl;
+
         total = 0;
         collected = 0;
         std::cout << "> ";
