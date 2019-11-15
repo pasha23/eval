@@ -1,5 +1,6 @@
 /*
  * this aspires to be a scheme interpreter
+ * but it lacks tail call optimization, call/cc etc.
  * 
  * Robert Kelley October 2019
  */
@@ -2978,11 +2979,31 @@ sexp setform(sexp exp, sexp env)
     return lose(set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
 }
 
+sexp names(sexp bs)
+{
+    return bs ? lose(replace(cons(bs->car->car, save(names(bs->cdr))))) : 0;
+}
+
+sexp values(sexp bs, sexp env)
+{
+    return bs ? lose(lose(cons(save(eval(bs->car->cdr->car, env)), save(values(bs->cdr, env))))) : 0;
+}
+
 // (let ((var val) (var val) ..) body )
+// (let name ((var val) (var val) ..) body )
 sexp let(sexp exp, sexp env)
 {
     sexp* mark = psp;
     sexp e = env;
+    if (isAtom(exp->cdr->car))
+    {
+        // named let
+        exp = exp->cdr;
+        sexp l = replace(cons(lambda, replace(cons(save(names(exp->cdr->car)), exp->cdr->cdr))));
+        sexp c = replace(cons(closure, replace(cons(l, save(cons(env, 0))))));
+        c->cdr->cdr->car = e = replace(cons(save(cons(exp->car, c)), e));
+        return lose(mark, apply(e->car->cdr, save(values(exp->cdr->car, e))));
+    }
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     sexp r = save(voida);
