@@ -58,10 +58,10 @@
                  (set-cdr! binding (eval (cadr exp) env))
                  #f)))
 
-(define (begintail exp env)
+(define (tailforms exp env)
         (if (not (cdr exp))
             (eval (car exp) env)
-            (begintail (cdr s) env)))
+            (tailforms (cdr exp) env)))
 
 (define (append p q)
         (if p (cons (car p) (append (cdr p) q)) q))
@@ -96,17 +96,15 @@
 
 (define (whenform exp env)
         (if (eval (car exp) env)
-            (begintail (cdr exp) env)))
+            (tailforms (cdr exp) env)))
 
 (define (unlessform exp env)
         (if (not (eval (car exp) env))
-            (begintail (cdr exp env))))
+            (tailforms (cdr exp env))))
 
 (define (whileform exp env)
         (while (eval (car exp))
-               (begintail (cdr exp) env)))
-
-;; complex delay do lambda let let* letrec rational
+               (tailforms (cdr exp) env)))
 
 (define (quoteform exp env)
         (car exp))
@@ -134,22 +132,98 @@
             void
             (if (or (eq? 'else (caar exp))
                     (member key (caar exp)))
-                (begintail (cadr exp) env)
+                (tailforms (cadr exp) env)
                 (casetail key (cdr exp) env))))
 
 (define (caseform exp env)
         (let ((key (eval (car exp))))
              (casetail key (cdr exp) env)))
 
+;; (promise forced value exp env)
+
+(define (delayform exp env)
+    (cons 'promise #f #f exp env))
+
+(define (force promise)
+    (unless (cadr promise)
+            (set-car! (cdr promise) #t)
+            (set-car! (cddr promise) (eval (cadddr promise) (caddddr promise))))
+    (caddr promise))
+
+;;
+;; (do ((var value step)
+;;      (var value step) ...)
+;;     ((test) ..)
+;;     body)
+;;
+(define (do-bind clauses env)
+    (if clauses
+        (cons (cons (caar clauses) (eval (cadar clauses) env)) (do-bind (cdr clauses) env))
+        env))
+
+(define (do-test tests env)
+    (if tests
+        (if (eval (car tests) env) #t (do-test (cdr tests) env))
+        #t))
+
+(define (doform exp env)
+    (letrec ((e (do-bind (car exp) env))
+             (s void)
+             (r (cddr exp))
+             (v (car exp)))
+         (if (do-test (cadr exp) env)
+             s
+             (begin
+                 (while r (set! s (eval (car r) e)))
+                 (while v (set! (caar v) (eval (caddar v) e)))))))
+
+;; (let ((v0 e0) ...) exp) => ((lambda (v0 ...) exp) e0 ...)
+(define (letform exp env)
+        (let ((e (do-bind (car exp) env)))
+             (tailforms (cdr exp) e)))
+          
+(define (let*form exp env)
+        (if (null? (car exp))
+            (tailforms (cdr exp) env)
+            (let ((e (cons (cons (caar exp) (eval (cadar exp) env)))))
+                  (let*form (cons (cdar exp) (cdr exp)) e))))
+
+(define (letrecform exp env) exp)
+
+(define apply-primitive apply)
+
+(define (apply fun args)
+    (if (closure? fun)
+        (let ((fun (cdr fun))
+              (env (cadr fun))
+              (fcc (cdar fun))
+             (cond ((null? (car fcc)) (tailforms (cdr fcc) env))
+                   ((atom? (car fcc)) (tailforms (cdr fcc) (cons(cons (car fcc) args) env)))
+                   (else (tailforms (cdr fcc) (assoc (car fcc) args env))))))
+        (apply-primitive fun args)))
+
+(define eval-primitive eval)
+
 (define (eval exp env)
         (cond ((null? exp) exp)
               ((eq? #t exp) exp)
               ((symbol? exp) (get exp env))
               ((not (pair? exp)) exp)
-              (else (cond ((eq? 'and        (car exp)) (andform        (cdr exp) env))
+              (else (cond
+                          ((eq? 'complex    (car exp)) exp)
+                          ((eq? 'rational   (car exp)) exp)
+                          ((eq? 'promise    (car exp)) exp)
+                          ((eq? 'and        (car exp)) (andform        (cdr exp) env))
                           ((eq? 'begin      (car exp)) (beginform      (cdr exp) env))
+                          ((eq? 'case       (car exp)) (caseform       (cdr exp) env))
                           ((eq? 'cond       (car exp)) (condform       (cdr exp) env))
+                          ((eq? 'delay      (car exp)) (delayform      (cdr exp) env))
+                          ((eq? 'do         (car exp)) (doform         (cdr exp) env))
                           ((eq? 'if         (car exp)) (ifform         (cdr exp) env))
+                          ((eq? 'lambda     (car exp)) (cons 'closure exp env))
+                          ((eq? 'let        (car exp)) (letform        (cdr exp) env))
+                          ((eq? 'let*       (car exp)) (let*form       (cdr exp) env))
+                          ((eq? 'letrec     (car exp)) (letrecform     (cdr exp) env))
                           ((eq? 'or         (car exp)) (orform         (cdr exp) env))
                           ((eq? 'quasiquote (car exp)) (quasiquoteform (cdr exp) env))
                           ((eq? 'quote      (car exp)) (quoteform      (cdr exp) env))
