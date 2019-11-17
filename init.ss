@@ -267,7 +267,7 @@
 (define (definition name)
         (let ((value (eval name (null-environment))))
              (if (closure? value)
-                 (list 'define (cons name (cadadr value)) (caddadr value))
+                 (cons 'define (cons (cons name (cadadr value)) (cddadr value)))
                  (list 'define name value))))
 
 (define (definitions)
