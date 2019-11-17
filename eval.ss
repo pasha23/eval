@@ -22,7 +22,7 @@
                    (else            p))))
 
 (define (evlis p env)
-        (if p (cons (eval (car p) env) (evlis (cdr p) env)) #f))
+        (if (pair? p) (cons (eval (car p) env) (evlis (cdr p) env)) '()))
 
 (define (assoc formals actuals env)
         (cond ((not (pair? formals))
@@ -35,7 +35,7 @@
 
 (define (find exp env)
         (if (null? env)
-            #f
+            '()
             (if (eq? exp (caar env))
                 (car env)
                 (find exp (cdr env)))))
@@ -44,7 +44,7 @@
         (let ((binding (find exp env)))
              (if (pair? binding)
                  (cdr binding)
-                 #f)))
+                 void)))
 
 (define (defineform exp env)
         (let ((binding (find (car exp) env)))
@@ -56,16 +56,16 @@
         (let ((binding (find (car exp) env)))
              (if (pair? binding)
                  (set-cdr! binding (eval (cadr exp) env))
-                 #f)))
+                 void)))
 
 (define (tailforms exp env)
-        (if (cdr exp)
+        (if (pair? (cdr exp))
             (begin (eval (car exp) env)
                    (tailforms (cdr exp) env))
             (eval (car exp) env)))
 
 (define (append p q)
-        (if p (cons (car p) (append (cdr p) q)) q))
+        (if (pair? p) (cons (car p) (append (cdr p) q)) q))
 
 (define (unquoteform exp env)
         (cond ((not exp) exp)
@@ -82,14 +82,14 @@
 (define (quasiquoteform exp env) (unquoteform (car exp) env))
 
 (define (andform exp env)
-        (if exp
+        (if (pair? exp)
             (if (eval (car exp) env)
                 (andform (cdr exp) env)
                 #f)
             #t))
 
 (define (orform exp env)
-        (if exp
+        (if (pair? exp)
             (if (eval (car exp) env)
                 #t
                 (orform (cdr exp) env))
@@ -122,7 +122,7 @@
             (condform (cdr exp) env)))
 
 (define (member key s)
-        (if s
+        (if (pair? s)
             (if (eqv? key (car s))
                 #t
                 (member key (cdr s)))
@@ -207,6 +207,7 @@
 
 (define (eval exp env)
         (cond ((null? exp) exp)
+              ((eq? #f exp) exp)
               ((eq? #t exp) exp)
               ((symbol? exp) (get exp env))
               ((not (pair? exp)) exp)

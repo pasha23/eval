@@ -83,7 +83,7 @@ typedef sexp (*Twoargp)(sexp, sexp);
 typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
 sexp closure, comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
-sexp lbracket, lparen, minus, nil, one, promise, qchar, quasiquote, quote;
+sexp lbracket, lparen, minus, one, promise, qchar, quasiquote, quote;
 sexp rational, rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
 
 sexp define(sexp p, sexp r);
@@ -231,7 +231,7 @@ bool isClosure(sexp p)
 }
 
 // closure?
-sexp closurep(sexp s) { return isClosure(s) ? t : 0; }
+sexp closurep(sexp s) { return isClosure(s) ? t : f; }
 
 bool isPromise(sexp p)
 {
@@ -244,7 +244,7 @@ bool isPromise(sexp p)
 }
 
 // promise?
-sexp promisep(sexp s) { return isPromise(s) ? t : 0; }
+sexp promisep(sexp s) { return isPromise(s) ? t : f; }
 
 bool isRational(sexp p)
 {
@@ -255,7 +255,7 @@ bool isRational(sexp p)
 }
 
 // rational?
-sexp rationalp(sexp s) { return isRational(s) ? t : 0; }
+sexp rationalp(sexp s) { return isRational(s) ? t : f; }
 
 bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p) || isRational(p); }
 
@@ -268,7 +268,7 @@ bool isComplex(sexp p)
 }
 
 // complex?
-sexp complexp(sexp s) { return isComplex(s) ? t : 0; }
+sexp complexp(sexp s) { return isComplex(s) ? t : f; }
 
 jmp_buf the_jmpbuf;
 
@@ -410,18 +410,18 @@ void mark(sexp p)
 
 void deleteinport(sexp v)
 {
-    PortStream* f = ((InPort*)v)->s;
+    PortStream* stream = ((InPort*)v)->s;
     ((InPort*)v)->s = 0;
-    if (f != &cinStream)
-        delete f;
+    if (stream != &cinStream)
+        delete stream;
 }
 
 void deleteoutport(sexp v)
 {
-    PortStream* f = ((OutPort*)v)->s;
+    PortStream* stream = ((OutPort*)v)->s;
     ((OutPort*)v)->s = 0;
-    if (f != &coutStream && f != &cerrStream)
-        delete f;
+    if (stream != &coutStream && stream != &cerrStream)
+        delete stream;
 }
 
 void deletevector(sexp v) { delete ((Vector*)v)->e; }
@@ -567,20 +567,20 @@ sexp newflonum(double number)
     }
 }
 
-sexp define_form(sexp name, Formp f)
+sexp define_form(sexp name, Formp formp)
 {
     assert(name);
     Form* p = (Form*)save(newcell(FORM));
-    p->formp = f;
+    p->formp = formp;
     define(name, (sexp)p);
     return lose(name);
 }
 
-sexp define_funct(sexp name, int arity, void* f)
+sexp define_funct(sexp name, int arity, void* funcp)
 {
     assert(name);
     Funct* p = (Funct*)save(newcell(FUNCT));
-    p->tags[2] = arity; p->funcp = f;
+    p->tags[2] = arity; p->funcp = funcp;
     define(name, (sexp)p);
     return lose(name);
 }
@@ -616,7 +616,7 @@ sexp set_cdr(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pai
 sexp andform(sexp p, sexp env)
 {
     sexp q = t;
-    while ((p = p->cdr) && (q = eval(p->car, env))) {}
+    while ((p = p->cdr) && f != (q = eval(p->car, env))) {}
     return q;
 }
 
@@ -624,12 +624,12 @@ sexp andform(sexp p, sexp env)
 sexp orform(sexp p, sexp env)
 {
     sexp q = 0;
-    while ((p = p->cdr) && 0 == (q = eval(p->car, env))) {}
+    while ((p = p->cdr) && f == (q = eval(p->car, env))) {}
     return q;
 }
 
 // trace
-sexp trace(sexp arg) { sexp r = tracing; tracing = arg ? t : 0; return r; }
+sexp trace(sexp arg) { sexp r = tracing; tracing = arg ? t : f; return r; }
 
 long asFixnum(sexp p) { if (isFixnum(p)) return ((Fixnum*)p)->fixnum; error("asFixnum: not a fixnum"); }
 
@@ -654,11 +654,11 @@ sexp negativep(sexp x)
 {
     if (isRational(x))
         if (asFixnum(x->cdr->car) < 0)
-            return asFixnum(x->cdr->cdr->car) < 0 ? 0 : t;
+            return asFixnum(x->cdr->cdr->car) < 0 ? f : t;
         else
-            return asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
+            return asFixnum(x->cdr->cdr->car) < 0 ? t : f;
 
-    return asFlonum(x) < 0 ? t : 0;
+    return asFlonum(x) < 0 ? t : f;
 }
 
 // positive?
@@ -666,27 +666,27 @@ sexp positivep(sexp x)
 {
     if (isRational(x))
         if (asFixnum(x->cdr->car) < 0)
-            return asFixnum(x->cdr->cdr->car) < 0 ? t : 0;
+            return asFixnum(x->cdr->cdr->car) < 0 ? t : f;
         else
             return asFixnum(x->cdr->cdr->car) < 0 ? 0 : t;
 
-    return asFlonum(x) > 0 ? t : 0;
+    return asFlonum(x) > 0 ? t : f;
 }
 
 // boolean?
-sexp booleanp(sexp x) { return t == x || 0 == x ? t : 0; }
+sexp booleanp(sexp x) { return t == x || f == x ? t : f; }
 
 // <
-sexp ltp(sexp x, sexp y) { return asFlonum(x) < asFlonum(y) ? t : 0; }
+sexp ltp(sexp x, sexp y) { return asFlonum(x) < asFlonum(y) ? t : f; }
 
 // <=
-sexp lep(sexp x, sexp y) { return asFlonum(x) <= asFlonum(y) ? t : 0; }
+sexp lep(sexp x, sexp y) { return asFlonum(x) <= asFlonum(y) ? t : f; }
 
 // >=
-sexp gep(sexp x, sexp y) { return asFlonum(x) >= asFlonum(y) ? t : 0; }
+sexp gep(sexp x, sexp y) { return asFlonum(x) >= asFlonum(y) ? t : f; }
 
 // >
-sexp gtp(sexp x, sexp y) { return asFlonum(x) > asFlonum(y) ? t : 0; }
+sexp gtp(sexp x, sexp y) { return asFlonum(x) > asFlonum(y) ? t : f; }
 
 sexp make_rational(sexp num, sexp den)
 {
@@ -795,10 +795,10 @@ sexp rational_div(sexp x, sexp y)
 }
 
 // exact?
-sexp exactp(sexp x) { return (isFixnum(x) || isRational(x)) ? t : 0; }
+sexp exactp(sexp x) { return (isFixnum(x) || isRational(x)) ? t : f; }
 
 // inexact?
-sexp inexactp(sexp x) { return isFlonum(x) ? t : 0; }
+sexp inexactp(sexp x) { return isFlonum(x) ? t : f; }
 
 sexp complex_add(sexp z, sexp w)
 {
@@ -1225,10 +1225,10 @@ sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonu
 sexp truncateff(sexp x) { assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x))); }
 
 // integer?
-sexp integerp(sexp x) { return isFixnum(x) ? t : isFlonum(x) && (long)asFlonum(x) == asFlonum(x) ? t : 0; }
+sexp integerp(sexp x) { return isFixnum(x) ? t : isFlonum(x) && (long)asFlonum(x) == asFlonum(x) ? t : f; }
 
 // real?
-sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : 0; }
+sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : f; }
 
 // inexact->exact
 sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
@@ -1243,31 +1243,31 @@ sexp lsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(as
 sexp rsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) >> asFixnum(y)); }
 
 // not
-sexp isnot(sexp x) { return x ? 0 : t; }
+sexp isnot(sexp x) { return f == x ? t : f; }
 
 // null?
-sexp nullp(sexp x) { return x ? 0 : t; }
+sexp nullp(sexp x) { return x ? f : t; }
 
 // list?
-sexp listp(sexp x) { return !isCons(x) ? 0 : listp(x->cdr) ? t : 0; }
+sexp listp(sexp x) { return !isCons(x) ? f : listp(x->cdr) ? t : f; }
 
 // atom?
-sexp atomp(sexp x) { return isAtom(x) ? t : 0; }
+sexp atomp(sexp x) { return isAtom(x) ? t : f; }
 
 // pair?
-sexp pairp(sexp x) { return isCons(x) ? t : 0; }
+sexp pairp(sexp x) { return isCons(x) ? t : f; }
 
 // number?
-sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : 0; }
+sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : f; }
 
 // string?
-sexp stringp(sexp x) { return isString(x) ? t : 0; }
+sexp stringp(sexp x) { return isString(x) ? t : f; }
 
 // symbol?
-sexp symbolp(sexp x) { return isAtom(x) ? t : 0; }
+sexp symbolp(sexp x) { return isAtom(x) ? t : f; }
 
 // procedure?
-sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : 0; }
+sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : f; }
 
 // length of String or Atom
 int slen(sexp s)
@@ -1451,10 +1451,10 @@ sexp string_fill(sexp s, sexp c)
 }
 
 // close-input-port
-sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); return 0; }
+sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); return voida; }
 
 // close-output-port
-sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); return 0; }
+sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); return voida; }
 
 // current-input-port
 sexp current_input_port(sexp p) { return inport; }
@@ -1463,7 +1463,7 @@ sexp current_input_port(sexp p) { return inport; }
 sexp current_output_port(sexp p) { return outport; }
 
 // input-port?
-sexp input_portp(sexp p) { return isInPort(p) ? t : 0; }
+sexp input_portp(sexp p) { return isInPort(p) ? t : f; }
 
 // open-input-file
 sexp open_input_file(sexp p)
@@ -1486,48 +1486,48 @@ sexp open_output_file(sexp p)
 }
 
 // output-port?
-sexp output_portp(sexp p) { return isOutPort(p) ? t : 0; }
+sexp output_portp(sexp p) { return isOutPort(p) ? t : f; }
 
 // with-input-from-file
-sexp with_input_from_file(sexp p, sexp f)
+sexp with_input_from_file(sexp p, sexp thunk)
 {
     sexp* mark = psp;
     sexp t = save(inport);
     inport = save(open_input_file(p));
-    sexp q = save(apply(f, 0));
+    sexp q = save(apply(thunk, 0));
     close_input_port(inport);
     inport = t;
     return lose(mark, q);
 }
 
 // with-output-to-file
-sexp with_output_to_file(sexp p, sexp f)
+sexp with_output_to_file(sexp p, sexp thunk)
 {
     sexp* mark = psp;
     sexp t = save(outport);
     outport = save(open_output_file(p));
-    sexp q = save(apply(f, 0));
+    sexp q = save(apply(thunk, 0));
     close_output_port(outport);
     outport = t;
     return lose(mark, q);
 }
 
 // call-with-input-file
-sexp call_with_input_file(sexp p, sexp f)
+sexp call_with_input_file(sexp p, sexp func)
 {
     sexp* mark = psp;
     sexp inp = save(open_input_file(p));
-    sexp q = save(apply(f, save(cons(inp, 0))));
+    sexp q = save(apply(func, save(cons(inp, 0))));
     close_input_port(inp);
     return lose(mark, q);
 }
 
 // call-with-output-file
-sexp call_with_output_file(sexp p, sexp f)
+sexp call_with_output_file(sexp p, sexp func)
 {
     sexp* mark = psp;
     sexp oup = save(open_output_file(p));
-    sexp q = save(apply(f, save(cons(oup, 0))));
+    sexp q = save(apply(func, save(cons(oup, 0))));
     close_output_port(oup);
     return lose(mark, q);
 }
@@ -1624,7 +1624,7 @@ sexp write_to_string(sexp args)
 }
 
 // vector?
-sexp vectorp(sexp v) { return isVector(v) ? t : 0; }
+sexp vectorp(sexp v) { return isVector(v) ? t : f; }
 
 sexp newvector(int len, sexp fill)
 {
@@ -1786,43 +1786,43 @@ int scmpi(sexp p, sexp q)
 }
 
 // char-alphabetic?
-sexp char_alphabeticp(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : 0; }
+sexp char_alphabeticp(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : f; }
 
 // char->integer
 sexp char_integer(sexp c) { assertChar(c); return  newfixnum(((Char*)c)->ch); }
 
 // char-ci=?
-sexp char_cieqp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cieqp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch) ? t : f; }
 
 // char-ci>=?
-sexp char_cigep(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cigep(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch) ? t : f; }
 
 // char-ci>?
-sexp char_cigtp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cigtp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch) ? t : f; }
 
 // char-ci<=?
-sexp char_cilep(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_cilep(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch) ? t : f; }
 
 // char-ci<?
-sexp char_ciltp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch) ? t : 0; }
+sexp char_ciltp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch) ? t : f; }
 
 // char=?
-sexp char_eqp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch == ((Char*)q)->ch ? t : 0; }
+sexp char_eqp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch == ((Char*)q)->ch ? t : f; }
 
 // char>=?
-sexp char_gep(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >= ((Char*)q)->ch ? t : 0; }
+sexp char_gep(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >= ((Char*)q)->ch ? t : f; }
 
 // char>?
-sexp char_gtp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >  ((Char*)q)->ch ? t : 0; }
+sexp char_gtp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch >  ((Char*)q)->ch ? t : f; }
 
 // char<=?
-sexp char_lep(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <= ((Char*)q)->ch ? t : 0; }
+sexp char_lep(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <= ((Char*)q)->ch ? t : f; }
 
 // char<?
-sexp char_ltp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <  ((Char*)q)->ch ? t : 0; }
+sexp char_ltp(sexp p, sexp q) { assertChar(p); assertChar(q); return ((Char*)p)->ch <  ((Char*)q)->ch ? t : f; }
 
 // character?
-sexp charp(sexp c) { return isChar(c) ? t : 0; }
+sexp charp(sexp c) { return isChar(c) ? t : f; }
 
 // char-downcase
 sexp char_downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
@@ -1831,19 +1831,19 @@ sexp char_downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)
 sexp integer_char(sexp c) { assertFixnum(c); return newcharacter(asFixnum(c)); }
 
 // char-lowercase?
-sexp char_lower_casep(sexp c) { return isChar(c) && islower(((Char*)c)->ch) ? t : 0; }
+sexp char_lower_casep(sexp c) { return isChar(c) && islower(((Char*)c)->ch) ? t : f; }
 
 // char-numeric?
-sexp char_numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->ch) ? t : 0; }
+sexp char_numericp(sexp c) { return isChar(c) && isdigit(((Char*)c)->ch) ? t : f; }
 
 // char-upcase
 sexp char_upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)); }
 
 // char-uppercase?
-sexp char_upper_casep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : 0; }
+sexp char_upper_casep(sexp c) { return isChar(c) && isupper(((Char*)c)->ch) ? t : f; }
 
 // char-whitespace?
-sexp char_whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : 0; }
+sexp char_whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t : f; }
 
 // save the original termios then modify it for cbreak style input
 bool setTermios(struct termios& original, int vmin)
@@ -1880,7 +1880,7 @@ sexp char_readyp(sexp args)
         {
             inPort->avail = read(0, &inPort->peek, 1) > 0;
             tcsetattr(0, TCSANOW, &original);
-            return inPort->avail ? t : 0;
+            return inPort->avail ? t : f;
         }
     }
 
@@ -1965,34 +1965,34 @@ sexp write_char(sexp args)
 sexp achunk(sexp s) { assertString(s); return ((String*)s)->chunks; }
 
 // string<=?
-sexp string_lep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <= 0 ? t : 0; }
+sexp string_lep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <= 0 ? t : f; }
 
 // string<?
-sexp string_ltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <  0 ? t : 0; }
+sexp string_ltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) <  0 ? t : f; }
 
 // string=?
-sexp string_eqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) == 0 ? t : 0; }
+sexp string_eqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) == 0 ? t : f; }
 
 // string>=?
-sexp string_gep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >= 0 ? t : 0; }
+sexp string_gep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >= 0 ? t : f; }
 
 // string>?
-sexp string_gtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >  0 ? t : 0; }
+sexp string_gtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmp(p, q) >  0 ? t : f; }
 
 // string-ci-<=?
-sexp string_cilep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <= 0 ? t : 0; }
+sexp string_cilep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <= 0 ? t : f; }
 
 // string-ci<?
-sexp string_ciltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <  0 ? t : 0; }
+sexp string_ciltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) <  0 ? t : f; }
 
 // string-ci=?
-sexp string_cieqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) == 0 ? t : 0; }
+sexp string_cieqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) == 0 ? t : f; }
 
 // string-ci>=?
-sexp string_cigep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >= 0 ? t : 0; }
+sexp string_cigep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >= 0 ? t : f; }
 
 // string-ci>?
-sexp string_cigtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >  0 ? t : 0; }
+sexp string_cigtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return scmpi(p, q) >  0 ? t : f; }
 
 // string-ref
 sexp string_ref(sexp s, sexp i)
@@ -2075,20 +2075,20 @@ sexp append(sexp p, sexp q)
 sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
 // eq?
-sexp eqp(sexp x, sexp y) { return x == y ? t : 0; }
+sexp eqp(sexp x, sexp y) { return x == y ? t : f; }
 
 // =
 sexp eqnp(sexp x, sexp y)
 {
     if (isRational(x) && isRational(y))
         return (asFixnum(x->cdr->car) == asFixnum(y->cdr->car) &&
-                asFixnum(x->cdr->car) == asFixnum(y->cdr->car)) ? t : 0;
+                asFixnum(x->cdr->car) == asFixnum(y->cdr->car)) ? t : f;
  
     if (isComplex(x) && isComplex(y))
         return (asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
-                asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car)) ? t : 0;
+                asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car)) ? t : f;
 
-    return asFlonum(x) == asFlonum(y) ? t : 0;
+    return asFlonum(x) == asFlonum(y) ? t : f;
 }
 
 // zero?
@@ -2098,14 +2098,14 @@ sexp zerop(sexp x)
 }
 
 // ~ x
-sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : 0; }
+sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : f; }
 
 // all arguments must be fixnums for these logical operations
 sexp allfixnums(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
         if (!isFixnum(p->car))
-            return 0;
+            return f;
     return t;
 }
 
@@ -2209,7 +2209,7 @@ sexp load(sexp x)
         }
         return t;
     }
-    return 0;
+    return f;
 }
 
 // space
@@ -2231,7 +2231,7 @@ sexp newline(sexp args)
 }
 
 // eof-object?
-sexp eof_objectp(sexp a) { return eof == a ? t : 0; }
+sexp eof_objectp(sexp a) { return eof == a ? t : f; }
 
 // display
 sexp displayf(sexp args)
@@ -2306,7 +2306,7 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
 bool cyclic(sexp exp) { std::set<sexp> seenSet; return cyclic(seenSet, exp); }
 
 // cyclic?
-sexp cyclicp(sexp x) { return cyclic(x) ? t : 0; }
+sexp cyclicp(sexp x) { return cyclic(x) ? t : f; }
 
 // for prettyprinting
 int displayLength(sexp exp)
@@ -2451,7 +2451,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
 {
     if (!exp)
     {
-        s << "#f";
+        s << "()";
         return s;
     } else if (isCons(exp)) {
         bool quoted = false;
@@ -2664,10 +2664,10 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 }
 
 // eqv?
-sexp eqvp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
+sexp eqvp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : f; }
 
 // equal?
-sexp equalp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
+sexp equalp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : f; }
 
 // show bindings since ref, for debugging
 sexp envhead(sexp env, sexp ref)
@@ -2679,9 +2679,9 @@ sexp envhead(sexp env, sexp ref)
 // that environment instead of earlier ones for init.ss
 void fixenvs(sexp env)
 {
-    for (sexp f = env; f; f = f->cdr)
-        if (isClosure(f->car->cdr))
-            f->car->cdr->cdr->cdr->car = env;
+    for (sexp e = env; e; e = e->cdr)
+        if (isClosure(e->car->cdr))
+            e->car->cdr->cdr->cdr->car = env;
 }
 
 // define
@@ -2717,7 +2717,7 @@ static char errorBuffer[128];   // used by get and set
 // form?
 sexp formp(sexp p)
 {
-    return isForm(p) ? t : 0;
+    return isForm(p) ? t : f;
 }
 
 // bound?
@@ -2726,7 +2726,7 @@ sexp boundp(sexp p, sexp env)
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p->cdr->car == q->car->car)
             return t;
-    return 0;
+    return f;
 }
 
 // retrieve the value of a variable in an environment
@@ -2821,7 +2821,7 @@ sexp whileform(sexp exp, sexp env)
     save(env);
     exp = save(exp->cdr);
     sexp v = save(0);
-    while (eval(exp->car, env))
+    while (f != eval(exp->car, env))
         v = replace(tailforms(exp->cdr, env));
     return lose(mark, v);
 }
@@ -2837,7 +2837,7 @@ sexp whileform(sexp exp, sexp env)
 sexp cond(sexp exp, sexp env)
 {
     for (sexp p = exp->cdr; p; p = p->cdr)
-        if (elsea == p->car->car || eval(p->car->car, env))
+        if (elsea == p->car->car || f != eval(p->car->car, env))
             return tailforms(p->car->cdr, env);
     return voida;
 }
@@ -2936,7 +2936,7 @@ sexp ifform(sexp exp, sexp env)
         error("if: missing predicate");
     if (!exp->cdr->cdr)
         error("if: missing consequent");
-    if (eval(exp->cdr->car, env))
+    if (f != eval(exp->cdr->car, env))
         return eval(exp->cdr->cdr->car, env);
     if (exp->cdr->cdr->cdr)
         return eval(exp->cdr->cdr->cdr->car, env);
@@ -2951,7 +2951,7 @@ sexp whenform(sexp exp, sexp env)
         error("when: missing predicate");
     if (!exp->cdr)
         error("when: missing consequents");
-    if (eval(exp->car, env))
+    if (f != eval(exp->car, env))
         return tailforms(exp->cdr, env);
     return voida;
 }
@@ -2964,7 +2964,7 @@ sexp unlessform(sexp exp, sexp env)
         error("when: missing predicate");
     if (!exp->cdr)
         error("when: missing consequents");
-    if (!eval(exp->car, env))
+    if (f == eval(exp->car, env))
         return tailforms(exp->cdr, env);
     return voida;
 }
@@ -2986,21 +2986,11 @@ sexp caseform(sexp exp, sexp env)
     for (exp = exp->cdr; exp; exp = exp->cdr)
     {
         if (elsea == exp->car->car)
-        {
-            for (sexp p = exp->cdr; p; p = p->cdr)
-                r = replace(eval(p->car, env));
-            return lose(r);
-        }
+            return tailforms(exp->cdr, env);
 
         for (sexp p = exp->car->car; p; p = p->cdr)
-        {
-            if (eqvp(key, p->car))
-            {
-                for (p = exp->car->cdr; p; p = p->cdr)
-                    r = replace(eval(p->car, env));
-                return lose(r);
-            }
-        }
+            if (f != eqvp(key, p->car))
+                return tailforms(exp->car->cdr, env);
     }
 
     return lose(voida);
@@ -3088,7 +3078,7 @@ sexp doform(sexp exp, sexp env)
     {
         // if any test succeeds, return s
         for (sexp t = exp->cdr->cdr->car; t; t = t->cdr)
-            if (eval(t->car, e))
+            if (f != eval(t->car, e))
                 return lose(mark, s);
 
         // execute each body expression
@@ -3147,7 +3137,7 @@ sexp apply(sexp fun, sexp args)
 
     error("apply bad function");
 
-    return 0;
+    return voida;
 }
 
 // (rational numerator denominator)
@@ -3167,7 +3157,10 @@ sexp eval(sexp p, sexp env)
     if (tracing)
         debug("eval", p);
 
-    if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
+    if (!p)
+        error("invalid: ()");
+
+    if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
         return p;
 
     if (isAtom(p))
@@ -3340,7 +3333,7 @@ sexp scans(std::istream& fin)
     case '#':  c = fin.get();
                switch (c)
                {
-               case 'f': return 0;
+               case 'f': return f;
                case 't': return t;
                case '\\':
                     c = fin.get();
@@ -3492,8 +3485,6 @@ sexp read(std::istream& fin, int level)
 {
     sexp* mark = psp;
     sexp p = scan(fin);
-    if (nil == p)
-        return 0;
     if (lparen == p)
         return readTail(fin, level+1);
     if (lbracket == p)
@@ -3602,7 +3593,6 @@ int main(int argc, char **argv, char **envp)
     lbracket        = atomize("[");
     lparen          = atomize("(");
     minus           = atomize("-");
-    nil             = atomize("#f");
     promise         = atomize("promise");
     qchar           = atomize("'");
     quasiquote      = atomize("quasiquote");

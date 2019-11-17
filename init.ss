@@ -32,7 +32,7 @@
 (define (cddddr x) (cdr (cdr (cdr (cdr x)))))
 
 (define (make-rational n d)
-   (cons 'rational (cons n (cons d #f))))
+   (cons 'rational (cons n (cons d '()))))
  
 (define numerator cadr)
 
@@ -64,7 +64,7 @@
                             (simplest-rational x y)))))
 
 (define (make-complex re im)
-    (cons 'rectangular (cons re (cons im #f))))
+    (cons 'rectangular (cons re (cons im '()))))
 
 (define real-part cadr)
 
@@ -96,7 +96,7 @@
                      (* y y)))
             1))
 
-(define (length s) (if s (+ 1 (length (cdr s))) 0))
+(define (length s) (if (null? s) 0 (+ 1 (length (cdr s)))))
 
 (define (list . s) s)
 
@@ -106,7 +106,7 @@
 
 (define (assq a e)
         (if (null? e)
-            #f
+            '()
             (if (eq? a (caar e))
                 (car e)
                 (assq a (cdr e)))))
@@ -121,7 +121,7 @@
 
 (define (assv a e)
         (if (null? e)
-            #f
+            '()
             (if (eqv? a (caar e))
                 (cdar e)
                 (assv a (cdr e)))))
@@ -136,7 +136,7 @@
 
 (define (assoc a e)
         (if (null? e)
-            #f
+            '()
             (if (equal? a (caar e))
                 (car e)
                 (assoc a (cdr e)))))
@@ -169,27 +169,28 @@
                 (car e)
                 (memv a (cdr e)))))
 
-(define (fold f i s) (if s (f (car s) (fold f i (cdr s))) i))
+(define (fold f i s) (if (null? s) 1 (f (car s) (fold f i (cdr s)))))
 
 (define (iota n)
-    (let ((s #f)
+    (let ((s '())
           (i (- n 1)))
          (while (>= i 0)
                 (set! s (cons i s))
                 (set! i (- i 1)))
          s))
 
-;; (define (iota n) (if (= 0 n) #f (cons n (iota (- n 1)))))
+;; (define (iota n) (if (= 0 n) '() (cons n (iota (- n 1)))))
 
 (define (pairs a b)
-        (if b
-            (cons (cons a (cons (car b) #f)) (pairs a (cdr b)))
-            b))
+        (if (null? b)
+            b
+            (cons (cons a (cons (car b) '())) (pairs a (cdr b)))))
 
 (define (cross a b)
-        (if a
+        (if (null? a)
+            a
             (cons (pairs (car a) b)
-                  (cross (cdr a) b)) a))
+                  (cross (cdr a) b))))
 
 (define (abs x) (if (< x 0) (- x) x))
 
@@ -198,11 +199,11 @@
                   (lambda (x y) (if (< x y) y x)))
                  (maxx
                   (lambda (l)
-                          (if (cdr l)
-                               (if (cddr l)
-                                   (maxi (car l) (maxx (cdr l)))
-                                   (maxi (car l) (cadr l)))
-                               (car l)))))
+                          (if (null? (cdr l))
+                               (car l)
+                               (if (null? (cddr l))
+                                   (maxi (car l) (cadr l))
+                                   (maxi (car l) (maxx (cdr l))))))))
                 maxi(maxx l)))
 
 (define (min . l)
@@ -210,48 +211,50 @@
                   (lambda (x y) (if (< x y) x y)))
                  (minx
                   (lambda (l)
-                          (if (cdr l)
-                              (if (cddr l)
-                                  (mini (car l) (minx (cdr l)))
-                                  (mini (car l) (cadr l)))
-                              (car l)))))
+                          (if (null? (cdr l))
+                              (car l)
+                              (if (null? (cddr l))
+                                  (mini (car l) (cadr l))
+                                  (mini (car l) (minx (cdr l))))))))
                 (minx l)))
 
 (define (reverse! s)
    (let ((p s)
-         (q #f)
-         (u #f))
-        (while p (set! u (cdr p))
-                 (set-cdr! p q)
-                 (set! q p)
-                 (set! p u))
+         (q '())
+         (u '()))
+        (while (pair? p)
+               (set! u (cdr p))
+               (set-cdr! p q)
+               (set! q p)
+               (set! p u))
          q))
 
 (define (list-tail s i)
         (if (null? s)
-            #f
+            '()
             (if (positive? i)
                 (list-tail (cdr s) (- i 1))
                 s)))
 
 (define (list-ref s i) (car (list-tail s i)))
 
-(define (map* i f s) (if s (cons (f (car s)) (map* i f (cdr s)))  i))
+(define (map* i f s) (if (null? s) i (cons (f (car s)) (map* i f (cdr s)))))
 
 (define (for-each f s)
-        (while s (f (car s))
-                 (set! s (cdr s))))
+        (while (pair? s)
+               (f (car s))
+               (set! s (cdr s))))
 
-(define (map f s) (if s (cons (f (car s)) (map f (cdr s))) s))
+(define (map f s) (if (null? s) '() (cons (f (car s)) (map f (cdr s)))))
 
 (define (make-counter)
         (let ((n 0))
-             (lambda #f (begin (set! n (+ n 1)) n))))
+             (lambda () (begin (set! n (+ n 1)) n))))
 
 (define (polar->rectangular r theta)
-    (cons 'complex (cons (* r (cos theta)) (cons (* r (sin theta)) #f))))
+    (cons 'complex (cons (* r (cos theta)) (cons (* r (sin theta)) '()))))
 
-(define (env-head l t) (if (eq? l t) #f (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
+(define (env-head l t) (if (eq? l t) '() (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
 
 (define (caddadr x) (car (cddadr x)))
 

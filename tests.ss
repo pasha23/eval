@@ -171,7 +171,7 @@
     (negative? -3)
     (not (boolean? 5))
     (not #f)
-    (null? #f)
+    (null? '())
     (number? 3)
     (or #f #f #t #f)
     (pair? '(a . b))
@@ -207,8 +207,8 @@
     (vector? (list->vector (list 1 2 3)))
     (vector? (make-vector 3))
 
-    (= 3 (let ((r 0)) (begin (when   #t 1 2 (set! r 3)) r)))
     (= 3 (let ((r 0)) (begin (unless #f 1 2 (set! r 3)) r)))
+    (= 3 (let ((r 0)) (begin (when   #t 1 2 (set! r 3)) r)))
     (eq? 'composite (case (* 2 3) ((2 3 5 7) 'prime) ((4 6 8 9) 'composite)))
     (let ((f (fibs))) (= (+ 0.0 (/ (car f) (cadr f))) (/ (+ 1 (sqrt 5)) 2)))
     (= 2 (head (tail (tail integers))))
@@ -234,7 +234,7 @@
 ))
 
 (let ((t tests))
-     (while t
+     (while (pair? t)
             (if (eqv? #t (eval (car t) (interaction-environment)))
                 (begin (display (car t)) (space) (display 'pass) (newline))
                 (begin (display (car t)) (space) (display 'fail) (newline)))
