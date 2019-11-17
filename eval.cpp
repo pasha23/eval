@@ -631,7 +631,7 @@ sexp orform(sexp p, sexp env)
 // trace
 sexp trace(sexp arg) { sexp r = tracing; tracing = arg ? t : f; return r; }
 
-long asFixnum(sexp p) { if (isFixnum(p)) return ((Fixnum*)p)->fixnum; error("asFixnum: not a fixnum"); }
+static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
 double rat2real(sexp x) { return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car); }
 
@@ -880,6 +880,7 @@ sexp complex_div(sexp z, sexp w)
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
+// x + y
 sexp sum(sexp x, sexp y)
 {
     if (isComplex(x)) {
@@ -952,6 +953,44 @@ sexp unineg(sexp x)
     }
 }
 
+// x - y
+sexp diff(sexp x, sexp y)
+{
+    if (isComplex(x)) {
+        if (isComplex(y))
+            return complex_sub(x, y);
+        if (isRational(y) || isFixnum(y) || isFlonum(y))
+            return lose(complex_sub(x, save(make_complex(y, zero))));
+    } else if (isRational(x)) {
+        if (isComplex(y))
+            return lose(complex_sub(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y))
+            return rational_sub(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) - asFlonum(y));
+    } else if (isFixnum(x)) {
+        if (isComplex(y))
+            return lose(complex_sub(y, save(make_complex(x, zero))));
+        if (isRational(y))
+            return lose(rational_sub(save(make_rational(x, one)), y));
+        if (isFixnum(y))
+            return newfixnum(asFixnum(x) - asFixnum(y));
+        if (isFlonum(y))
+            return newflonum((double)asFixnum(x) - asFlonum(y));
+    } else if (isFlonum(x)) {
+        if (isComplex(y))
+            return lose(complex_sub(save(make_complex(x, zero)), y));
+        if (isRational(y))
+            return newflonum(asFlonum(x) - rat2real(y));
+        if (isFixnum(y))
+            return newflonum(asFlonum(x) - (double)asFixnum(y));
+        if (isFlonum(y))
+            return newflonum(asFlonum(x) - asFlonum(y));
+    }
+
+    error("diff: operand");
+}
+
 // - x0
 // x0 - x1
 // x0 - x1 - x2 - x3 ...
@@ -962,9 +1001,10 @@ sexp unisub(sexp l)
     if (!l->cdr)
         return unineg(l->car);
     sexp* mark = psp;
-    return lose(uniadd(replace(cons(l->car, replace(cons(replace(unineg(save(uniadd(l->cdr)))), 0))))));
+    return lose(diff(l->car, save(uniadd(l->cdr))));
 }
 
+// x * y
 sexp product(sexp x, sexp y)
 {
     if (isComplex(x)) {
@@ -1016,6 +1056,7 @@ sexp unimul(sexp l)
     return lose(mark, result);
 }
 
+// x / y
 sexp quotientf(sexp x, sexp y)
 {
     if (isComplex(x)) {
@@ -1085,6 +1126,7 @@ sexp rational_mod(sexp x, sexp y)
 
 sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
+// x % y
 sexp remainderff(sexp x, sexp y)
 {
     if (isComplex(x)) {
@@ -1170,6 +1212,7 @@ sexp roundff(sexp x)
     return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
 }
 
+// integer square root
 uint32_t isqrt(uint64_t v)
 {
     uint64_t t, r;
@@ -1196,8 +1239,7 @@ sexp sqrtff(sexp x)
     if (isFixnum(x) && 0 <= asFixnum(x))
         return newflonum(sqrt((double)asFixnum(x)));
     double re, im = 0.0;
-    if (isComplex(x))
-    {
+    if (isComplex(x)) {
         re = asFlonum(x->cdr->car);
         im = asFlonum(x->cdr->cdr->car);
     } else if (isFlonum(x)) {
@@ -1228,13 +1270,18 @@ sexp truncateff(sexp x) { assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ce
 sexp integerp(sexp x) { return isFixnum(x) ? t : isFlonum(x) && (long)asFlonum(x) == asFlonum(x) ? t : f; }
 
 // real?
-sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x)) ? t : f; }
+sexp realp(sexp x) { return (isFixnum(x) || isFlonum(x) || isRational(x)) ? t : f; }
 
 // inexact->exact
 sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
 
 // exact->inexact
-sexp exact_inexact(sexp x) { assertFlonum(x); return newflonum((double)asFlonum(x)); }
+sexp exact_inexact(sexp x)
+{
+    if (!isRational(x))
+        assertFixnum(x);
+    return newflonum((double)asFlonum(x));
+}
 
 // <<
 sexp lsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) << asFixnum(y)); }
@@ -1252,13 +1299,13 @@ sexp nullp(sexp x) { return x ? f : t; }
 sexp listp(sexp x) { return !isCons(x) ? f : listp(x->cdr) ? t : f; }
 
 // atom?
-sexp atomp(sexp x) { return isAtom(x) ? t : f; }
+sexp atomp(sexp x) { return isCons(x) ? f : t; }
 
 // pair?
 sexp pairp(sexp x) { return isCons(x) ? t : f; }
 
 // number?
-sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) ? t : f; }
+sexp numberp(sexp x) { return isFixnum(x) || isFlonum(x) || isRational(x) || isComplex(x) ? t : f; }
 
 // string?
 sexp stringp(sexp x) { return isString(x) ? t : f; }
@@ -1272,11 +1319,6 @@ sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : f; }
 // length of String or Atom
 int slen(sexp s)
 {
-    if (!isString(s))
-        assertAtom(s);
-    if (!isAtom(s))
-        assertString(s);
-
     int length = 0;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
@@ -1295,8 +1337,6 @@ sexp string_length(sexp s) { assertString(s); return newfixnum(slen(s)); }
 // index a character in a string
 char* sref(sexp s, int i)
 {
-    assertString(s);
-
     int j = 0;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
@@ -1397,11 +1437,6 @@ sexp make_string(sexp args)
 // copy characters from a String or Atom into a buffer
 char* sstr(char* b, int len, sexp s)
 {
-    if (!isString(s))
-        assertAtom(s);
-    if (!isAtom(s))
-        assertString(s);
-
     char *q = b;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
@@ -1536,12 +1571,19 @@ sexp call_with_output_file(sexp p, sexp func)
 sexp open_input_string(sexp args)
 {
     sexp s = args->car;
+    assertString(s);
     int ii = 0;
     if (args->cdr)
+    {
+        assertFixnum(args->cdr->car);
         ii = asFixnum(args->cdr->car);
+    }
     int jj = slen(s);
     if (args->cdr->cdr)
+    {
+        assertFixnum(args->cdr->cdr->car);
         jj = asFixnum(args->cdr->cdr->car);
+    }
     if (ii < 0 || jj <= ii)
         error("open-input-string: bad arguments");
 
@@ -1574,6 +1616,7 @@ sexp open_input_string(sexp args)
 // get-output-string
 sexp get_output_string(sexp port)
 {
+    assertOutPort(port);
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
     return lose(newcell(STRING, save(newchunk(ss->str().c_str()))));
@@ -1616,7 +1659,10 @@ sexp write_to_string(sexp args)
     sexp object = args->car;
     int limit = INT_MAX;
     if (args->cdr)
+    {
+        assertFixnum(args->cdr->car);
         limit = asFixnum(args->cdr->car);
+    }
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, object, seenSet, ugly, 0, true);
@@ -2732,6 +2778,7 @@ sexp boundp(sexp p, sexp env)
 // retrieve the value of a variable in an environment
 sexp get(sexp p, sexp env)
 {
+    assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
             return q->car->cdr;
@@ -2748,6 +2795,7 @@ sexp get(sexp p, sexp env)
 // set!
 sexp set(sexp p, sexp r, sexp env)
 {
+    assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
@@ -2884,6 +2932,7 @@ sexp nesteddefine(sexp p, sexp env)
     }
 }
 
+// top level define sets global
 sexp defineform(sexp p, sexp env)
 {
     sexp e = nesteddefine(p, env);
@@ -3778,6 +3827,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("/"), 0, (void*)unidiv);
     define_funct(atomize("quotient"), 2, (void*)quotientf);
     define_funct(atomize("not"), 1, (void*)isnot);
+    define_funct(atomize("diff"), 2, (void*)diff);
     define_funct(atomize("neg"), 1, (void*)unineg);
     define_funct(atomize("<"), 2, (void*)ltp);
     define_funct(atomize("<="), 2, (void*)lep);

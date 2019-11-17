@@ -282,5 +282,5 @@
                (newline))
         (read-char))
 
-(display (map car (interaction-environment))) (newline)
+;; (display (map car (interaction-environment))) (newline)
 
