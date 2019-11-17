@@ -18,10 +18,21 @@
                 (set! f (cons (+ (car f) (cadr f)) f)))
          (cdr f)))
 
+(define (foo x)
+        (define (bar x)
+                (define (baz x)
+                        (product 3 x))
+        (product 5
+           (baz x)))
+    (product 7
+       (bar x)))
+
 (define tests '(
     (= 0 0)
     (= (~ 0) -1)
+    (= 5 (cond (#f 1) (#f 2) (#f 3) (#f 4) (else 5)))
     (= 10889277739678/2711441046455982955 (apply + (map (lambda (x) (/ (* x x))) (cdr (iota 500)))))
+    (= 525 (foo 5))
     (= 1.0 (cos (acos 1.0)))
     (= 1.0 (exp 0.0))
     (= 1.0 (floor 1.5))

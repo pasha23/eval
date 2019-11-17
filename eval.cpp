@@ -82,9 +82,9 @@ typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
-sexp closure, comma, commaat, complex, dot, elsea, eof, f, lambda, lbracket, lparen;
-sexp minus, nil, one, promise, qchar, quasiquote, quote, rational, rbracket, rparen;
-sexp t, tick, unquote, unquotesplicing, voida, zero;
+sexp closure, comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
+sexp lbracket, lparen, minus, nil, one, promise, qchar, quasiquote, quote;
+sexp rational, rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
@@ -92,6 +92,7 @@ sexp apply(sexp fun, sexp args);
 sexp read(std::istream& fin, int level);
 sexp scan(std::istream& fin);
 void debug(const char* label, sexp exp);
+sexp nesteddefine(sexp exp, sexp env);
 
 struct PortStream
 {
@@ -863,8 +864,10 @@ sexp complex_div(sexp z, sexp w)
         sexp u = w->cdr->car;
         sexp v = w->cdr->cdr->car;
         sexp d = save(rational_add(save(rational_mul(u, u)), save(rational_mul(v, v))));
-        sexp real = save(rational_div(save(rational_add(save(rational_mul(x, u)), save(rational_mul(y, v)))), d));
-        sexp imag = save(rational_div(save(rational_sub(save(rational_mul(y, u)), save(rational_mul(x, v)))), d));
+        sexp real = save(rational_div(save(rational_add(save(rational_mul(x, u)),
+                                                        save(rational_mul(y, v)))), d));
+        sexp imag = save(rational_div(save(rational_sub(save(rational_mul(y, u)),
+                                                        save(rational_mul(x, v)))), d));
         return lose(mark, make_complex(real, imag));
     }
     double x = realpart(z);
@@ -877,58 +880,55 @@ sexp complex_div(sexp z, sexp w)
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
+sexp sum(sexp x, sexp y)
+{
+    if (isComplex(x)) {
+        if (isComplex(y))
+            return complex_add(x, y);
+        if (isRational(y) || isFixnum(y) || isFlonum(y))
+            return lose(complex_add(x, save(make_complex(y, zero))));
+    } else if (isRational(x)) {
+        if (isComplex(y))
+            return lose(complex_add(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y))
+            return rational_add(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) + asFlonum(y));
+    } else if (isFixnum(x)) {
+        if (isComplex(y))
+            return lose(complex_add(y, save(make_complex(x, zero))));
+        if (isRational(y))
+            return lose(rational_add(save(make_rational(x, one)), y));
+        if (isFixnum(y))
+            return newfixnum(asFixnum(x) + asFixnum(y));
+        if (isFlonum(y))
+            return newflonum((double)asFixnum(x) + asFlonum(y));
+    } else if (isFlonum(x)) {
+        if (isComplex(y))
+            return lose(complex_add(save(make_complex(x, zero)), y));
+        if (isRational(y))
+            return newflonum(asFlonum(x) + rat2real(y));
+        if (isFixnum(y))
+            return newflonum(asFlonum(x) + (double)asFixnum(y));
+        if (isFlonum(y))
+            return newflonum(asFlonum(x) + asFlonum(y));
+    }
+
+    error("sum: operand");
+}
+
 // x0 + x1 + x2 ...
 sexp uniadd(sexp l)
 {
     sexp* mark = psp;
-    sexp sum = zero;
-    save(l, sum);
+    sexp result = zero;
+    save(l, result);
     while (l)
     {
-        sexp x = l->car;
-        if (isComplex(sum)) {
-            if (isComplex(x))
-                sum = replace(complex_add(sum, x));
-            else if (isRational(x) || isFixnum(x) || isFlonum(x))
-                sum = replace(lose(complex_add(sum, save(make_complex(x, zero)))));
-            else
-                error("not a number");
-        } else if (isRational(sum)) {
-            if (isComplex(x))
-                sum = replace(lose(complex_add(x, save(make_complex(sum, zero)))));
-            else if (isRational(x) || isFixnum(x))
-                sum = replace(rational_add(sum, x));
-            else if (isFlonum(x))
-                sum = replace(newflonum(rat2real(sum) + asFlonum(x)));
-            else
-                error("not a number");
-        } else if (isFixnum(sum)) {
-            if (isComplex(x))
-                sum = replace(lose(complex_add(x, save(make_complex(sum, zero)))));
-            else if (isRational(x))
-                sum = replace(lose(rational_add(save(make_rational(sum, one)), x)));
-            else if (isFixnum(x))
-                sum = replace(newfixnum(asFixnum(sum) + asFixnum(x)));
-            else if (isFlonum(x))
-                sum = replace(newflonum((double)asFixnum(sum) + asFlonum(x)));
-            else
-                error("not a number");
-        } else if (isFlonum(sum)) {
-            if (isComplex(x))
-                sum = replace(lose(complex_add(save(make_complex(sum, zero)), x)));
-            else if (isRational(x))
-                sum = replace(newflonum(asFlonum(sum) + rat2real(x)));
-            else if (isFixnum(x))
-                sum = replace(newflonum(asFlonum(sum) + (double)asFixnum(x)));
-            else if (isFlonum(x))
-                sum = replace(newflonum(asFlonum(sum) + asFlonum(x)));
-            else
-                error("not a number");
-        } else
-            error("not a number");
+        result = replace(sum(result, l->car));
         l = l->cdr;
     }
-    return lose(mark, sum);
+    return lose(mark, result);
 }
 
 // - x
@@ -945,7 +945,7 @@ sexp unineg(sexp x)
 
     switch (shortType(x))
     {
-    default:     error("neg: not a number");
+    default:     error("neg: operand");
     case FIXNUM: return newfixnum(-((Fixnum*)x)->fixnum);
     case FLOAT:  return newflonum(-((Float*)x)->flonum);
     case DOUBLE: return newflonum(-((Double*)x)->flonum);
@@ -965,58 +965,55 @@ sexp unisub(sexp l)
     return lose(uniadd(replace(cons(l->car, replace(cons(replace(unineg(save(uniadd(l->cdr)))), 0))))));
 }
 
+sexp product(sexp x, sexp y)
+{
+    if (isComplex(x)) {
+        if (isComplex(y))
+            return complex_mul(x, y);
+        if (isRational(y) || isFixnum(y) || isFlonum(y))
+            return lose(complex_mul(x, save(make_complex(y, zero))));
+    } else if (isRational(x)) {
+        if (isComplex(y))
+            return lose(complex_mul(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y))
+            return rational_mul(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) * asFlonum(y));
+    } else if (isFixnum(x)) {
+        if (isComplex(y))
+            return lose(complex_mul(y, save(make_complex(x, zero))));
+        if (isRational(y))
+            return lose(rational_mul(save(make_rational(x, one)), y));
+        if (isFixnum(y))
+            return newfixnum(asFixnum(x) * asFixnum(y));
+        if (isFlonum(y))
+            return newflonum((double)asFixnum(x) * asFlonum(y));
+    } else if (isFlonum(x)) {
+        if (isComplex(y))
+            return lose(complex_mul(save(make_complex(x, zero)), y));
+        if (isRational(y))
+            return newflonum(asFlonum(x) * rat2real(y));
+        if (isFixnum(y))
+            return newflonum(asFlonum(x) * (double)asFixnum(y));
+        if (isFlonum(y))
+            return newflonum(asFlonum(x) * asFlonum(y));
+    }
+
+    error("product: operand");
+}
+
 // x0 * x1 * x2 ...
 sexp unimul(sexp l)
 {
     sexp* mark = psp;
-    sexp product = one;
-    save(l, product);
+    sexp result = one;
+    save(l, result);
     while (l)
     {
-        sexp x = l->car;
-        if (isComplex(product)) {
-            if (isComplex(x))
-                product = replace(complex_mul(product, x));
-            else if (isRational(x) || isFixnum(x) || isFlonum(x))
-                product = replace(lose(complex_mul(product, save(make_complex(x, zero)))));
-            else
-                error("not a number");
-        } else if (isRational(product)) {
-            if (isComplex(x))
-                product = replace(lose(complex_mul(x, save(make_complex(product, zero)))));
-            else if (isRational(x) || isFixnum(x))
-                product = replace(rational_mul(product, x));
-            else if (isFlonum(x))
-                product = replace(newflonum(rat2real(product) * asFlonum(x)));
-            else
-                error("not a number");
-        } else if (isFixnum(product)) {
-            if (isComplex(x))
-                product = replace(lose(complex_mul(x, save(make_complex(product, zero)))));
-            else if (isRational(x))
-                product = replace(lose(rational_mul(save(make_rational(product, one)), x)));
-            else if (isFixnum(x))
-                product = replace(newfixnum(asFixnum(product) * asFixnum(x)));
-            else if (isFlonum(x))
-                product = replace(newflonum((double)asFixnum(product) * asFlonum(x)));
-            else
-                error("not a number");
-        } else if (isFlonum(product)) {
-            if (isComplex(x))
-                product = replace(lose(complex_mul(save(make_complex(product, zero)), x)));
-            else if (isRational(x))
-                product = replace(newflonum(asFlonum(product) * rat2real(x)));
-            else if (isFixnum(x))
-                product = replace(newflonum(asFlonum(product) * (double)asFixnum(x)));
-            else if (isFlonum(x))
-                product = replace(newflonum(asFlonum(product) * asFlonum(x)));
-            else
-                error("not a number");
-        } else
-            error("not a number");
+        result = replace(product(result, l->car));
         l = l->cdr;
     }
-    return lose(mark, product);
+    return lose(mark, result);
 }
 
 sexp quotientf(sexp x, sexp y)
@@ -1050,7 +1047,8 @@ sexp quotientf(sexp x, sexp y)
         if (isFlonum(y))
             return newflonum(asFlonum(x) / asFlonum(y));
     }
-    error("not a number");
+
+    error("quotient: operand");
 }
 
 // x0 / x1 / x2 ...
@@ -1058,22 +1056,23 @@ sexp unidiv(sexp l)
 {
     sexp* mark = psp;
 
-    sexp product;
+    sexp result;
     if (l && l->cdr)
     {
-        product = l->car;
+        result = l->car;
         l = l->cdr;
     } else
-        product = one;
+        result = one;
 
-    save(l, product);
+    save(l, result);
+
     while (l)
     {
-        sexp x = l->car;
+        result = replace(quotientf(result, l->car));
         l = l->cdr;
-        product = replace(quotientf(product, x));
     }
-    return lose(mark, product);
+
+    return lose(mark, result);
 }
 
 sexp rational_mod(sexp x, sexp y)
@@ -1119,20 +1118,19 @@ sexp remainderff(sexp x, sexp y)
         if (isFlonum(y))
             return newflonum(fmod(asFlonum(x), asFlonum(y)));
     }
-    error("not a number");
+
+    error("remainder: operand");
 }
 
 // x0 % x1 % x2 ...
 sexp unimod(sexp l)
 {
     sexp* mark = psp;
-    sexp product = l->car;
-    save(l, product);
-    while (l = l->cdr) {
-        sexp x = l->car;
-        product = replace(remainderff(product, x));
-    }
-    return lose(mark, product);
+    sexp result = l->car;
+    save(l, result);
+    while (l = l->cdr)
+        result = replace(remainderff(result, l->car));
+    return lose(mark, result);
 }
 
 // functions on real numbers
@@ -2215,10 +2213,22 @@ sexp load(sexp x)
 }
 
 // space
-sexp space(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put(' '); return voida; }
+sexp space(sexp args)
+{
+    sexp port = args ? args->car : outport;
+    assertOutPort(port);
+    ((OutPort*)port)->s->put(' ');
+    return voida;
+}
 
 // newline
-sexp newline(sexp args) { sexp port = args ? args->car : outport; assertOutPort(port); ((OutPort*)port)->s->put('\n'); return voida; }
+sexp newline(sexp args)
+{
+    sexp port = args ? args->car : outport;
+    assertOutPort(port);
+    ((OutPort*)port)->s->put('\n');
+    return voida;
+}
 
 // eof-object?
 sexp eof_objectp(sexp a) { return eof == a ? t : 0; }
@@ -2659,6 +2669,12 @@ sexp eqvp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return e
 // equal?
 sexp equalp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return eqvb(seenx, seeny, x, y) ? t : 0; }
 
+// show bindings since ref, for debugging
+sexp envhead(sexp env, sexp ref)
+{
+    return (env == 0 || env == ref) ? 0 : cons(cons(env->car->car, env->car->cdr), envhead(env->cdr, ref));
+}
+
 // update all the closures in an environment so they reference
 // that environment instead of earlier ones for init.ss
 void fixenvs(sexp env)
@@ -2776,24 +2792,38 @@ sexp null_environment(sexp exp, sexp env) { return global; }
 // interaction-environment
 sexp interaction_environment(sexp exp, sexp env) { return env; }
 
+// evaluate a list of forms, returning the last value
+sexp tailforms(sexp exp, sexp env)
+{
+    if (!exp)
+        return voida;
+    while (exp->cdr)
+    {
+        if (definea == exp->car->car)
+            env = nesteddefine(exp->car, env);
+        else
+            eval(exp->car, env);
+        exp = exp->cdr;
+    }
+    return eval(exp->car, env);
+}
+
 // begin
 sexp begin(sexp exp, sexp env)
 {
-    sexp v = 0;
-    for (sexp p = exp->cdr; p; p = p->cdr)
-        v = eval(p->car, env);
-    return v;
+    return tailforms(exp->cdr, env);
 }
 
 // while
 sexp whileform(sexp exp, sexp env)
 {
-    sexp v = 0;
-    exp = exp->cdr;
+    sexp* mark = psp;
+    save(env);
+    exp = save(exp->cdr);
+    sexp v = save(0);
     while (eval(exp->car, env))
-        for (sexp p = exp->cdr; p; p = p->cdr)
-            v = eval(p->car, env);
-    return v;
+        v = replace(tailforms(exp->cdr, env));
+    return lose(mark, v);
 }
 
 /*
@@ -2808,7 +2838,7 @@ sexp cond(sexp exp, sexp env)
 {
     for (sexp p = exp->cdr; p; p = p->cdr)
         if (elsea == p->car->car || eval(p->car->car, env))
-            return eval(p->car->cdr->car, env);
+            return tailforms(p->car->cdr, env);
     return voida;
 }
 
@@ -2824,7 +2854,7 @@ sexp lambdaform(sexp exp, sexp env)
  * (define (foo x)   body ..)       as (define foo (lambda (x) body ..))
  * (define (foo a b c . x) body ..) as (define foo (lambda (a b c . x) body ..))
  */
-sexp defineform(sexp p, sexp env)
+sexp nesteddefine(sexp p, sexp env)
 {
     sexp* mark = psp;
     if (isCons(p->cdr->car))
@@ -2835,25 +2865,31 @@ sexp defineform(sexp p, sexp env)
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
         v = save(lambdaform(v, env));
         // v is a closure (closure exp env)
-        for (sexp q = global; q; q = q->cdr)
+        for (sexp q = env; q; q = q->cdr)
             if (k == q->car->car)
             {
                 q->car->cdr = v;
-                return lose(mark, voida);
+                return lose(mark, env);
             }
         // update the closure definition to include the one we just made
-        global = v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), global);
-        return lose(mark, voida);
+        return lose(mark, v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), env));
     } else {
-        for (sexp q = global; q; q = q->cdr)
+        for (sexp q = env; q; q = q->cdr)
             if (p->cdr->car == q->car->car)
             {
                 q->car->cdr = eval(p->cdr->cdr->car, env);
-                return lose(mark, voida);
+                return lose(mark, env);
             }
-        global = cons(replace(cons(p->cdr->car, save(eval(p->cdr->cdr->car, env)))), global);
-        return lose(mark, voida);
+        return lose(mark, cons(replace(cons(p->cdr->car, save(eval(p->cdr->cdr->car, env)))), env));
     }
+}
+
+sexp defineform(sexp p, sexp env)
+{
+    sexp e = nesteddefine(p, env);
+    if (global == env)
+        global = e;
+    return voida;
 }
 
 // atoms
@@ -2916,8 +2952,7 @@ sexp whenform(sexp exp, sexp env)
     if (!exp->cdr)
         error("when: missing consequents");
     if (eval(exp->car, env))
-        while (exp = exp->cdr)
-            eval(exp->car, env);
+        return tailforms(exp->cdr, env);
     return voida;
 }
 
@@ -2930,8 +2965,7 @@ sexp unlessform(sexp exp, sexp env)
     if (!exp->cdr)
         error("when: missing consequents");
     if (!eval(exp->car, env))
-        while (exp = exp->cdr)
-            eval(exp->car, env);
+        return tailforms(exp->cdr, env);
     return voida;
 }
 
@@ -3007,10 +3041,7 @@ sexp let(sexp exp, sexp env)
     }
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
-    sexp r = save(voida);
-    for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = save(eval(p->car, e));
-    return lose(mark, r);
+    return lose(mark, tailforms(exp->cdr->cdr, e));
 }
 
 // (let* ((var val) (var val) ..) body )
@@ -3020,10 +3051,7 @@ sexp letstar(sexp exp, sexp env)
     sexp e = env;
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
-    sexp r = save(voida);
-    for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = replace(eval(p->car, e));
-    return lose(mark, r);
+    return lose(mark, tailforms(exp->cdr->cdr, e));
 }
 
 // (letrec ((var val) (var val) ..) body )
@@ -3035,10 +3063,7 @@ sexp letrec(sexp exp, sexp env)
         e = replace(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
-    sexp r = save(voida);
-    for (sexp p = exp->cdr->cdr; p; p = p->cdr)
-        r = replace(eval(p->car, e));
-    return lose(mark, r);
+    return lose(mark, tailforms(exp->cdr->cdr, e));
 }
 
 /*
@@ -3067,8 +3092,7 @@ sexp doform(sexp exp, sexp env)
                 return lose(mark, s);
 
         // execute each body expression
-        for (sexp r = exp->cdr->cdr->cdr; r; r = r->cdr)
-            s = replace(eval(r->car, e));
+        s = replace(tailforms(exp->cdr->cdr->cdr, e));
 
         // step each variable
         for (sexp v = exp->cdr->car; v; v = v->cdr)
@@ -3118,11 +3142,7 @@ sexp apply(sexp fun, sexp args)
             env = save(assoc(fcc->car, args, env));
         }
 
-        sexp s = 0;
-        for (sexp r = fcc->cdr; r; r = r->cdr)
-            s = eval(r->car, env);
-
-        return lose(mark, s);
+        return lose(mark, tailforms(fcc->cdr, env));
     }
 
     error("apply bad function");
@@ -3573,6 +3593,7 @@ int main(int argc, char **argv, char **envp)
     commaat         = atomize(",@");
     comma           = atomize(",");
     complex         = atomize("complex");
+    definea         = atomize("define");
     dot             = atomize(".");
     elsea           = atomize("else");
     eof             = atomize("#eof");
@@ -3776,6 +3797,8 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("="), 2, (void*)eqnp);
     define_funct(atomize("equal?"), 2, (void*)equalp);
     define_funct(atomize("eqv?"), 2, (void*)eqvp);
+    define_funct(atomize("sum"), 2, (void*)sum);
+    define_funct(atomize("product"), 2, (void*)product);
     define_funct(atomize("+"), 0, (void*)uniadd);
     define_funct(atomize("-"), 0, (void*)unisub);
     define_funct(atomize("*"), 0, (void*)unimul);

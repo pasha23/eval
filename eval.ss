@@ -59,9 +59,10 @@
                  #f)))
 
 (define (tailforms exp env)
-        (if (not (cdr exp))
-            (eval (car exp) env)
-            (tailforms (cdr exp) env)))
+        (if (cdr exp)
+            (begin (eval (car exp) env)
+                   (tailforms (cdr exp) env))
+            (eval (car exp) env)))
 
 (define (append p q)
         (if p (cons (car p) (append (cdr p) q)) q))
