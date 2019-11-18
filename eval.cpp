@@ -1572,18 +1572,21 @@ sexp open_input_string(sexp args)
 {
     sexp s = args->car;
     assertString(s);
+
     int ii = 0;
     if (args->cdr)
     {
         assertFixnum(args->cdr->car);
         ii = asFixnum(args->cdr->car);
     }
+
     int jj = slen(s);
     if (args->cdr->cdr)
     {
         assertFixnum(args->cdr->cdr->car);
         jj = asFixnum(args->cdr->cdr->car);
     }
+
     if (ii < 0 || jj <= ii)
         error("open-input-string: bad arguments");
 
@@ -2473,17 +2476,13 @@ std::ostream& displayNamed(std::ostream& s, const char *kind, sexp exp, bool wri
 
 std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
 {
-    if (write)
-    {
-        char c = ((Char*)exp)->ch;
-        for (int i = 0; character_table[i]; ++i)
-            if (c == *character_table[i]) {
-                s << "#\\" << 1+character_table[i];
-                return s;
-            }
-        s << "#\\" << ((Char*)exp)->ch;;
-    } else
-        s << ((Char*)exp)->ch;
+    char c = ((Char*)exp)->ch;
+    for (int i = 0; character_table[i]; ++i)
+        if (c == *character_table[i]) {
+            s << "#\\" << 1+character_table[i];
+            return s;
+        }
+    s << "#\\" << ((Char*)exp)->ch;;
     return s;
 }
 
@@ -3144,7 +3143,7 @@ sexp apply(sexp fun, sexp args)
 {
     sexp* mark = psp;
 
-    if (tracing)
+    if (false && tracing)
     {
         debug("apply-fun", fun);
         debug("apply-args", args);
@@ -3230,9 +3229,7 @@ sexp eval(sexp p, sexp env)
     if (isForm(fun))
         return lose(mark, (*((Form*)fun)->formp)(p, env));
 
-    sexp args = save(evlis(p->cdr, env));
-
-    return lose(mark, apply(fun, args));
+    return lose(mark, apply(fun, save(evlis(p->cdr, env))));
 }
 
 /*

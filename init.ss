@@ -256,14 +256,6 @@
 
 (define (env-head l t) (if (eq? l t) '() (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
 
-(define (caddadr x) (car (cddadr x)))
-
-(define (cdddadr x) (cdr (cddadr x)))
-
-(define (cdadadr x) (cdr (cadadr x)))
-
-(define (caadadr x) (car (cadadr x)))
-
 (define (definition name)
         (let ((value (eval name (null-environment))))
              (if (closure? value)
@@ -277,7 +269,7 @@
                   (reverse (null-environment))))
 
 (define (ttytest)
-        (while (not (eqv? #\return (peek-char)))
+        (while (not (char=? #\newline (peek-char)))
                (write (read-char))
                (newline))
         (read-char))

@@ -118,7 +118,7 @@
 (define (condform exp env)
         (if (or (eq? 'else (caar exp))
                 (eval (caar exp) env))
-            (eval (cadr exp) env)
+            (tailforms (cadr exp) env)
             (condform (cdr exp) env)))
 
 (define (member key s)
