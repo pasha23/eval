@@ -2252,7 +2252,7 @@ sexp load(sexp x)
             sexp input = fin.read();
             if (eof == input)
                 break;
-            if (tracing)
+            if (f != tracing)
                 debug("load", input);
             eval(input, global);
         }
@@ -2833,11 +2833,8 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
                            save(assoc(formals->cdr, actuals->cdr, env))));
 }
 
-// null-environment
-sexp null_environment(sexp exp, sexp env) { return global; }
-
-// interaction-environment
-sexp interaction_environment(sexp exp, sexp env) { return env; }
+// environment
+sexp environment(sexp exp, sexp env) { return global; }
 
 // evaluate a list of forms, returning the last value
 sexp tailforms(sexp exp, sexp env)
@@ -3202,7 +3199,7 @@ sexp promiseform(sexp exp, sexp env) { assertPromise(exp); return exp; }
  */
 sexp eval(sexp p, sexp env)
 {
-    if (tracing)
+    if (f != tracing)
         debug("eval", p);
 
     if (!p)
@@ -3215,7 +3212,7 @@ sexp eval(sexp p, sexp env)
     {
         // it pays to inline get() here
         for (sexp q = env; q; q = q->cdr)
-            if (q->car && p == q->car->car)
+            if (p == q->car->car)
                 return q->car->cdr;
         debug("eval: undefined ", p); error("");
     }
@@ -3485,7 +3482,7 @@ sexp scans(std::istream& fin)
 }
 
 // stub to enable tracing of scans()
-sexp scan(std::istream& fin) { sexp r = scans(fin); if (tracing) debug("scan", r); return r; }
+sexp scan(std::istream& fin) { sexp r = scans(fin); if (f != tracing) debug("scan", r); return r; }
 
 // finish reading a list
 sexp readTail(std::istream& fin, int level)
@@ -3850,8 +3847,7 @@ int main(int argc, char **argv, char **envp)
     define_form(atomize("define"), defineform);
     define_form(atomize("delay"), delayform);
     define_form(atomize("do"), doform);
-    define_form(atomize("interaction-environment"), interaction_environment);
-    define_form(atomize("null-environment"), null_environment);
+    define_form(atomize("environment"), environment);
     define_form(atomize("let"), let);
     define_form(atomize("let*"), letstar);
     define_form(atomize("letrec"), letrec);
@@ -3869,14 +3865,14 @@ int main(int argc, char **argv, char **envp)
     define_form(atomize("rational"), rationalform);
     define_form(atomize("promise"), promiseform);
 
+    tracing = f;
+
     struct sigaction intr_action;
     intr_action.sa_flags = SA_SIGINFO;
     intr_action.sa_sigaction = intr_handler;
     struct sigaction segv_action;
     segv_action.sa_flags = SA_SIGINFO;
     segv_action.sa_sigaction = segv_handler;
-
-    //tracing = t;
 
     char *s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)

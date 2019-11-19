@@ -3,10 +3,22 @@
 ;; metacircular evaluator
 ;;
 
+(define (f x) x)
+(define (l . x) x)
+(define (five) 5)
+
+(define apply-primitive apply)
+
+(define eval-primitive eval)
+
+(define display-primitive display)
+
+;; (undefine 'display)
+
 (define (read-tail)
         (let ((q (read)))
              (cond ((eq? rparen  q) #f)
-                   ((eof-object? q) #f)
+                   ((eof-object? q) q)
                    ((eq? dot     q) (car (read-tail)))
                    (else (cons q (read-tail))))))
 
@@ -27,7 +39,7 @@
 (define (assoc formals actuals env)
         (cond ((not (pair? formals))
                (cons (cons formals actuals) env))
-              ((not actuals)
+              ((null? actuals)
                (cons (cons (car formals) void)
                      (assoc (cdr formals) actuals env)))
               (else (cons (cons (car formals) (car actuals))
@@ -46,10 +58,16 @@
                  (cdr binding)
                  void)))
 
+(define (set var val env)
+        (let ((binding (find var env)))
+             (if (pair? binding)
+                 (set-cdr! binding val)
+                 void)))
+
 (define (defineform exp env)
         (let ((binding (find (car exp) env)))
              (if (pair? binding)
-                 (begin (set-cdr binding (eval (cadr exp) env)) env)
+                 (begin (set-cdr! binding (eval (cadr exp) env)) env)
                  (cons (cons (car exp) (eval (cadr exp))) env))))
     
 (define (setform exp env)
@@ -101,7 +119,7 @@
 
 (define (unlessform exp env)
         (if (not (eval (car exp) env))
-            (tailforms (cdr exp env))))
+            (tailforms (cdr exp) env)))
 
 (define (whileform exp env)
         (while (eval (car exp))
@@ -143,7 +161,7 @@
 ;; (promise forced value exp env)
 
 (define (delayform exp env)
-    (cons 'promise #f #f exp env))
+    (cons 'promise (cons #f (cons #f (cons exp env)))))
 
 (define (force promise)
     (unless (cadr promise)
@@ -175,8 +193,8 @@
          (if (do-test (cadr exp) env)
              s
              (begin
-                 (while r (set! s (eval (car r) e)))
-                 (while v (set! (caar v) (eval (caddar v) e)))))))
+                 (while (pair? r) (set s (eval (car r) e) e))
+                 (while (pair? v) (set (caar v) (eval (caddar v) e) e))))))
 
 ;; (let ((v0 e0) ...) exp) => ((lambda (v0 ...) exp) e0 ...)
 (define (letform exp env)
@@ -186,24 +204,20 @@
 (define (let*form exp env)
         (if (null? (car exp))
             (tailforms (cdr exp) env)
-            (let ((e (cons (cons (caar exp) (eval (cadar exp) env)))))
+            (let ((e (cons (cons (caar exp) (eval (cadar exp) env)) env)))
                   (let*form (cons (cdar exp) (cdr exp)) e))))
 
 (define (letrecform exp env) exp)
 
-(define apply-primitive apply)
-
 (define (apply fun args)
     (if (closure? fun)
-        (let ((fun (cdr fun))
-              (env (cadr fun))
-              (fcc (cdar fun))
+        (let ((fun (cadr fun))
+              (env (caddr fun))
+              (fcc (cdadr fun)))
              (cond ((null? (car fcc)) (tailforms (cdr fcc) env))
-                   ((atom? (car fcc)) (tailforms (cdr fcc) (cons(cons (car fcc) args) env)))
-                   (else (tailforms (cdr fcc) (assoc (car fcc) args env))))))
+                   ((atom? (car fcc)) (tailforms (cdr fcc) (cons (cons (car fcc) args) env)))
+                   (else (tailforms (cdr fcc) (assoc (car fcc) args env)))))
         (apply-primitive fun args)))
-
-(define eval-primitive eval)
 
 (define (eval exp env)
         (cond ((null? exp) exp)
@@ -216,13 +230,12 @@
                           ((eq? 'rational   (car exp)) exp)
                           ((eq? 'promise    (car exp)) exp)
                           ((eq? 'and        (car exp)) (andform        (cdr exp) env))
-                          ((eq? 'begin      (car exp)) (beginform      (cdr exp) env))
+                          ((eq? 'begin      (car exp)) (tailforms      (cdr exp) env))
                           ((eq? 'case       (car exp)) (caseform       (cdr exp) env))
                           ((eq? 'cond       (car exp)) (condform       (cdr exp) env))
                           ((eq? 'delay      (car exp)) (delayform      (cdr exp) env))
                           ((eq? 'do         (car exp)) (doform         (cdr exp) env))
                           ((eq? 'if         (car exp)) (ifform         (cdr exp) env))
-                          ((eq? 'lambda     (car exp)) (cons 'closure exp env))
                           ((eq? 'let        (car exp)) (letform        (cdr exp) env))
                           ((eq? 'let*       (car exp)) (let*form       (cdr exp) env))
                           ((eq? 'letrec     (car exp)) (letrecform     (cdr exp) env))
@@ -233,38 +246,37 @@
                           ((eq? 'unless     (car exp)) (unlessform     (cdr exp) env))
                           ((eq? 'when       (car exp)) (whenform       (cdr exp) env))
                           ((eq? 'while      (car exp)) (whileform      (cdr exp) env))
+                          ((eq? 'lambda     (car exp)) (list 'closure exp env))
                           (else (let ((fun (eval (car exp) env))
                                       (args (evlis (cdr exp) env)))
                                      (apply fun args)))))))
 
-(define display-primitive display)
-
-(undefine 'display)
-
 (define (display s)
-    (cond ((null? s) #f)
+    (cond ((null? s) (display-primitive s))
+          ((closure? s) (display-primitive s))
           ((pair? s)
            (begin (write-char #\()
-                  (while s
+                  (while (pair? s)
                          (if (pair? s)
                              (begin (display (car s))
                                     (set! s (cdr s))
-                                    (when s (space)))
+                                    (when (pair? s) (space)))
                              (begin (display-primitive dot)
                                     (write-char #\space)
                                     (display-primitive s)
-                                    (set! s #f))))
+                                    (set! s '()))))
                    (write-char #\))))
           (else (display-primitive s))))
 
 (define (repl)
-        (let ((env (null-environment)))
-             (while #t
-                    (let ((exp (read)))
-                         (if (and (pair? exp) (eq? 'define (car exp)))
-                             (set! env (defineform exp env))
-                             (let ((value (eval exp env)))
-                                  (display value)
-                                  (unless (eq? void value)
-                                          (newline))))))))
+        (let ((env (environment))
+              (exp #f))
+             (while (not (eof-object? exp))
+                    (set! exp (read))
+                    (if (and (pair? exp) (eq? 'define (car exp)))
+                        (set! env (defineform exp env))
+                        (let ((value (eval exp env)))
+                             (display value)
+                             (unless (eq? void value)
+                                     (newline)))))))
 
