@@ -207,14 +207,14 @@ public:
     ugly(std::ostream& s) : s(s) { pos = s.tellp(); }
     void wrap(int level, int length) { if (s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
-    void space() { s << ' '; }
+    void space(void) { s << ' '; }
 };
 
 std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, int level, bool write);
 
-static inline int  shortType(const sexp p) { return                   ((Stags*)p)->stags; }
+static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
-static inline bool isMarked(const sexp p)  { return       (MARK  &  ((Tags*)p)->tags[0]); }
+static inline bool isMarked(const sexp p)  { return       ( MARK &  ((Tags*)p)->tags[0]); }
 static inline bool isCons(const sexp p)    { return p && !(OTHER &  ((Tags*)p)->tags[0]); }
 static inline bool isAtom(const sexp p)    { return p &&         ATOM    == shortType(p); }
 static inline bool isString(const sexp p)  { return p &&         STRING  == shortType(p); }
@@ -360,44 +360,25 @@ static inline void markCell(sexp p)   { ((Tags*)p)->tags[0] |=  MARK; ++marked; 
 
 static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; }
 
-void mark(sexp p);
-
-void markCons(sexp p, std::set<sexp>& seenSet)
-{
-    if (!p || isMarked(p))
-        return;
-
-    // this ought be unnecessary...
-    if (seenSet.find(p) != seenSet.end())
-        return;
-
-    seenSet.insert(p);
-
-    if (isCons(p->car))
-        markCons(p->car, seenSet);
-    else
-        mark(p->car);
-
-    if (isCons(p->cdr))
-        markCons(p->cdr, seenSet);
-    else
-        mark(p->cdr);
-
-    markCell(p);
-}
-
 /*
  * visit objects reachable from p, setting their MARK bit
  */
-void mark(sexp p)
+void mark(std::set<sexp>& seenSet, sexp p)
 {
     if (!p || isMarked(p))
         return;
-
+#if 1
+    //std::cerr << "mark " << std::hex << (long)p << std::dec << std::endl;
+    if (seenSet.find(p) == seenSet.end())
+        seenSet.insert(p);
+    else
+        return;
+#endif
     if (isCons(p))
     {
-        std::set<sexp> seenSet;
-        markCons(p, seenSet);
+        mark(seenSet, p->cdr);
+        mark(seenSet, p->car);
+        markCell(p);
         return;
     }
 
@@ -405,11 +386,11 @@ void mark(sexp p)
     {
     case ATOM:
     case STRING:
-        mark(((Atom*)p)->chunks);
+        mark(seenSet, ((Atom*)p)->chunks);
         break;
     case VECTOR:
         Vector* v = (Vector*)p;
-        for (int i = v->l; --i >= 0; mark(v->e[i])) {}
+        for (int i = v->l; --i >= 0; mark(seenSet, v->e[i])) {}
     }
 
     markCell(p);
@@ -441,20 +422,21 @@ void deletevector(sexp v) { delete ((Vector*)v)->e; }
 sexp gc(sexp args)
 {
     ++gcstate;
+    std::set<sexp> seenSet;
     bool verbose = isCons(args) && args->car;
     int werefree = CELLS-allocated;
     int wereprot = psp-protect;
 
     marked = 0;
-    mark(atoms);
-    mark(global);
-    mark(inport);
-    mark(errport);
-    mark(outport);
-    mark(zero);
-    mark(one);
+    mark(seenSet, atoms);
+    mark(seenSet, global);
+    mark(seenSet, inport);
+    mark(seenSet, errport);
+    mark(seenSet, outport);
+    mark(seenSet, zero);
+    mark(seenSet, one);
     for (sexp *p = protect; p < psp; ++p)
-        mark(*p);
+        mark(seenSet, *p);
 
     freelist = 0;
     int reclaimed = 0;
