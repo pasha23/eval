@@ -2721,7 +2721,8 @@ void fixenvs(sexp env)
             e->car->cdr->cdr->cdr->car = env;
 }
 
-void clear_cache(void)
+// clobber all the value cells
+void clear_values(void)
 {
     for (sexp e = global; e; e = e->cdr)
         ((Atom*)(e->car->car))->body->car = 0;
@@ -2756,34 +2757,38 @@ void lookup_error(const char* msg, sexp p)
     error(errorBuffer);
 }
 
-sexp cache_get(sexp p)
+// an Atom has a value cell used as an environment cache
+sexp value_get(sexp p)
 {
     return ((Atom*)p)->body->car;
 }
 
-sexp cache_put(sexp p, sexp v)
+// an Atom has a value cell used as an environment cache
+sexp value_put(sexp p, sexp v)
 {
     return ((Atom*)p)->body->car = v;
 }
 
-sexp get_cache(sexp p, sexp env)
+// lookups in the global environment reference the value cell
+sexp get_value(sexp p, sexp env)
 {
-    sexp v = cache_get(p);
+    sexp v = value_get(p);
     if (v)
         return v;
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
-            return cache_put(p, q->car->cdr);
+            return value_put(p, q->car->cdr);
 
     lookup_error("error: get unbound ", p);
 }
 
-sexp set_cache(sexp p, sexp r, sexp env)
+// lookups in the global environment reference the value cell
+sexp set_value(sexp p, sexp r, sexp env)
 {
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
-            cache_put(p, q->car->cdr = r);
+            value_put(p, q->car->cdr = r);
             return voida;
         }
 
@@ -2796,11 +2801,11 @@ sexp define(sexp p, sexp r)
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
-            cache_put(p, q->car->cdr = r);
+            value_put(p, q->car->cdr = r);
             return voida;
         }
     global = cons(save(cons(p, r)), global);
-    cache_put(p, r);
+    value_put(p, r);
     return lose(voida);
 }
 
@@ -2816,7 +2821,7 @@ sexp undefine(sexp p)
                 q->cdr = q->cdr->cdr;
                 break;
             }
-    cache_put(p, 0);
+    value_put(p, 0);
     return voida;
 }
 
@@ -2841,7 +2846,7 @@ sexp get(sexp p, sexp env)
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (global == q)
-            return get_cache(p, global);
+            return get_value(p, global);
         else if (q->car && p == q->car->car)
             return q->car->cdr;
 
@@ -2854,7 +2859,7 @@ sexp set(sexp p, sexp r, sexp env)
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (global == q)
-            return set_cache(p, r, global);
+            return set_value(p, r, global);
         else if (p == q->car->car)
         {
             q->car->cdr = r;
@@ -2989,7 +2994,8 @@ sexp defineform(sexp p, sexp env)
     sexp e = nesteddefine(p, env);
     if (global == env)
         global = e;
-    clear_cache();
+    // 99% sure this is the right thing to do
+    value_put(e->car->car, e->car->cdr);
     return voida;
 }
 
@@ -3720,9 +3726,19 @@ int main(int argc, char **argv, char **envp)
 
     define_funct(atomize("&"), 0, (void*)andf);
     define_funct(atomize("|"), 0, (void*)orf);
+    define_funct(atomize("+"), 0, (void*)uniadd);
+    define_funct(atomize("/"), 0, (void*)unidiv);
+    define_funct(atomize("%"), 0, (void*)unimod);
+    define_funct(atomize("*"), 0, (void*)unimul);
+    define_funct(atomize("-"), 0, (void*)unisub);
     define_funct(atomize("^"), 0, (void*)xorf);
     define_funct(atomize("~"), 1, (void*)complement);
+    define_funct(atomize("="), 2, (void*)eqnp);
+    define_funct(atomize(">="), 2, (void*)gep);
+    define_funct(atomize(">"), 2, (void*)gtp);
+    define_funct(atomize("<="), 2, (void*)lep);
     define_funct(atomize("<<"), 2, (void*)lsh);
+    define_funct(atomize("<"), 2, (void*)ltp);
     define_funct(atomize(">>"), 2, (void*)rsh);
     define_funct(atomize("acos"), 1, (void*)acosff);
     define_funct(atomize("angle"), 1, (void*)angle);
@@ -3738,6 +3754,8 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("call-with-output-file"), 2, (void*)call_with_output_file);
     define_funct(atomize("call-with-output-string"), 1, (void*)call_with_output_string);
     define_funct(atomize("call-with-truncated-output-string"), 2, (void*)call_with_truncated_output_string);
+    define_funct(atomize("car"), 1, (void*)car);
+    define_funct(atomize("cdr"), 1, (void*)cdr);
     define_funct(atomize("ceiling"), 1, (void*)ceilingff);
     define_funct(atomize("char?"), 1, (void*)charp);
     define_funct(atomize("char=?"), 2, (void*)char_eqp);
@@ -3763,13 +3781,18 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("close-output-port"), 1, (void*)close_output_port);
     define_funct(atomize("closure?"), 1, (void*)closurep);
     define_funct(atomize("complex?"), 1, (void*)complexp);
+    define_funct(atomize("cons"), 2, (void*)cons);
     define_funct(atomize("cos"), 1, (void*)cosff);
     define_funct(atomize("cosh"),  1, (void*)coshff);
     define_funct(atomize("current-input-port"), 0, (void*)current_input_port);
     define_funct(atomize("current-output-port"), 0, (void*)current_output_port);
     define_funct(atomize("cyclic?"), 1, (void*)cyclicp);
+    define_funct(atomize("diff"), 2, (void*)diff);
     define_funct(atomize("display"), 0, (void*)displayf);
     define_funct(atomize("eof-object?"), 1, (void*)eof_objectp);
+    define_funct(atomize("eq?"), 2, (void*)eqp);
+    define_funct(atomize("equal?"), 2, (void*)equalp);
+    define_funct(atomize("eqv?"), 2, (void*)eqvp);
     define_funct(atomize("eval"), 2, (void*)eval);
     define_funct(atomize("exact?"), 1, (void*)exactp);
     define_funct(atomize("exact->inexact"), 1, (void*)exact_inexact);
@@ -3785,6 +3808,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("input-port?"), 1, (void*)input_portp);
     define_funct(atomize("integer?"), 1, (void*)integerp);
     define_funct(atomize("integer->char"), 1, (void*)integer_char);
+    define_funct(atomize("isqrt"), 1, (void*)isqrtf);
     define_funct(atomize("lcm"), 2, (void*)lcmf);
     define_funct(atomize("list?"), 1, (void*)listp);
     define_funct(atomize("list->string"), 1, (void*)list_string);
@@ -3794,7 +3818,11 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("magnitude"), 1, (void*)magnitude);
     define_funct(atomize("make-string"), 0, (void*)make_string);
     define_funct(atomize("make-vector"), 0, (void*)make_vector);
+    define_funct(atomize("neg"), 1, (void*)unineg);
+    define_funct(atomize("negative?"), 1, (void*)negativep);
     define_funct(atomize("newline"), 0, (void*)newline);
+    define_funct(atomize("not"), 1, (void*)isnot);
+    define_funct(atomize("null?"), 1, (void*)nullp);
     define_funct(atomize("number?"), 1, (void*)numberp);
     define_funct(atomize("number->string"), 1, (void*)number_string);
     define_funct(atomize("open-input-file"), 1, (void*)open_input_file);
@@ -3802,16 +3830,21 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("open-output-file"), 1, (void*)open_output_file);
     define_funct(atomize("open-output-string"), 0, (void*)open_output_string);
     define_funct(atomize("output-port?"), 1, (void*)output_portp);
+    define_funct(atomize("pair?"), 1, (void*)pairp);
     define_funct(atomize("peek-char"), 0, (void*)peek_char);
+    define_funct(atomize("positive?"), 1, (void*)positivep);
     define_funct(atomize("pow"), 2, (void*)powff);
     define_funct(atomize("procedure?"), 1, (void*)procedurep);
+    define_funct(atomize("product"), 2, (void*)product);
     define_funct(atomize("promise?"), 1, (void*)promisep);
     define_funct(atomize("promise-forced?"), 1, (void*)promise_forcedp);
     define_funct(atomize("promise-value"), 1, (void*)promise_value);
+    define_funct(atomize("quotient"), 2, (void*)quotientf);
     define_funct(atomize("rational?"), 1, (void*)rationalp);
     define_funct(atomize("read"), 0, (void*)readf);
     define_funct(atomize("read-char"), 0, (void*)read_char);
     define_funct(atomize("real?"), 1, (void*)realp);
+    define_funct(atomize("remainder"), 2, (void*)remainderff);
     define_funct(atomize("reverse"), 1, (void*)reverse);
     define_funct(atomize("round"), 1, (void*)roundff);
     define_funct(atomize("scan"),     0, (void*)scanff);
@@ -3821,7 +3854,6 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("sinh"),  1, (void*)sinhff);
     define_funct(atomize("space"), 0, (void*)space);
     define_funct(atomize("sqrt"), 1, (void*)sqrtff);
-    define_funct(atomize("isqrt"), 1, (void*)isqrtf);
     define_funct(atomize("string"), 0, (void*)string);
     define_funct(atomize("string?"), 1, (void*)stringp);
     define_funct(atomize("string=?"), 2, (void*)string_eqp);
@@ -3844,6 +3876,7 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("string-set!"), 3, (void*)string_set);
     define_funct(atomize("string->symbol"), 1, (void*)string_symbol);
     define_funct(atomize("substring"), 0, (void*)substringf);
+    define_funct(atomize("sum"), 2, (void*)sum);
     define_funct(atomize("symbol?"), 1, (void*)symbolp);
     define_funct(atomize("symbol->string"), 1, (void*)symbol_string);
     define_funct(atomize("tan"), 1, (void*)tanff);
@@ -3863,60 +3896,32 @@ int main(int argc, char **argv, char **envp)
     define_funct(atomize("write"), 0, (void*)writef);
     define_funct(atomize("write-char"), 0, (void*)write_char);
     define_funct(atomize("write-to-string"), 0, (void*)write_to_string);
-
-    define_funct(atomize("null?"), 1, (void*)nullp);
-    define_funct(atomize("pair?"), 1, (void*)pairp);
     define_funct(atomize("zero?"), 1, (void*)zerop);
-    define_funct(atomize("negative?"), 1, (void*)negativep);
-    define_funct(atomize("positive?"), 1, (void*)positivep);
-    define_funct(atomize("%"), 0, (void*)unimod);
-    define_funct(atomize("remainder"), 2, (void*)remainderff);
-    define_funct(atomize("/"), 0, (void*)unidiv);
-    define_funct(atomize("quotient"), 2, (void*)quotientf);
-    define_funct(atomize("not"), 1, (void*)isnot);
-    define_funct(atomize("diff"), 2, (void*)diff);
-    define_funct(atomize("neg"), 1, (void*)unineg);
-    define_funct(atomize("<"), 2, (void*)ltp);
-    define_funct(atomize("<="), 2, (void*)lep);
-    define_funct(atomize(">="), 2, (void*)gep);
-    define_funct(atomize(">"), 2, (void*)gtp);
-    define_funct(atomize("eq?"), 2, (void*)eqp);
-    define_funct(atomize("="), 2, (void*)eqnp);
-    define_funct(atomize("equal?"), 2, (void*)equalp);
-    define_funct(atomize("eqv?"), 2, (void*)eqvp);
-    define_funct(atomize("sum"), 2, (void*)sum);
-    define_funct(atomize("product"), 2, (void*)product);
-    define_funct(atomize("+"), 0, (void*)uniadd);
-    define_funct(atomize("-"), 0, (void*)unisub);
-    define_funct(atomize("*"), 0, (void*)unimul);
-    define_funct(atomize("car"), 1, (void*)car);
-    define_funct(atomize("cdr"), 1, (void*)cdr);
-    define_funct(atomize("cons"), 2, (void*)cons);
 
+    define_form(atomize("and"), andform);
     define_form(atomize("begin"), begin);
     define_form(atomize("bound?"), boundp);
     define_form(atomize("case"), caseform);
+    define_form(atomize("complex"), complexform);
     define_form(atomize("cond"), cond);
     define_form(atomize("define"), defineform);
     define_form(atomize("delay"), delayform);
     define_form(atomize("do"), doform);
     define_form(atomize("environment"), environment);
+    define_form(atomize("if"), ifform);
+    define_form(atomize("lambda"), lambdaform);
     define_form(atomize("let"), let);
     define_form(atomize("let*"), letstar);
     define_form(atomize("letrec"), letrec);
-    define_form(atomize("quasiquote"), quasiquoteform);
-    define_form(atomize("set!"), setform);
-    define_form(atomize("while"), whileform);
-    define_form(atomize("when"), whenform);
-    define_form(atomize("unless"), unlessform);
-    define_form(atomize("and"), andform);
     define_form(atomize("or"), orform);
-    define_form(atomize("if"), ifform);
-    define_form(atomize("quote"), quoteform);
-    define_form(atomize("lambda"), lambdaform);
-    define_form(atomize("complex"), complexform);
-    define_form(atomize("rational"), rationalform);
     define_form(atomize("promise"), promiseform);
+    define_form(atomize("quasiquote"), quasiquoteform);
+    define_form(atomize("quote"), quoteform);
+    define_form(atomize("rational"), rationalform);
+    define_form(atomize("set!"), setform);
+    define_form(atomize("unless"), unlessform);
+    define_form(atomize("when"), whenform);
+    define_form(atomize("while"), whileform);
 
     tracing = f;
 
