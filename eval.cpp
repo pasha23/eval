@@ -622,17 +622,21 @@ sexp set_cdr(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pai
 // and
 sexp andform(sexp p, sexp env)
 {
+    sexp* mark = psp;
     sexp q = t;
-    while ((p = p->cdr) && f != (q = eval(p->car, env))) {}
-    return q;
+    save(env, p, q);
+    while ((p = p->cdr) && f != (q = replace(eval(p->car, env)))) {}
+    return lose(mark, q);
 }
 
 // or
 sexp orform(sexp p, sexp env)
 {
-    sexp q = 0;
-    while ((p = p->cdr) && f == (q = eval(p->car, env))) {}
-    return q;
+    sexp* mark = psp;
+    sexp q = f;
+    save(env, p, q);
+    while ((p = p->cdr) && f == (q = replace(eval(p->car, env)))) {}
+    return lose(mark, q);
 }
 
 // trace
@@ -2844,15 +2848,17 @@ sexp tailforms(sexp exp, sexp env)
 {
     if (!exp)
         return voida;
+    sexp* mark = psp;
+    save(exp, env);
     while (exp->cdr)
     {
         if (definea == exp->car->car)
-            env = nesteddefine(exp->car, env);
+            env = replace(nesteddefine(exp->car, env));
         else
             eval(exp->car, env);
         exp = exp->cdr;
     }
-    return eval(exp->car, env);
+    return lose(mark, eval(exp->car, env));
 }
 
 // begin
@@ -2865,8 +2871,8 @@ sexp begin(sexp exp, sexp env)
 sexp whileform(sexp exp, sexp env)
 {
     sexp* mark = psp;
-    save(env);
-    exp = save(exp->cdr);
+    save(exp, env);
+    exp = exp->cdr;
     sexp v = save(0);
     while (f != eval(exp->car, env))
         v = replace(tailforms(exp->cdr, env));
@@ -3061,23 +3067,24 @@ sexp values(sexp bs, sexp env)
     return bs ? lose(lose(cons(save(eval(bs->car->cdr->car, env)), save(values(bs->cdr, env))))) : 0;
 }
 
-// (let ((var val) (var val) ..) body )
-// (let name ((var val) (var val) ..) body )
+// let
 sexp let(sexp exp, sexp env)
 {
     sexp* mark = psp;
+    save(exp);
     sexp e = save(env);
     if (isAtom(exp->cdr->car))
     {
-        // named let
+        // (let name ((var val) (var val) ..) body )
         exp = exp->cdr;
         sexp l = replace(cons(lambda, replace(cons(save(names(exp->cdr->car)), exp->cdr->cdr))));
         sexp c = replace(cons(closure, replace(cons(l, save(cons(env, 0))))));
         c->cdr->cdr->car = e = replace(cons(save(cons(exp->car, c)), e));
         return lose(mark, apply(e->car->cdr, save(values(exp->cdr->car, e))));
     }
+    // (let ((var val) (var val) ..) body )
     for (sexp v = exp->cdr->car; v; v = v->cdr)
-        e = replace(cons(replace(cons(v->car->car, replace(eval(v->car->cdr->car, env)))), e));
+        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     return lose(mark, tailforms(exp->cdr->cdr, e));
 }
 
@@ -3085,9 +3092,10 @@ sexp let(sexp exp, sexp env)
 sexp letstar(sexp exp, sexp env)
 {
     sexp* mark = psp;
-    sexp e = env;
+    save(exp);
+    sexp e = save(env);
     for (sexp v = exp->cdr->car; v; v = v->cdr)
-        e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
+        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
     return lose(mark, tailforms(exp->cdr->cdr, e));
 }
 
@@ -3095,9 +3103,10 @@ sexp letstar(sexp exp, sexp env)
 sexp letrec(sexp exp, sexp env)
 {
     sexp* mark = psp;
-    sexp e = env;
+    save(exp);
+    sexp e = save(env);
     for (sexp v = exp->cdr->car; v; v = v->cdr)
-        e = replace(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     for (sexp v = exp->cdr->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
     return lose(mark, tailforms(exp->cdr->cdr, e));
@@ -3116,10 +3125,11 @@ sexp doform(sexp exp, sexp env)
     //    body
     // }
     sexp* mark = psp;
-    sexp e = env;
+    save(exp);
+    sexp e = save(env);
     // bind all the variables to their values
     for (sexp v = exp->cdr->car; v; v = v->cdr)
-        e = replace(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     sexp s = save(voida);
     for (;;)
     {
@@ -3141,6 +3151,7 @@ sexp doform(sexp exp, sexp env)
 sexp apply(sexp fun, sexp args)
 {
     sexp* mark = psp;
+    save(fun, args);
 
     if (false && tracing)
     {
@@ -3153,13 +3164,13 @@ sexp apply(sexp fun, sexp args)
         switch (arity(fun))
         {
         default: error("unsupported arity");
-        case 0: return (*(Varargp)((Funct*)fun)->funcp)(args);
-        case 1: return (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : voida);
-        case 2: return (*(Twoargp)((Funct*)fun)->funcp)(args ? args->car : voida,
-                                                        args && args->cdr ? args->cdr->car : voida);
-        case 3: return (*(Threeargp)((Funct*)fun)->funcp)(args ? args->car : voida,
-                                                          args && args->cdr ? args->cdr->car : voida,
-                                                          args && args->cdr && args->cdr->cdr ? args->cdr->cdr->car : voida);
+        case 0: return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
+        case 1: return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : voida));
+        case 2: return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(args ? args->car : voida,
+                                                                   args && args->cdr ? args->cdr->car : voida));
+        case 3: return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(args ? args->car : voida,
+                                                                     args && args->cdr ? args->cdr->car : voida,
+                                                                     args && args->cdr && args->cdr->cdr ? args->cdr->cdr->car : voida));
         }
     }
 
@@ -3914,11 +3925,12 @@ int main(int argc, char **argv, char **envp)
         collected = 0;
         std::cout << "> ";
         std::cout.flush();
-        sexp e = read(std::cin, 0);
+        sexp* mark = psp;
+        sexp e = save(read(std::cin, 0));
         if (eof == e)
             break;
         killed = 0;
-        sexp v = eval(e, global);
+        sexp v = replace(eval(e, global));
         {
             std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
@@ -3927,6 +3939,7 @@ int main(int argc, char **argv, char **envp)
             if (voida != v)
                 std::cout << std::endl;
         }
+        lose(mark, 0);
     }
     return 0;
 }
