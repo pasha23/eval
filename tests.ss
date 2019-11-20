@@ -27,12 +27,25 @@
     (product 7
        (bar x)))
 
+(define (epsilon)
+    (let ((e 1.0))
+        (while (not (= 1.0 (+ 1.0 e)))
+               (set! e (/ e 2)))
+        (+ e e)))
+
+(define (s n k)
+    (cond ((= k 1) 1)
+          ((= k n) 1)
+          (else (+ (s (- n 1) (- k 1)) (* k (s (- n 1) k))))))
+
 (define tests '(
     (= 0 0)
     (= (~ 0) -1)
     (= 5 (cond (#f 1) (#f 2) (#f 3) (#f 4) (else 5)))
     (= 4 (cond (#f 1) (#f 2) (#t 3 4) (#f 4) (else 5)))
     (= 27676265/7527762 (apply + (map (lambda (x) (/ x)) (cdr (iota 30)))))
+    (= 2.0 (+ 2.0 (epsilon)))
+    (= 7 (s 4 2))
     (string=? "(0 1 2 3 4 5 6 7 8 " (call-with-truncated-output-string 20 (lambda (port) (write (iota 50) port))))
 
     (= 525 (foo 5))

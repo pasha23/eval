@@ -1249,10 +1249,10 @@ sexp sqrtff(sexp x)
     if (isComplex(x)) {
         re = asFlonum(x->cdr->car);
         im = asFlonum(x->cdr->cdr->car);
-    } else if (isFlonum(x)) {
-        re = asFlonum(x);
     } else if (isFixnum(x))
         re = (double)asFixnum(x);
+    else if (isFlonum(x))
+        re = asFlonum(x);
 
     if (0.0 == im && 0.0 <= re)
         return newflonum(sqrt(re));
@@ -1614,7 +1614,7 @@ sexp open_input_string(sexp args)
                 int n = k+m;
                 if (n == jj)
                     return lose((sexp)port);
-                else if (ii <= n && n < jj)
+                if (ii <= n && n < jj)
                     ss->put(t->text[m]);
             }
         }
@@ -1845,7 +1845,7 @@ int scmpi(sexp p, sexp q)
 sexp char_alphabeticp(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : f; }
 
 // char->integer
-sexp char_integer(sexp c) { assertChar(c); return  newfixnum(((Char*)c)->ch); }
+sexp char_integer(sexp c) { assertChar(c); return newfixnum(((Char*)c)->ch); }
 
 // char-ci=?
 sexp char_cieqp(sexp p, sexp q) { assertChar(p); assertChar(q); return tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch) ? t : f; }
@@ -1904,20 +1904,18 @@ sexp char_whitespacep(sexp c) { return isChar(c) && isspace(((Char*)c)->ch) ? t 
 // save the original termios then modify it for cbreak style input
 bool setTermios(struct termios& original, int vmin)
 {
-    if (0 == tcgetattr(0, &original))
-    {
-        struct termios working;
-        working = original;
-        working.c_cc[VMIN] = vmin;
-        working.c_cc[VTIME] = 0;
-        working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-        working.c_oflag &= ~OPOST;
-        working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-        working.c_cflag &= ~(CSIZE | PARENB);
-        working.c_cflag |= CS8;
-        return 0 == tcsetattr(0, TCSANOW, &working);
-    }
-    return false;
+    if (tcgetattr(0, &original))
+        return false;
+    struct termios working;
+    working = original;
+    working.c_cc[VMIN] = vmin;
+    working.c_cc[VTIME] = 0;
+    working.c_iflag &= ~(IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+    working.c_oflag &= ~OPOST;
+    working.c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    working.c_cflag &= ~(CSIZE | PARENB);
+    working.c_cflag |= CS8;
+    return 0 == tcsetattr(0, TCSANOW, &working);
 }
 
 // char-ready?
@@ -2109,7 +2107,8 @@ sexp substringf(sexp s, sexp i, sexp j)
                 if (n == jj) {
                     b[n-ii] = 0;
                     return lose(newcell(STRING, save(newchunk(b))));
-                } else if (ii <= n && n < jj)
+                }
+                if (ii <= n && n < jj)
                     b[n-ii] = t->text[m];
             }
         }
@@ -2157,48 +2156,41 @@ sexp zerop(sexp x)
 sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : f; }
 
 // all arguments must be fixnums for these logical operations
-sexp allfixnums(sexp args)
+void assertAllFixnums(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
         if (!isFixnum(p->car))
-            return f;
-    return t;
+            error("bitwise ops require fixnum arguments");
 }
 
 // x0 & x1 & x2 ...
 sexp andf(sexp args)
 {
-    if (allfixnums(save(args))) {
-        long result = ~0;
-        for (sexp p = args; p; p = p->cdr)
-            result = result & asFixnum(p->car);
-        return lose(newfixnum(result));
-    } else
-        return lose(0);
+    assertAllFixnums(args);
+    long result = ~0;
+    for (sexp p = args; p; p = p->cdr)
+        result = result & asFixnum(p->car);
+    return lose(newfixnum(result));
 }
 
 // x0 | x1 | x2 ...
 sexp orf(sexp args)
 {
-    if (allfixnums(save(args))) {
-        long result = 0;
-        for (sexp p = args; p; p = p->cdr)
-            result = result | asFixnum(p->car);
-        return lose(newfixnum(result));
-    } else
-        return lose(0);
+    assertAllFixnums(args);
+    long result = 0;
+    for (sexp p = args; p; p = p->cdr)
+        result = result | asFixnum(p->car);
+    return lose(newfixnum(result));
 }
 
 // x0 ^ x1 ^ x2 ...
 sexp xorf(sexp args)
 {
-    if (allfixnums(save(args))) {
-        long result = 0;
-        for (sexp p = args; p; p = p->cdr)
-            result = result ^ asFixnum(p->car);
-        return lose(newfixnum(result));
-    } else
-        return lose(0);
+    assertAllFixnums(args);
+    long result = 0;
+    for (sexp p = args; p; p = p->cdr)
+        result = result ^ asFixnum(p->car);
+    return lose(newfixnum(result));
 }
 
 // delay
@@ -2341,12 +2333,16 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
 {
     if (!exp || isClosure(exp) || isPromise(exp))
         return false;
-    if (isCons(exp)) {
+
+    if (isCons(exp))
+    {
         if (seenSet.find(exp) != seenSet.end())
             return true;
         seenSet.insert(exp);
         return cyclic(seenSet, exp->car) || cyclic(seenSet, exp->cdr);
-    } else if (isVector(exp)) {
+    }
+
+    if (isVector(exp)) {
         if (seenSet.find(exp) != seenSet.end())
             return true;
         seenSet.insert(exp);
@@ -2354,8 +2350,8 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
         for (int i = v->l; --i >= 0; )
             if (cyclic(seenSet, v->e[i]))
                 return true;
-        return false;
     }
+
     return false;
 }
 
@@ -2505,7 +2501,8 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
     {
         s << "()";
         return s;
-    } else if (isCons(exp)) {
+    }
+    if (isCons(exp)) {
         bool quoted = false;
         if (isCons(exp->cdr))
         {
@@ -2685,9 +2682,8 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 {
     if (x == y)
         return true;
-    if (!x || !y)
-        return false;
-    if (isAtom(x) || isAtom(y))
+
+    if (!x || !y || isAtom(x) || isAtom(y))
         return false;
 
     if (isCons(x) && isCons(y))
@@ -2956,14 +2952,13 @@ sexp unquoteform(sexp exp, sexp env)
     sexp* mark = psp;
     if (!exp || !isCons(exp))
         return exp;
-    else if (unquote == exp->car && isCons(exp->cdr))
+    if (unquote == exp->car && isCons(exp->cdr))
         return eval(exp->cdr->car, env);
-    else if (exp->car && unquotesplicing == exp->car->car)
+    if (exp->car && unquotesplicing == exp->car->car)
         return lose(mark, replace(append(save(eval(exp->car->cdr->car, env)),
                                          save(unquoteform(exp->cdr, env)))));
-    else
-        return lose(mark, cons(save(unquoteform(exp->car, env)),
-                               save(unquoteform(exp->cdr, env))));
+    return lose(mark, cons(save(unquoteform(exp->car, env)),
+                           save(unquoteform(exp->cdr, env))));
 }
 
 // quasiquote
@@ -3071,7 +3066,7 @@ sexp values(sexp bs, sexp env)
 sexp let(sexp exp, sexp env)
 {
     sexp* mark = psp;
-    sexp e = env;
+    sexp e = save(env);
     if (isAtom(exp->cdr->car))
     {
         // named let
@@ -3082,7 +3077,7 @@ sexp let(sexp exp, sexp env)
         return lose(mark, apply(e->car->cdr, save(values(exp->cdr->car, e))));
     }
     for (sexp v = exp->cdr->car; v; v = v->cdr)
-        e = replace(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
+        e = replace(cons(replace(cons(v->car->car, replace(eval(v->car->cdr->car, env)))), e));
     return lose(mark, tailforms(exp->cdr->cdr, e));
 }
 
@@ -3219,7 +3214,7 @@ sexp eval(sexp p, sexp env)
     {
         // it pays to inline get() here
         for (sexp q = env; q; q = q->cdr)
-            if (p == q->car->car)
+            if (isCons(q->car) && p == q->car->car)
                 return q->car->cdr;
         debug("eval: undefined ", p); error("");
     }
@@ -3378,8 +3373,8 @@ sexp scans(std::istream& fin)
                if ('@' != c) {
                     fin.unget();
                     return comma;
-               } else
-                    return commaat;
+               }
+               return commaat;
     case '#':  c = fin.get();
                switch (c)
                {
@@ -3501,8 +3496,7 @@ sexp readTail(std::istream& fin, int level)
         return 0;
     if (dot == q)
         return readTail(fin, level)->car;
-    else
-        return lose(cons(q, save(readTail(fin, level))));
+    return lose(cons(q, save(readTail(fin, level))));
 }
 
 // finish reading a vector
