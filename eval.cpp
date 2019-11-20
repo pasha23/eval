@@ -363,22 +363,18 @@ static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; 
 /*
  * visit objects reachable from p, setting their MARK bit
  */
-void mark(std::set<sexp>& seenSet, sexp p)
+void mark(sexp p)
 {
     if (!p || isMarked(p))
         return;
-#if 1
-    //std::cerr << "mark " << std::hex << (long)p << std::dec << std::endl;
-    if (seenSet.find(p) == seenSet.end())
-        seenSet.insert(p);
-    else
-        return;
-#endif
+
+    sexp r = p->cdr;
+
     if (isCons(p))
     {
-        mark(seenSet, p->cdr);
-        mark(seenSet, p->car);
         markCell(p);
+        mark(r);
+        mark(p->car);
         return;
     }
 
@@ -386,11 +382,11 @@ void mark(std::set<sexp>& seenSet, sexp p)
     {
     case ATOM:
     case STRING:
-        mark(seenSet, ((Atom*)p)->chunks);
+        mark(((Atom*)p)->chunks);
         break;
     case VECTOR:
         Vector* v = (Vector*)p;
-        for (int i = v->l; --i >= 0; mark(seenSet, v->e[i])) {}
+        for (int i = v->l; --i >= 0; mark(v->e[i])) {}
     }
 
     markCell(p);
@@ -422,21 +418,20 @@ void deletevector(sexp v) { delete ((Vector*)v)->e; }
 sexp gc(sexp args)
 {
     ++gcstate;
-    std::set<sexp> seenSet;
     bool verbose = isCons(args) && args->car;
     int werefree = CELLS-allocated;
     int wereprot = psp-protect;
 
     marked = 0;
-    mark(seenSet, atoms);
-    mark(seenSet, global);
-    mark(seenSet, inport);
-    mark(seenSet, errport);
-    mark(seenSet, outport);
-    mark(seenSet, zero);
-    mark(seenSet, one);
+    mark(atoms);
+    mark(global);
+    mark(inport);
+    mark(errport);
+    mark(outport);
+    mark(zero);
+    mark(one);
     for (sexp *p = protect; p < psp; ++p)
-        mark(seenSet, *p);
+        mark(*p);
 
     freelist = 0;
     int reclaimed = 0;

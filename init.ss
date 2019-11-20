@@ -56,7 +56,7 @@
                                         ((negative? y) (- (sr (- y) (- x))))
                                         (else          (if (and (exact? x) (exact? y)) 0 0.0)))))))
                    (when (eq? e void)
-                         (set! e 1e-15))
+                         (set! e 1e-7))
                    (let ((x (- x e))
                          (y (+ x e)))
                         (if (< y x)
