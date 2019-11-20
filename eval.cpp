@@ -2786,6 +2786,7 @@ sexp define(sexp p, sexp r)
         if (p == q->car->car)
         {
             q->car->cdr = r;
+            ((Atom*)p)->body->car = r;
             return voida;
         }
     global = cons(save(cons(p, r)), global);
