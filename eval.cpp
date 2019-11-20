@@ -2721,6 +2721,60 @@ void fixenvs(sexp env)
             e->car->cdr->cdr->cdr->car = env;
 }
 
+void clear_cache(void)
+{
+}
+
+static char errorBuffer[128];   // used by get and set
+
+// error messages from set! and get
+void lookup_error(const char* msg, sexp p)
+{
+    strcpy(errorBuffer, msg);
+    int len = 0;
+    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    {
+        int i = 0;
+        Chunk* t = (Chunk*)(q->car);
+        while (i < sizeof(t->text) && t->text[i])
+            ++i;
+        len += i;
+    }
+    if (len > sizeof(errorBuffer)-sizeof(msg))
+        len = sizeof(errorBuffer)-sizeof(msg);
+    char *r = errorBuffer+strlen(msg);
+    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    {
+        if (r >= errorBuffer+sizeof(msg)+len-2)
+            break;
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
+    }
+    *r++ = 0;
+    error(errorBuffer);
+}
+
+sexp get_cache(sexp p, sexp env)
+{
+    for (sexp q = env; q; q = q->cdr)
+        if (q->car && p == q->car->car)
+            return q->car->cdr;
+
+    lookup_error("error: get unbound ", p);
+}
+
+sexp set_cache(sexp p, sexp r, sexp env)
+{
+    for (sexp q = env; q; q = q->cdr)
+        if (p == q->car->car)
+        {
+            q->car->cdr = r;
+            return voida;
+        }
+
+    lookup_error("error: set unbound ", p);
+}
+
 // define
 sexp define(sexp p, sexp r)
 {
@@ -2731,6 +2785,7 @@ sexp define(sexp p, sexp r)
             return voida;
         }
     global = cons(save(cons(p, r)), global);
+    clear_cache();
     return lose(voida);
 }
 
@@ -2746,10 +2801,9 @@ sexp undefine(sexp p)
                 q->cdr = q->cdr->cdr;
                 break;
             }
+    clear_cache();
     return voida;
 }
-
-static char errorBuffer[128];   // used by get and set
 
 // form?
 sexp formp(sexp p)
@@ -2771,32 +2825,12 @@ sexp get(sexp p, sexp env)
 {
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
-        if (q->car && p == q->car->car)
+        if (global == q)
+            return get_cache(p, env);
+        else if (q->car && p == q->car->car)
             return q->car->cdr;
 
-    char msg[] = "error: get unbound ";
-    strcpy(errorBuffer, msg);
-    int len = 0;
-    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-    {
-        int i = 0;
-        Chunk* t = (Chunk*)(q->car);
-        while (i < sizeof(t->text) && t->text[i])
-            ++i;
-        len += i;
-    }
-    if (len > sizeof(errorBuffer)-sizeof(msg))
-        len = sizeof(errorBuffer)-sizeof(msg);
-    char *r = errorBuffer+sizeof(msg)-1;
-    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-    {
-        if (r >= errorBuffer+sizeof(msg)+len-2)
-            break;
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
-    }
-    *r++ = 0;
-    error(errorBuffer);
+    lookup_error("error: get unbound", p);
 }
 
 // set!
@@ -2804,35 +2838,15 @@ sexp set(sexp p, sexp r, sexp env)
 {
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
-        if (p == q->car->car)
+        if (global == q)
+            return set_cache(p, r, env);
+        else if (p == q->car->car)
         {
             q->car->cdr = r;
             return voida;
         }
 
-    char msg[] = "error: set unbound ";
-    strcpy(errorBuffer, msg);
-    int len = 0;
-    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-    {
-        int i = 0;
-        Chunk* t = (Chunk*)(q->car);
-        while (i < sizeof(t->text) && t->text[i])
-            ++i;
-        len += i;
-    }
-    if (len > sizeof(errorBuffer)-sizeof(msg))
-        len = sizeof(errorBuffer)-sizeof(msg);
-    char *s = errorBuffer+sizeof(msg)-1;
-    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-    {
-        if (s >= errorBuffer+sizeof(msg)+len-2)
-            break;
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; *s++ = t->text[i++]) {}
-    }
-    *s++ = 0;
-    error(errorBuffer);
+    lookup_error("error: set unbound ", p);
 }
 
 // evaluate a list of arguments in an environment
@@ -2960,6 +2974,7 @@ sexp defineform(sexp p, sexp env)
     sexp e = nesteddefine(p, env);
     if (global == env)
         global = e;
+    clear_cache();
     return voida;
 }
 
@@ -3239,13 +3254,7 @@ sexp eval(sexp p, sexp env)
         return p;
 
     if (isAtom(p))
-    {
-        // it pays to inline get() here
-        for (sexp q = env; q; q = q->cdr)
-            if (isCons(q->car) && p == q->car->car)
-                return q->car->cdr;
-        debug("eval: undefined ", p); error("");
-    }
+        return get(p, env);
 
     sexp* mark = psp;
 
