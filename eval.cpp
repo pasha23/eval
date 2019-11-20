@@ -283,7 +283,7 @@ int  total = 0;         	// total allocation across gc's
 int  marked = 0;        	// how many cells were marked during gc
 int  allocated = 0;     	// how many cells have been allocated
 int  collected = 0;     	// how many gc's
-bool collecting = false;	// collecting garbage now
+int  gcstate = 0;           // handling break during gc
 sexp cell = 0;         	    // all the storage starts here
 sexp atoms = 0;         	// all atoms are linked in a list
 sexp global = 0;        	// this is the global symbol table (a list)
@@ -440,7 +440,7 @@ void deletevector(sexp v) { delete ((Vector*)v)->e; }
  */
 sexp gc(sexp args)
 {
-    collecting = true;
+    ++gcstate;
     bool verbose = isCons(args) && args->car;
     int werefree = CELLS-allocated;
     int wereprot = psp-protect;
@@ -487,7 +487,13 @@ sexp gc(sexp args)
     ++collected;
     if (!freelist)
         error("error: storage exhausted");
-    collecting = false;
+    if (gcstate > 1)
+    {
+        killed = 0;
+        gcstate = 0;
+        error("SIGINT");
+    }
+    gcstate = 0;
     return voida;
 }
 
@@ -3565,8 +3571,8 @@ void intr_handler(int sig, siginfo_t *si, void *ctx)
 {
     if (killed++)
         exit(0);
-    if (collecting)
-        std::cout << "collecting now" << std::endl;
+    if (gcstate)
+        ++gcstate;
     else if (SIGINT == sig)
         error("SIGINT");
 }

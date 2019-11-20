@@ -257,7 +257,7 @@
 (define (env-head l t) (if (eq? l t) '() (cons (list (caar l) (caddar l)) (env-head (cdr l) t))))
 
 (define (definition name)
-        (let ((value (eval name (null-environment))))
+        (let ((value (eval name (environment))))
              (if (closure? value)
                  (cons 'define (cons (cons name (cadadr value)) (cddadr value)))
                  (list 'define name value))))
@@ -266,7 +266,7 @@
         (for-each (lambda (x)
                   (if (closure? (cdr x))
                       (begin (display (definition (car x))) (newline) (newline))))
-                  (reverse (null-environment))))
+                  (reverse (environment))))
 
 (define (ttytest)
         (while (not (char=? #\newline (peek-char)))
