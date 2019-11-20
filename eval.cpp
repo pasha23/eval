@@ -2756,13 +2756,24 @@ void lookup_error(const char* msg, sexp p)
     error(errorBuffer);
 }
 
+sexp cache_get(sexp p)
+{
+    return ((Atom*)p)->body->car;
+}
+
+sexp cache_put(sexp p, sexp v)
+{
+    return ((Atom*)p)->body->car = v;
+}
+
 sexp get_cache(sexp p, sexp env)
 {
-    if (((Atom*)p)->body->car)
-        return ((Atom*)p)->body->car;
+    sexp v = cache_get(p);
+    if (v)
+        return v;
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
-            return ((Atom*)p)->body->car = q->car->cdr;
+            return cache_put(p, q->car->cdr);
 
     lookup_error("error: get unbound ", p);
 }
@@ -2772,7 +2783,7 @@ sexp set_cache(sexp p, sexp r, sexp env)
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
-            ((Atom*)p)->body->car = q->car->cdr = r;
+            cache_put(p, q->car->cdr = r);
             return voida;
         }
 
@@ -2785,12 +2796,11 @@ sexp define(sexp p, sexp r)
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
-            q->car->cdr = r;
-            ((Atom*)p)->body->car = r;
+            cache_put(p, q->car->cdr = r);
             return voida;
         }
     global = cons(save(cons(p, r)), global);
-    clear_cache();
+    cache_put(p, r);
     return lose(voida);
 }
 
@@ -2806,7 +2816,7 @@ sexp undefine(sexp p)
                 q->cdr = q->cdr->cdr;
                 break;
             }
-    clear_cache();
+    cache_put(p, 0);
     return voida;
 }
 
