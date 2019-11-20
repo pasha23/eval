@@ -183,7 +183,7 @@ struct Cons    { sexp                cdr; sexp                         car; };
 struct Tags    { char                                   tags[sizeof(Cons)]; };
 struct Stags   { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
 struct Chunk   { char tags[2];            char        text[sizeof(Cons)-2]; };
-struct Atom    { char tags[sizeof(sexp)]; sexp                      chunks; };
+struct Atom    { char tags[sizeof(sexp)]; sexp                        body; };
 struct String  { char tags[sizeof(sexp)]; sexp                      chunks; };
 struct Fixnum  { char tags[sizeof(sexp)]; long                      fixnum; };
 struct Float   { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
@@ -381,8 +381,10 @@ void mark(sexp p)
     switch (((Stags*)p)->stags)
     {
     case ATOM:
+        mark(((Atom*)p)->body);
+        break;
     case STRING:
-        mark(((Atom*)p)->chunks);
+        mark(((String*)p)->chunks);
         break;
     case VECTOR:
         Vector* v = (Vector*)p;
@@ -1310,7 +1312,7 @@ sexp symbolp(sexp x) { return isAtom(x) ? t : f; }
 // procedure?
 sexp procedurep(sexp p) { return isFunct(p) || isClosure(p) ? t : f; }
 
-// length of String or Atom
+// length of String
 int slen(sexp s)
 {
     int length = 0;
@@ -1428,7 +1430,7 @@ sexp make_string(sexp args)
     return lose(newcell(STRING, save(newchunk(b))));
 }
 
-// copy characters from a String or Atom into a buffer
+// copy characters from a String
 char* sstr(char* b, int len, sexp s)
 {
     char *q = b;
@@ -2423,12 +2425,12 @@ const char *character_table[] =
 
 std::ostream& displayAtom(std::ostream& s, sexp exp, bool write)
 {
-    return displayChunks(s, ((Atom*)exp)->chunks, true, write);
+    return displayChunks(s, ((Atom*)exp)->body->cdr, true, write);
 }
 
 std::ostream& displayString(std::ostream& s, sexp exp, bool write)
 {
-    return displayChunks(s, ((Atom*)exp)->chunks, false, write);
+    return displayChunks(s, ((String*)exp)->chunks, false, write);
 }
 
 // used for displaying functions, forms. and closures by name
@@ -2570,7 +2572,7 @@ sexp intern(sexp p)
     for (sexp q = atoms; q; q = q->cdr)
     {
         sexp r = q->car;
-        if (0 == scmp(((Atom*)p)->chunks, ((Atom*)r)->chunks))
+        if (0 == scmp(((Atom*)p)->body->cdr, ((Atom*)r)->body->cdr))
             return r;
     }
     atoms = cons(p, atoms);
@@ -2578,10 +2580,10 @@ sexp intern(sexp p)
 }
 
 // string->symbol
-sexp string_symbol(sexp x) { assertString(x); return lose(intern(newcell(ATOM, save((((String*)x)->chunks))))); }
+sexp string_symbol(sexp x) { assertString(x); return lose(intern(newcell(ATOM, replace(cons(0, save((((String*)x)->chunks))))))); }
 
 // symbol->string
-sexp symbol_string(sexp x) { assertAtom(x); return lose(newcell(STRING, save(((Atom*)x)->chunks))); }
+sexp symbol_string(sexp x) { assertAtom(x); return lose(newcell(STRING, save(((Atom*)x)->body->cdr))); }
 
 // string->number (actually we will convert arbitrary s-expressions)
 sexp string_number(sexp exp)
@@ -2774,10 +2776,26 @@ sexp get(sexp p, sexp env)
 
     char msg[] = "error: get unbound ";
     strcpy(errorBuffer, msg);
-    int  len = slen(p);
+    int len = 0;
+    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    {
+        int i = 0;
+        Chunk* t = (Chunk*)(q->car);
+        while (i < sizeof(t->text) && t->text[i])
+            ++i;
+        len += i;
+    }
     if (len > sizeof(errorBuffer)-sizeof(msg))
         len = sizeof(errorBuffer)-sizeof(msg);
-    sstr(errorBuffer+sizeof(msg)-1, len, p);
+    char *r = errorBuffer+sizeof(msg)-1;
+    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    {
+        if (r >= errorBuffer+sizeof(msg)+len-2)
+            break;
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
+    }
+    *r++ = 0;
     error(errorBuffer);
 }
 
@@ -2794,10 +2812,26 @@ sexp set(sexp p, sexp r, sexp env)
 
     char msg[] = "error: set unbound ";
     strcpy(errorBuffer, msg);
-    int  len = slen(p);
+    int len = 0;
+    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    {
+        int i = 0;
+        Chunk* t = (Chunk*)(q->car);
+        while (i < sizeof(t->text) && t->text[i])
+            ++i;
+        len += i;
+    }
     if (len > sizeof(errorBuffer)-sizeof(msg))
         len = sizeof(errorBuffer)-sizeof(msg);
-    sstr(errorBuffer+sizeof(msg)-1, len, p);
+    char *s = errorBuffer+sizeof(msg)-1;
+    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    {
+        if (s >= errorBuffer+sizeof(msg)+len-2)
+            break;
+        Chunk* t = (Chunk*)(p->car);
+        for (int i = 0; i < sizeof(t->text) && t->text[i]; *s++ = t->text[i++]) {}
+    }
+    *s++ = 0;
     error(errorBuffer);
 }
 
@@ -3474,7 +3508,7 @@ sexp scans(std::istream& fin)
         return lose(mark, r);
     }
 
-    return lose(mark, intern(save(newcell(ATOM, save(readChunks(fin, "( )[,]\t\r\n"))))));
+    return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
 }
 
 // stub to enable tracing of scans()
@@ -3541,7 +3575,7 @@ sexp read(std::istream& fin, int level)
 }
 
 // construct an atom and keep a unique copy
-sexp atomize(const char *s) { sexp* mark = psp; return lose(mark, intern(save(newcell(ATOM, save(newchunk(s)))))); }
+sexp atomize(const char *s) { sexp* mark = psp; return lose(mark, intern(save(newcell(ATOM, replace(cons(0, save(newchunk(s)))))))); }
 
 // the first interrupt will stop everything. the second will exit.
 void intr_handler(int sig, siginfo_t *si, void *ctx)
