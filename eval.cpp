@@ -2723,6 +2723,8 @@ void fixenvs(sexp env)
 
 void clear_cache(void)
 {
+    for (sexp e = global; e; e = e->cdr)
+        ((Atom*)(e->car->car))->body->car = 0;
 }
 
 static char errorBuffer[128];   // used by get and set
@@ -2756,9 +2758,11 @@ void lookup_error(const char* msg, sexp p)
 
 sexp get_cache(sexp p, sexp env)
 {
+    if (((Atom*)p)->body->car)
+        return ((Atom*)p)->body->car;
     for (sexp q = env; q; q = q->cdr)
         if (q->car && p == q->car->car)
-            return q->car->cdr;
+            return ((Atom*)p)->body->car = q->car->cdr;
 
     lookup_error("error: get unbound ", p);
 }
@@ -2768,7 +2772,7 @@ sexp set_cache(sexp p, sexp r, sexp env)
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
-            q->car->cdr = r;
+            ((Atom*)p)->body->car = q->car->cdr = r;
             return voida;
         }
 
@@ -2826,7 +2830,7 @@ sexp get(sexp p, sexp env)
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (global == q)
-            return get_cache(p, env);
+            return get_cache(p, global);
         else if (q->car && p == q->car->car)
             return q->car->cdr;
 
@@ -2839,7 +2843,7 @@ sexp set(sexp p, sexp r, sexp env)
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (global == q)
-            return set_cache(p, r, env);
+            return set_cache(p, r, global);
         else if (p == q->car->car)
         {
             q->car->cdr = r;
