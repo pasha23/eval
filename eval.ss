@@ -7,6 +7,8 @@
 (define (l . x) x)
 (define (five) 5)
 
+(define (iota n) (if (= 0 n) '() (cons n (iota (- n 1)))))
+
 (define apply-primitive apply)
 
 (define eval-primitive eval)

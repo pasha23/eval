@@ -153,13 +153,20 @@ struct StrPortStream : public PortStream
     StrPortStream(std::stringstream& stringstream, long limit) : PortStream(&stringstream), limit(limit) {}
     virtual int get(void) { return ((std::stringstream*)streamPointer)->get(); }
     virtual void unget(void) { ((std::stringstream*)streamPointer)->unget(); }
-    virtual void put(int ch) { ((std::stringstream*)streamPointer)->put(ch); }
+    virtual void put(int ch);
     virtual void write(const char *s, int len);
     virtual sexp read(void) { return ::read(*(std::stringstream*)streamPointer, 0); }
     virtual sexp scan(void) { return ::scan(*(std::stringstream*)streamPointer); }
     virtual bool good(void) { return ((std::stringstream*)streamPointer)->good(); }
     virtual ~StrPortStream() { delete (std::stringstream*) streamPointer; }
 };
+
+void StrPortStream::put(int ch)
+{ 
+    std::stringstream* ss = (std::stringstream*)streamPointer;
+    if (ss->tellp() < limit)
+        ((std::stringstream*)streamPointer)->put(ch);
+}
 
 void StrPortStream::write(const char *s, int len)
 {

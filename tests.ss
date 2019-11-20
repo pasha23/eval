@@ -33,6 +33,8 @@
     (= 5 (cond (#f 1) (#f 2) (#f 3) (#f 4) (else 5)))
     (= 4 (cond (#f 1) (#f 2) (#t 3 4) (#f 4) (else 5)))
     (= 27676265/7527762 (apply + (map (lambda (x) (/ x)) (cdr (iota 30)))))
+    (string=? "(0 1 2 3 4 5 6 7 8 " (call-with-truncated-output-string 20 (lambda (port) (write (iota 50) port))))
+
     (= 525 (foo 5))
     (= 1.0 (cos (acos 1.0)))
     (= 1.0 (exp 0.0))
@@ -99,7 +101,7 @@
     (= 6 (fac 3))
     (= 6 (tak 7 6 5))
     (= (^ 7 2) 5)
-    (= 7 (eval '(+ 3 4) (interaction-environment)))
+    (= 7 (eval '(+ 3 4) (environment)))
     (= 8 (<< 1 3))
     (<= (abs (- 1.0 (log (exp 1.0)))) 1e-15)
     (<= (abs (- 1.0 (tan (atan 1.0)))) 1e-15)
@@ -237,7 +239,7 @@
 
 (let ((t tests))
      (while (pair? t)
-            (if (eqv? #t (eval (car t) (interaction-environment)))
+            (if (eqv? #t (eval (car t) (environment)))
                 (begin (display (car t)) (space) (display 'pass) (newline))
                 (begin (display (car t)) (space) (display 'fail) (newline)))
             (set! t (cdr t))))
