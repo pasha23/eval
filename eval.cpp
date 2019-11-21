@@ -368,13 +368,13 @@ void mark(sexp p)
     if (!p || isMarked(p))
         return;
 
-    sexp r = p->cdr;
-
     if (isCons(p))
     {
+        sexp q = p->cdr;
+        sexp r = p->car;
         markCell(p);
+        mark(q);
         mark(r);
-        mark(p->car);
         return;
     }
 
@@ -1403,13 +1403,92 @@ sexp newchunk(const char *t)
     }
 }
 
+/*
+ * compare chunks
+ */
+int scmp(sexp p, sexp q)
+{
+    for (;;)
+    {
+        if (p == q)
+            return  0;
+        if (!q)
+            return  1;
+        if (!p)
+            return -1;
+        Chunk* s = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(q->car);
+        for (int i = 0; i < sizeof(s->text); ++i)
+        {
+            int r = s->text[i] - t->text[i];
+            if (r)
+                return r;
+            if (0 == s->text[i])
+                return 0;
+        }
+        p = p->cdr;
+        q = q->cdr;
+    }
+}
+
+/*
+ * compare chunks, case insensitive
+ */
+int scmpi(sexp p, sexp q)
+{
+    for (;;)
+    {
+        if (p == q)
+            return  0;
+        if (!q)
+            return  1;
+        if (!p)
+            return -1;
+        Chunk* s = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(q->car);
+        for (int i = 0; i < sizeof(s->text); ++i)
+        {
+            int r = tolower(s->text[i]) - tolower(t->text[i]);
+            if (r)
+                return r;
+            if (0 == s->text[i])
+                return 0;
+        }
+        p = p->cdr;
+        q = q->cdr;
+    }
+}
+
+// every atom must be unique and saved in the atoms list
+sexp intern(sexp p)
+{
+    for (sexp q = atoms; q; q = q->cdr)
+    {
+        sexp r = q->car;
+        if (0 == scmp(((Atom*)p)->body->cdr, ((Atom*)r)->body->cdr))
+            return r;
+    }
+    atoms = cons(p, atoms);
+    return p;
+}
+
+sexp newatom(const char* s, sexp value)
+{
+    return lose(intern(replace(newcell(ATOM, replace(cons(value, save(newchunk(s))))))));
+}
+
+sexp newstring(const char* s)
+{
+    return lose(newcell(STRING, save(newchunk(s))));
+}
+
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, exp, seenSet, ugly, 0, true);
-    return lose(newcell(STRING, save(newchunk(s.str().c_str()))));
+    return newstring(s.str().c_str());
 }
 
 // make-string
@@ -1427,7 +1506,7 @@ sexp make_string(sexp args)
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
-    return lose(newcell(STRING, save(newchunk(b))));
+    return newstring(b);
 }
 
 // copy characters from a String
@@ -1450,7 +1529,7 @@ sexp string_copy(sexp s)
 {
     assertString(s);
     int len = slen(s)+1;
-    return lose(newcell(STRING, save(newchunk(sstr((char*)alloca(len), len, s)))));
+    return newstring(sstr((char*)alloca(len), len, s));
 }
 
 // string-append
@@ -1463,7 +1542,7 @@ sexp string_append(sexp p, sexp q)
     char *b = (char*) alloca(pl+ql+1);
     sstr(b,    pl+1, p);
     sstr(b+pl, ql+1, q);
-    return lose(newcell(STRING, save(newchunk(b))));
+    return newstring(b);
 }
 
 // string-fill
@@ -1618,7 +1697,7 @@ sexp get_output_string(sexp port)
     assertOutPort(port);
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    return lose(newcell(STRING, save(newchunk(ss->str().c_str()))));
+    return newstring(ss->str().c_str());
 }
 
 // open-output-string
@@ -1665,7 +1744,7 @@ sexp write_to_string(sexp args)
     std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, object, seenSet, ugly, 0, true);
-    return lose(newcell(STRING, save(newchunk(s.str().c_str()))));
+    return newstring(s.str().c_str());
 }
 
 // vector?
@@ -1772,62 +1851,6 @@ sexp vector_set(sexp vector, sexp index, sexp value)
     Vector* v = (Vector*)vector;
     v->e[asFixnum(index)] = value;
     return voida;
-}
-
-/*
- * compare chunks
- */
-int scmp(sexp p, sexp q)
-{
-    for (;;)
-    {
-        if (p == q)
-            return  0;
-        if (!q)
-            return  1;
-        if (!p)
-            return -1;
-        Chunk* s = (Chunk*)(p->car);
-        Chunk* t = (Chunk*)(q->car);
-        for (int i = 0; i < sizeof(s->text); ++i)
-        {
-            int r = s->text[i] - t->text[i];
-            if (r)
-                return r;
-            if (0 == s->text[i])
-                return 0;
-        }
-        p = p->cdr;
-        q = q->cdr;
-    }
-}
-
-/*
- * compare chunks, case insensitive
- */
-int scmpi(sexp p, sexp q)
-{
-    for (;;)
-    {
-        if (p == q)
-            return  0;
-        if (!q)
-            return  1;
-        if (!p)
-            return -1;
-        Chunk* s = (Chunk*)(p->car);
-        Chunk* t = (Chunk*)(q->car);
-        for (int i = 0; i < sizeof(s->text); ++i)
-        {
-            int r = tolower(s->text[i]) - tolower(t->text[i]);
-            if (r)
-                return r;
-            if (0 == s->text[i])
-                return 0;
-        }
-        p = p->cdr;
-        q = q->cdr;
-    }
 }
 
 // char-alphabetic?
@@ -2095,7 +2118,7 @@ sexp substringf(sexp s, sexp i, sexp j)
                 int n = k+m;
                 if (n == jj) {
                     b[n-ii] = 0;
-                    return lose(newcell(STRING, save(newchunk(b))));
+                    return newstring(b);
                 }
                 if (ii <= n && n < jj)
                     b[n-ii] = t->text[m];
@@ -2566,23 +2589,10 @@ void debug(const char *label, sexp exp)
     std::cout.write(s.str().c_str(), s.str().length());
 }
 
-// every atom must be unique and saved in the atoms list
-sexp intern(sexp p)
-{
-    for (sexp q = atoms; q; q = q->cdr)
-    {
-        sexp r = q->car;
-        if (0 == scmp(((Atom*)p)->body->cdr, ((Atom*)r)->body->cdr))
-            return r;
-    }
-    atoms = cons(p, atoms);
-    return p;
-}
-
-// string->symbol
+// string->symbol (should copy the chunks)
 sexp string_symbol(sexp x) { assertString(x); return lose(intern(newcell(ATOM, replace(cons(0, save((((String*)x)->chunks))))))); }
 
-// symbol->string
+// symbol->string (should copy the chunks)
 sexp symbol_string(sexp x) { assertAtom(x); return lose(newcell(STRING, save(((Atom*)x)->body->cdr))); }
 
 // string->number (actually we will convert arbitrary s-expressions)
@@ -2721,13 +2731,6 @@ void fixenvs(sexp env)
             e->car->cdr->cdr->cdr->car = env;
 }
 
-// clobber all the value cells
-void clear_values(void)
-{
-    for (sexp e = global; e; e = e->cdr)
-        ((Atom*)(e->car->car))->body->car = 0;
-}
-
 static char errorBuffer[128];   // used by get and set
 
 // error messages from set! and get
@@ -2758,21 +2761,15 @@ void lookup_error(const char* msg, sexp p)
 }
 
 // an Atom has a value cell used as an environment cache
-sexp value_get(sexp p)
-{
-    return ((Atom*)p)->body->car;
-}
-
-// an Atom has a value cell used as an environment cache
 sexp value_put(sexp p, sexp v)
 {
     return ((Atom*)p)->body->car = v;
 }
 
-// lookups in the global environment reference the value cell
+// lookups in the global environment use the value cell
 sexp get_value(sexp p, sexp env)
 {
-    sexp v = value_get(p);
+    sexp v = ((Atom*)p)->body->car;
     if (v)
         return v;
     for (sexp q = env; q; q = q->cdr)
@@ -2782,13 +2779,13 @@ sexp get_value(sexp p, sexp env)
     lookup_error("error: get unbound ", p);
 }
 
-// lookups in the global environment reference the value cell
+// lookups in the global environment use the value cell
 sexp set_value(sexp p, sexp r, sexp env)
 {
     for (sexp q = env; q; q = q->cdr)
         if (p == q->car->car)
         {
-            value_put(p, q->car->cdr = r);
+            q->car->cdr = value_put(p, r);
             return voida;
         }
 
@@ -2801,7 +2798,7 @@ sexp define(sexp p, sexp r)
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
-            value_put(p, q->car->cdr = r);
+            q->car->cdr = value_put(p, r);
             return voida;
         }
     global = cons(save(cons(p, r)), global);
@@ -2846,6 +2843,7 @@ sexp get(sexp p, sexp env)
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (global == q)
+            // global bindings are cached in the Atom's value cell
             return get_value(p, global);
         else if (q->car && p == q->car->car)
             return q->car->cdr;
@@ -2859,6 +2857,7 @@ sexp set(sexp p, sexp r, sexp env)
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
         if (global == q)
+            // global bindings are cached in the Atom's value cell
             return set_value(p, r, global);
         else if (p == q->car->car)
         {
@@ -3605,7 +3604,7 @@ sexp read(std::istream& fin, int level)
 }
 
 // construct an atom and keep a unique copy
-sexp atomize(const char *s) { sexp* mark = psp; return lose(mark, intern(save(newcell(ATOM, replace(cons(0, save(newchunk(s)))))))); }
+sexp atomize(const char *s) { return newatom(s, 0); }
 
 // the first interrupt will stop everything. the second will exit.
 void intr_handler(int sig, siginfo_t *si, void *ctx)
@@ -3939,13 +3938,13 @@ int main(int argc, char **argv, char **envp)
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
 
-    load(newcell(STRING, newchunk("init.ss")));
+    load(newstring("init.ss"));
 
     fixenvs(global);
 
     if (argc > 1)
     {
-        load(newcell(STRING, newchunk(argv[1])));
+        load(newstring(argv[1]));
         return 0;
     }
 
