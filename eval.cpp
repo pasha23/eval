@@ -82,6 +82,26 @@ typedef sexp (*Oneargp)(sexp);
 typedef sexp (*Twoargp)(sexp, sexp);
 typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
+jmp_buf the_jmpbuf;
+
+int  total = 0;         	// total allocation across gc's
+int  marked = 0;        	// how many cells were marked during gc
+int  allocated = 0;     	// how many cells have been allocated
+int  collected = 0;     	// how many gc's
+int  gcstate = 0;           // handling break during gc
+const bool cache = true;    // cache global environment in value cells
+sexp cell = 0;         	    // all the storage starts here
+sexp atoms = 0;         	// all atoms are linked in a list
+sexp global = 0;        	// this is the global symbol table (a list)
+sexp inport = 0;        	// the current input port
+sexp outport = 0;       	// the current output port
+sexp tracing = 0;       	// trace everything
+sexp errport = 0;       	// the stderr port
+sexp freelist = 0;      	// available cells are linked in a list
+sexp *psp = 0;          	// protection stack pointer
+sexp *psend = 0;            // protection stack end
+sexp *protect = 0;      	// protection stack
+
 sexp closure, comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
 sexp lbracket, lparen, minus, one, promise, qchar, quasiquote, quote;
 sexp rational, rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
@@ -276,25 +296,6 @@ bool isComplex(sexp p)
 
 // complex?
 sexp complexp(sexp s) { return isComplex(s) ? t : f; }
-
-jmp_buf the_jmpbuf;
-
-int  total = 0;         	// total allocation across gc's
-int  marked = 0;        	// how many cells were marked during gc
-int  allocated = 0;     	// how many cells have been allocated
-int  collected = 0;     	// how many gc's
-int  gcstate = 0;           // handling break during gc
-sexp cell = 0;         	    // all the storage starts here
-sexp atoms = 0;         	// all atoms are linked in a list
-sexp global = 0;        	// this is the global symbol table (a list)
-sexp inport = 0;        	// the current input port
-sexp outport = 0;       	// the current output port
-sexp tracing = 0;       	// trace everything
-sexp errport = 0;       	// the stderr port
-sexp freelist = 0;      	// available cells are linked in a list
-sexp *psp = 0;          	// protection stack pointer
-sexp *psend = 0;            // protection stack end
-sexp *protect = 0;      	// protection stack
 
 /*
  * save the argument on the protection stack, return it
@@ -531,7 +532,7 @@ sexp newcharacter(char c)
     return (sexp)p;
 }
 
-sexp newinport(char* name)
+sexp newinport(const char* name)
 {
     InPort* p = (InPort*)newcell(INPORT);
     p->avail = 0; p->peek = 0;
@@ -539,7 +540,7 @@ sexp newinport(char* name)
     return (sexp)p;
 }
 
-sexp newoutport(char* name)
+sexp newoutport(const char* name)
 {
     OutPort* p = (OutPort*)newcell(OUTPORT);
     p->s = new OfsPortStream(name, std::ofstream::ios_base::out);
@@ -1734,17 +1735,19 @@ sexp call_with_truncated_output_string(sexp limit, sexp proc)
 // write-to-string
 sexp write_to_string(sexp args)
 {
+    sexp* mark = psp;
     sexp object = args->car;
-    int limit = INT_MAX;
+    int limit = 0;
     if (args->cdr)
     {
         assertFixnum(args->cdr->car);
         limit = asFixnum(args->cdr->car);
     }
-    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    display(s, object, seenSet, ugly, 0, true);
-    return newstring(s.str().c_str());
+    std::stringstream ss; ugly ugly(ss); std::set<sexp> seenSet;
+    ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
+    display(ss, object, seenSet, ugly, 0, true);
+    if (0 == limit) limit = ss.str().length();
+    return newstring(ss.str().substr(0, limit).c_str());
 }
 
 // vector?
@@ -2755,14 +2758,14 @@ void lookup_error(const char* msg, sexp p)
             ++i;
         len += i;
     }
-    if (len > sizeof(errorBuffer)-sizeof(msg))
-        len = sizeof(errorBuffer)-sizeof(msg);
+    if (len > sizeof(errorBuffer)-strlen(msg))
+        len = sizeof(errorBuffer)-strlen(msg);
     char *r = errorBuffer+strlen(msg);
     for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
     {
-        if (r >= errorBuffer+sizeof(msg)+len-2)
+        if (r >= errorBuffer+sizeof(errorBuffer)-1)
             break;
-        Chunk* t = (Chunk*)(p->car);
+        Chunk* t = (Chunk*)(q->car);
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
     }
     *r++ = 0;
@@ -2851,7 +2854,7 @@ sexp get(sexp p, sexp env)
 {
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
-        if (global == q)
+        if (cache && global == q)
             // global bindings are cached in the Atom's value cell
             return get_value(p, global);
         else if (q->car && p == q->car->car)
@@ -2865,7 +2868,7 @@ sexp set(sexp p, sexp r, sexp env)
 {
     assertAtom(p);
     for (sexp q = env; q; q = q->cdr)
-        if (global == q)
+        if (cache && global == q)
             // global bindings are cached in the Atom's value cell
             return set_value(p, r, global);
         else if (p == q->car->car)
