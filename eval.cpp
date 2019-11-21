@@ -2589,11 +2589,20 @@ void debug(const char *label, sexp exp)
     std::cout.write(s.str().c_str(), s.str().length());
 }
 
-// string->symbol (should copy the chunks)
-sexp string_symbol(sexp x) { assertString(x); return lose(intern(newcell(ATOM, replace(cons(0, save((((String*)x)->chunks))))))); }
+// string->symbol
+sexp string_symbol(sexp x)
+{
+    assertString(x);
+    sexp y = save(string_copy(x));
+    return lose(intern(newcell(ATOM, replace(cons(0, (((String*)y)->chunks)))))); }
 
-// symbol->string (should copy the chunks)
-sexp symbol_string(sexp x) { assertAtom(x); return lose(newcell(STRING, save(((Atom*)x)->body->cdr))); }
+// symbol->string
+sexp symbol_string(sexp x)
+{
+    assertAtom(x);
+    sexp* mark = psp;
+    return lose(mark, string_copy(save(newcell(STRING, ((Atom*)save(x))->body->cdr))));
+}
 
 // string->number (actually we will convert arbitrary s-expressions)
 sexp string_number(sexp exp)
