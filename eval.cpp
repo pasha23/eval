@@ -7,6 +7,7 @@
 #define PSIZE   32768
 #define CELLS   262144
 #undef  BROKEN
+#define TRACE
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -3276,6 +3277,69 @@ sexp promiseform(sexp exp, sexp env) { assertPromise(exp); return exp; }
 /*
  * malformed constructs will fail without grace
  */
+
+#ifdef TRACE
+
+int indent = 0;
+
+sexp eval(sexp p, sexp env)
+{
+    sexp* mark = psp;
+    if (f != tracing)
+    {
+        ++indent;
+        std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+        s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
+        s << "<<<<:";
+        for (int i = indent; --i >= 0; s << ' ') {}
+        if (voida == p)
+            s << "void";
+        else
+            display(s, p, seenSet, ugly, 0, true);
+        s << '\n';
+        if (!p)
+            error("invalid: ()");
+        if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
+            {}
+        else if (isAtom(p))
+            p = get(p, env);
+        else
+        {
+            save(p, env);
+            sexp fun = save(eval(p->car, env));
+            if (isForm(fun))
+                p = save((*((Form*)fun)->formp)(p, env));
+            else
+                p = save(apply(fun, save(evlis(p->cdr, env))));
+        }
+        s << ">>>>:";
+        for (int i = indent; --i >= 0; s << ' ') {}
+        if (voida == p)
+            s << "void";
+        else
+            display(s, p, seenSet, ugly, 0, true);
+        s << '\n';
+        std::cout.write(s.str().c_str(), s.str().length());
+        --indent;
+        return lose(mark, p);
+
+    } else {
+        if (!p)
+            error("invalid: ()");
+        if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
+            return p;
+        if (isAtom(p))
+            return get(p, env);
+        save(p, env);
+        sexp fun = save(eval(p->car, env));
+        if (isForm(fun))
+            return lose(mark, (*((Form*)fun)->formp)(p, env));
+        return lose(mark, apply(fun, save(evlis(p->cdr, env))));
+    }
+}
+
+#else
+
 sexp eval(sexp p, sexp env)
 {
     if (f != tracing)
@@ -3301,6 +3365,8 @@ sexp eval(sexp p, sexp env)
 
     return lose(mark, apply(fun, save(evlis(p->cdr, env))));
 }
+
+#endif
 
 /*
  * read Chunks terminated by some character or eof
