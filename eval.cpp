@@ -7,7 +7,7 @@
 #define PSIZE   32768
 #define CELLS   262144
 #undef  BROKEN
-#undef  TRACE
+#define TRACE
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -3059,12 +3059,14 @@ sexp ifform(sexp exp, sexp env)
 {
     if (!exp->cdr)
         error("if: missing predicate");
-    if (!exp->cdr->cdr)
+    exp = exp->cdr;
+    if (!exp->cdr)
         error("if: missing consequent");
-    if (f != eval(exp->cdr->car, env))
-        return eval(exp->cdr->cdr->car, env);
-    if (exp->cdr->cdr->cdr)
-        return eval(exp->cdr->cdr->cdr->car, env);
+    if (f != eval(exp->car, env))
+        return eval(exp->cdr->car, env);
+    exp = exp->cdr;
+    if (exp->cdr)
+        return eval(exp->cdr->car, env);
     return voida;
 }
 
@@ -3295,13 +3297,13 @@ sexp eval(sexp p, sexp env)
         ++indent;
         std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
         s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-        s << "<<<<:";
+        s << "eval:";
         for (int i = indent; --i >= 0; s << ' ') {}
         if (voida == p)
             s << "void";
         else
             display(s, p, seenSet, ugly, 0, true);
-        s << '\n';
+        s << " ==> ";
         if (!p)
             error("invalid: ()");
         if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
@@ -3317,13 +3319,11 @@ sexp eval(sexp p, sexp env)
             else
                 p = save(apply(fun, save(evlis(p->cdr, env))));
         }
-        s << ">>>>:";
-        for (int i = indent; --i >= 0; s << ' ') {}
         if (voida == p)
             s << "void";
         else
             display(s, p, seenSet, ugly, 0, true);
-        s << '\n';
+        s << std::endl;
         std::cout.write(s.str().c_str(), s.str().length());
         --indent;
         return lose(mark, p);
