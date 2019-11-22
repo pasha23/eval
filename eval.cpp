@@ -2401,7 +2401,7 @@ std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ug
         display(s, exp->car, seenSet, ugly, level+2, write);
         seenSet.insert(exp);
         if (exp->cdr) {
-            if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr))
+            if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr) && global != exp->cdr)
             {
                 if (seenSet.find(exp->cdr) == seenSet.end())
                 {
@@ -2539,6 +2539,8 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
         }
         if (quoted)
             display(s, exp->cdr->car, seenSet, ugly, level, write);
+        else if (global == exp)
+            s << "#<global environment>";
         else if (isRational(exp))
             displayRational(s, exp);
         else if (isClosure(exp))
