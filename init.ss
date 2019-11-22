@@ -106,7 +106,7 @@
 
 (define (assq a e)
         (if (null? e)
-            '()
+            e
             (if (eq? a (caar e))
                 (car e)
                 (assq a (cdr e)))))
@@ -121,7 +121,7 @@
 
 (define (assv a e)
         (if (null? e)
-            '()
+            e
             (if (eqv? a (caar e))
                 (cdar e)
                 (assv a (cdr e)))))
@@ -136,7 +136,7 @@
 
 (define (assoc a e)
         (if (null? e)
-            '()
+            e
             (if (equal? a (caar e))
                 (car e)
                 (assoc a (cdr e)))))
@@ -231,7 +231,7 @@
 
 (define (list-tail s i)
         (if (null? s)
-            '()
+            s
             (if (positive? i)
                 (list-tail (cdr s) (- i 1))
                 s)))
@@ -245,7 +245,7 @@
                (f (car s))
                (set! s (cdr s))))
 
-(define (map f s) (if (null? s) '() (cons (f (car s)) (map f (cdr s)))))
+(define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
 
 (define (make-counter)
         (let ((n 0))

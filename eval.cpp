@@ -35,8 +35,6 @@
 #include <termios.h>
 #include <unistd.h>
 
-int killed = 1;
-
 #ifdef BROKEN
 #define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
 #else
@@ -84,23 +82,26 @@ typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
 jmp_buf the_jmpbuf;
 
-int  total = 0;         	// total allocation across gc's
-int  marked = 0;        	// how many cells were marked during gc
-int  allocated = 0;     	// how many cells have been allocated
-int  collected = 0;     	// how many gc's
-int  gcstate = 0;           // handling break during gc
 const bool cache = true;    // cache global environment in value cells
-sexp cell = 0;         	    // all the storage starts here
-sexp atoms = 0;         	// all atoms are linked in a list
-sexp global = 0;        	// this is the global symbol table (a list)
-sexp inport = 0;        	// the current input port
-sexp outport = 0;       	// the current output port
-sexp tracing = 0;       	// trace everything
-sexp errport = 0;       	// the stderr port
-sexp freelist = 0;      	// available cells are linked in a list
-sexp *psp = 0;          	// protection stack pointer
-sexp *psend = 0;            // protection stack end
-sexp *protect = 0;      	// protection stack
+int  killed = 1;            // we might not make it through initialization
+int  total;         		// total allocation across gc's
+int  marked;        		// how many cells were marked during gc
+int  allocated;     		// how many cells have been allocated
+int  collected;     		// how many gc's
+int  gcstate;           	// handling break during gc
+sexp expr;              	// the expression read
+sexp valu;              	// the value of it
+sexp cell;         	    	// all the storage starts here
+sexp atoms;         		// all atoms are linked in a list
+sexp global;        		// this is the global symbol table (a list)
+sexp inport;        		// the current input port
+sexp outport;       		// the current output port
+sexp tracing;       		// trace everything
+sexp errport;       		// the stderr port
+sexp freelist;      		// available cells are linked in a list
+sexp *psp;          		// protection stack pointer
+sexp *psend;            	// protection stack end
+sexp *protect;      		// protection stack
 
 sexp closure, comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
 sexp lbracket, lparen, minus, one, promise, qchar, quasiquote, quote;
@@ -433,6 +434,8 @@ sexp gc(sexp args)
     mark(outport);
     mark(zero);
     mark(one);
+    mark(expr);
+    mark(valu);
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
 
@@ -1346,11 +1349,11 @@ char* sref(sexp s, int i)
     return 0;
 }
 
-const char* escapes[] = { "\007a", "\010b", "\011t", "\012n", "\015r", "\"\"", "\\\\", 0 };
+const char * const escapes[] = { "\007a", "\010b", "\011t", "\012n", "\015r", "\"\"", "\\\\", 0 };
 
 char decodeEscape(char c)
 {
-    for (const char** p = escapes; *p; ++p)
+    for (const char * const * p = escapes; *p; ++p)
         if ((*p)[1] == c)
             return (*p)[0];
     return c;
@@ -1358,7 +1361,7 @@ char decodeEscape(char c)
 
 char encodeEscape(char c)
 {
-    for (const char** p = escapes; *p; ++p)
+    for (const char * const * p = escapes; *p; ++p)
         if ((*p)[0] == c)
             return (*p)[1];
     return c;
@@ -2133,7 +2136,6 @@ sexp substringf(sexp s, sexp i, sexp j)
     error("substring: bad arguments");
 }
 
-// (define (append p q) (if p (cons (car p) (append (cdr p) q)) q))
 sexp append(sexp p, sexp q)
 {
     sexp* mark = psp;
@@ -2440,7 +2442,7 @@ std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ug
     return s;
 }
 
-const char *character_table[] =
+const char * const character_table[] =
 {
     "\000nul",       "\001soh", "\002stx",     "\003etx", "\004eot", "\005enq",    "\006ack", "\007bell",
     "\010backspace", "\011tab", "\012newline", "\013vt",  "\014ff",  "\015return", "\016so",  "\017si",
@@ -2788,7 +2790,7 @@ sexp get_value(sexp p, sexp env)
         if (q->car && p == q->car->car)
             return value_put(p, q->car->cdr);
 
-    lookup_error("error: get unbound ", p);
+    lookup_error("unbound: get value ", p);
 }
 
 // lookups in the global environment use the value cell
@@ -2801,7 +2803,7 @@ sexp set_value(sexp p, sexp r, sexp env)
             return voida;
         }
 
-    lookup_error("error: set unbound ", p);
+    lookup_error("unbound: set value ", p);
 }
 
 // define
@@ -2860,7 +2862,7 @@ sexp get(sexp p, sexp env)
         else if (q->car && p == q->car->car)
             return q->car->cdr;
 
-    lookup_error("error: get unbound", p);
+    lookup_error("unbound: get ", p);
 }
 
 // set!
@@ -2877,7 +2879,7 @@ sexp set(sexp p, sexp r, sexp env)
             return voida;
         }
 
-    lookup_error("error: set unbound ", p);
+    lookup_error("unbound: set ", p);
 }
 
 // evaluate a list of arguments in an environment
@@ -3202,7 +3204,7 @@ sexp doform(sexp exp, sexp env)
             if (f != eval(t->car, e))
                 return lose(mark, s);
 
-        // execute each body expression
+        // evaluate each body expression
         s = replace(tailforms(exp->cdr->cdr->cdr, e));
 
         // step each variable
@@ -3442,8 +3444,8 @@ sexp scans(std::istream& fin)
                if ('@' != c) {
                     fin.unget();
                     return comma;
-               }
-               return commaat;
+               } else
+                   return commaat;
     case '#':  c = fin.get();
                switch (c)
                {
@@ -3541,15 +3543,13 @@ sexp scans(std::istream& fin)
     if (RATIONAL == status)
         { long num, den; s >> num; s.get(); s >> den; return newrational(num, den); }
 
-    if ('"' == c)
-    {
-        c = fin.get();
-        sexp r = newcell(STRING, save(readChunks(fin, "\"")));
-        (void)fin.get();  // read the " again
-        return lose(mark, r);
-    }
+    if ('"' != c)
+        return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
 
-    return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
+    c = fin.get();
+    sexp r = newcell(STRING, save(readChunks(fin, "\"")));
+    (void)fin.get();  // read the " again
+    return lose(mark, r);
 }
 
 // stub to enable tracing of scans()
@@ -3577,7 +3577,7 @@ sexp readVector(std::istream& fin, int level)
     {
         sexp s = save(read(fin, level));
         if (eof == s)
-            return 0;
+            return lose(mark, 0);
         if (rbracket == s)
             return lose(mark, list_vector(save(reverse(q))));
         while (unquote == s->car)
@@ -3670,10 +3670,237 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
     exit(0);
 }
 
+void define_atomize_sexpr(const char* name, sexp value)
+{
+    define(atomize(name), value);
+}
+
+struct FuncTable {
+    const char* name;
+    short       arity;
+    void*       func;
+} funcTable[] = {
+    { "&", 0, (void*)andf },
+    { "|", 0, (void*)orf },
+    { "+", 0, (void*)uniadd },
+    { "/", 0, (void*)unidiv },
+    { "%", 0, (void*)unimod },
+    { "*", 0, (void*)unimul },
+    { "-", 0, (void*)unisub },
+    { "^", 0, (void*)xorf },
+    { "~", 1, (void*)complement },
+    { "=", 2, (void*)eqnp },
+    { ">=", 2, (void*)gep },
+    { ">", 2, (void*)gtp },
+    { "<=", 2, (void*)lep },
+    { "<<", 2, (void*)lsh },
+    { "<", 2, (void*)ltp },
+    { ">>", 2, (void*)rsh },
+    { "acos", 1, (void*)acosff },
+    { "angle", 1, (void*)angle },
+    { "append", 2, (void*)append },
+    { "apply", 2, (void*)apply },
+    { "asin", 1, (void*)asinff },
+    { "atan", 1, (void*)atanff },
+    { "atan2", 2, (void*)atan2ff },
+    { "atom?", 1, (void*)atomp },
+    { "atoms", 0, (void*)atomsf },
+    { "boolean?", 1, (void*)booleanp },
+    { "call-with-input-file", 2, (void*)call_with_input_file },
+    { "call-with-output-file", 2, (void*)call_with_output_file },
+    { "call-with-output-string", 1, (void*)call_with_output_string },
+    { "call-with-truncated-output-string", 2, (void*)call_with_truncated_output_string },
+    { "car", 1, (void*)car },
+    { "cdr", 1, (void*)cdr },
+    { "ceiling", 1, (void*)ceilingff },
+    { "char?", 1, (void*)charp },
+    { "char=?", 2, (void*)char_eqp },
+    { "char>=?", 2, (void*)char_gep },
+    { "char>?", 2, (void*)char_gtp },
+    { "char<=?", 2, (void*)char_lep },
+    { "char<?", 2, (void*)char_ltp },
+    { "char-alphabetic?", 1, (void*)char_alphabeticp },
+    { "char-ci=?", 2, (void*)char_cieqp },
+    { "char-ci>=?", 2, (void*)char_cigep },
+    { "char-ci>?", 2, (void*)char_cigtp },
+    { "char-ci<=?", 2, (void*)char_cilep },
+    { "char-ci<?", 2, (void*)char_ciltp },
+    { "char-downcase", 1, (void*)char_downcase },
+    { "char->integer", 1, (void*)char_integer },
+    { "char-lower-case?", 1, (void*)char_lower_casep },
+    { "char-numeric?", 1, (void*)char_numericp },
+    { "char-ready?", 0, (void*)char_readyp },
+    { "char-upcase", 1, (void*)char_upcase },
+    { "char-upper-case?", 1, (void*)char_upper_casep },
+    { "char-whitespace?", 1, (void*)char_whitespacep },
+    { "close-input-port", 1, (void*)close_input_port },
+    { "close-output-port", 1, (void*)close_output_port },
+    { "closure?", 1, (void*)closurep },
+    { "complex?", 1, (void*)complexp },
+    { "cons", 2, (void*)cons },
+    { "cos", 1, (void*)cosff },
+    { "cosh",  1, (void*)coshff },
+    { "current-input-port", 0, (void*)current_input_port },
+    { "current-output-port", 0, (void*)current_output_port },
+    { "cyclic?", 1, (void*)cyclicp },
+    { "diff", 2, (void*)diff },
+    { "display", 0, (void*)displayf },
+    { "eof-object?", 1, (void*)eof_objectp },
+    { "eq?", 2, (void*)eqp },
+    { "equal?", 2, (void*)equalp },
+    { "eqv?", 2, (void*)eqvp },
+    { "eval", 2, (void*)eval },
+    { "exact?", 1, (void*)exactp },
+    { "exact->inexact", 1, (void*)exact_inexact },
+    { "exp", 1, (void*)expff },
+    { "floor", 1, (void*)floorff },
+    { "force", 1, (void*)force },
+    { "form?", 1, (void*)formp },
+    { "gc", 0, (void*)gc },
+    { "gcd", 2, (void*)gcdf },
+    { "get-output-string",  1, (void*)get_output_string },
+    { "inexact?", 1, (void*)inexactp },
+    { "inexact->exact", 1, (void*)inexact_exact },
+    { "input-port?", 1, (void*)input_portp },
+    { "integer?", 1, (void*)integerp },
+    { "integer->char", 1, (void*)integer_char },
+    { "isqrt", 1, (void*)isqrtf },
+    { "lcm", 2, (void*)lcmf },
+    { "list?", 1, (void*)listp },
+    { "list->string", 1, (void*)list_string },
+    { "list->vector", 1, (void*)list_vector },
+    { "load", 1, (void*)load },
+    { "log", 1, (void*)logff },
+    { "magnitude", 1, (void*)magnitude },
+    { "make-string", 0, (void*)make_string },
+    { "make-vector", 0, (void*)make_vector },
+    { "neg", 1, (void*)unineg },
+    { "negative?", 1, (void*)negativep },
+    { "newline", 0, (void*)newline },
+    { "not", 1, (void*)isnot },
+    { "null?", 1, (void*)nullp },
+    { "number?", 1, (void*)numberp },
+    { "number->string", 1, (void*)number_string },
+    { "open-input-file", 1, (void*)open_input_file },
+    { "open-input-string", 0, (void*)open_input_string },
+    { "open-output-file", 1, (void*)open_output_file },
+    { "open-output-string", 0, (void*)open_output_string },
+    { "output-port?", 1, (void*)output_portp },
+    { "pair?", 1, (void*)pairp },
+    { "peek-char", 0, (void*)peek_char },
+    { "positive?", 1, (void*)positivep },
+    { "pow", 2, (void*)powff },
+    { "procedure?", 1, (void*)procedurep },
+    { "product", 2, (void*)product },
+    { "promise?", 1, (void*)promisep },
+    { "promise-forced?", 1, (void*)promise_forcedp },
+    { "promise-value", 1, (void*)promise_value },
+    { "quotient", 2, (void*)quotientf },
+    { "rational?", 1, (void*)rationalp },
+    { "read", 0, (void*)readf },
+    { "read-char", 0, (void*)read_char },
+    { "real?", 1, (void*)realp },
+    { "remainder", 2, (void*)remainderff },
+    { "reverse", 1, (void*)reverse },
+    { "round", 1, (void*)roundff },
+    { "scan",     0, (void*)scanff },
+    { "set-car!", 2, (void*)set_car },
+    { "set-cdr!", 2, (void*)set_cdr },
+    { "sin", 1, (void*)sinff },
+    { "sinh",  1, (void*)sinhff },
+    { "space", 0, (void*)space },
+    { "sqrt", 1, (void*)sqrtff },
+    { "string", 0, (void*)string },
+    { "string?", 1, (void*)stringp },
+    { "string=?", 2, (void*)string_eqp },
+    { "string>=?", 2, (void*)string_gep },
+    { "string>?", 2, (void*)string_gtp },
+    { "string<=?", 2, (void*)string_lep },
+    { "string<?", 2, (void*)string_ltp },
+    { "string-append", 2, (void*)string_append },
+    { "string-ci=?", 2, (void*)string_cieqp },
+    { "string-ci>=?", 2, (void*)string_cigep },
+    { "string-ci>?", 2, (void*)string_cigtp },
+    { "string-ci<=?", 2, (void*)string_cilep },
+    { "string-ci<?", 2, (void*)string_ciltp },
+    { "string-copy", 1, (void*)string_copy },
+    { "string-fill!", 2, (void*)string_fill },
+    { "string-length", 1, (void*)string_length },
+    { "string->list", 1, (void*)string_list },
+    { "string->number", 1, (void*)string_number },
+    { "string-ref", 2, (void*)string_ref },
+    { "string-set!", 3, (void*)string_set },
+    { "string->symbol", 1, (void*)string_symbol },
+    { "substring", 0, (void*)substringf },
+    { "sum", 2, (void*)sum },
+    { "symbol?", 1, (void*)symbolp },
+    { "symbol->string", 1, (void*)symbol_string },
+    { "tan", 1, (void*)tanff },
+    { "tanh",  1, (void*)tanhff },
+    { "trace", 1, (void*)trace },
+    { "truncate", 1, (void*)truncateff },
+    { "undefine", 1, (void*)undefine },
+    { "vector", 0, (void*)vector },
+    { "vector?", 1, (void*)vectorp },
+    { "vector-fill!", 2, (void*)vector_fill },
+    { "vector-length", 1, (void*)vector_length },
+    { "vector->list", 1, (void*)vector_list },
+    { "vector-ref", 2, (void*)vector_ref },
+    { "vector-set!", 3, (void*)vector_set },
+    { "with-input-from-file", 2, (void*)with_input_from_file },
+    { "with-output-to-file", 2, (void*)with_output_to_file },
+    { "write", 0, (void*)writef },
+    { "write-char", 0, (void*)write_char },
+    { "write-to-string", 0, (void*)write_to_string },
+    { "zero?", 1, (void*)zerop },
+    { 0,       0, 0 }
+};
+
+void define_funct_atomize(const char* name, int arity, void* function)
+{
+    define_funct(atomize(name), arity, function);
+}
+
+struct FormTable {
+    const char* name;
+    Formp       form;
+} formTable[] = {
+    { "and", andform },
+    { "begin", begin },
+    { "bound?", boundp },
+    { "case", caseform },
+    { "complex", complexform },
+    { "cond", cond },
+    { "define", defineform },
+    { "delay", delayform },
+    { "do", doform },
+    { "environment", environment },
+    { "if", ifform },
+    { "lambda", lambdaform },
+    { "let", let },
+    { "let*", letstar },
+    { "letrec", letrec },
+    { "or", orform },
+    { "promise", promiseform },
+    { "quasiquote", quasiquoteform },
+    { "quote", quoteform },
+    { "rational", rationalform },
+    { "set!", setform },
+    { "unless", unlessform },
+    { "when", whenform },
+    { "while", whileform },
+    { 0,       0 }
+};
+
+void define_form_atomize(const char* name, Formp formp)
+{
+    define_form(atomize(name), formp);
+}
+
 int main(int argc, char **argv, char **envp)
 {
     // allocate all the cells we will ever have
-    cell = (sexp)new Cons[CELLS];
+    cell = new Cons[CELLS];
     for (int i = CELLS; --i >= 0; )
     {
         cell[i].car = 0;
@@ -3682,7 +3909,7 @@ int main(int argc, char **argv, char **envp)
     }
 
     // allocate the protection stack
-    psp = protect = (sexp*)new sexp[PSIZE];
+    psp   = protect = new sexp[PSIZE];
     psend = protect + PSIZE;
 
     // allocate ports for cin, cout, cerr
@@ -3690,9 +3917,11 @@ int main(int argc, char **argv, char **envp)
     outport = newcell(OUTPORT, (sexp)&coutStream);
     errport = newcell(OUTPORT, (sexp)&cerrStream);
 
+    // constants
     zero = newfixnum(0);
     one  = newfixnum(1);
 
+    // names
     closure         = atomize("closure");
     commaat         = atomize(",@");
     comma           = atomize(",");
@@ -3719,223 +3948,32 @@ int main(int argc, char **argv, char **envp)
     unquotesplicing = atomize("unquote-splicing");
     voida           = atomize("");
 
-    define(atomize("cerr"), errport);
-    define(atomize("cin"),  inport);
-    define(atomize("cout"), outport);
+    // streams
+    define_atomize_sexpr("cerr",     errport);
+    define_atomize_sexpr("cin",      inport);
+    define_atomize_sexpr("cout",     outport);
 
     // metasyntax
-    define(atomize("comma"),    comma);
-    define(atomize("commaat"),  commaat);
-    define(atomize("dot"),      dot);
-    define(atomize("lbracket"), lbracket);
-    define(atomize("lparen"),   lparen);
-    define(atomize("qchar"),    qchar);
-    define(atomize("rbracket"), rbracket);
-    define(atomize("rparen"),   rparen);
-    define(atomize("tick"),     tick);
-    define(atomize("void"),     voida);
+    define_atomize_sexpr("comma",    comma);
+    define_atomize_sexpr("commaat",  commaat);
+    define_atomize_sexpr("dot",      dot);
+    define_atomize_sexpr("lbracket", lbracket);
+    define_atomize_sexpr("lparen",   lparen);
+    define_atomize_sexpr("qchar",    qchar);
+    define_atomize_sexpr("rbracket", rbracket);
+    define_atomize_sexpr("rparen",   rparen);
+    define_atomize_sexpr("tick",     tick);
+    define_atomize_sexpr("void",     voida);
 
-    define_funct(atomize("&"), 0, (void*)andf);
-    define_funct(atomize("|"), 0, (void*)orf);
-    define_funct(atomize("+"), 0, (void*)uniadd);
-    define_funct(atomize("/"), 0, (void*)unidiv);
-    define_funct(atomize("%"), 0, (void*)unimod);
-    define_funct(atomize("*"), 0, (void*)unimul);
-    define_funct(atomize("-"), 0, (void*)unisub);
-    define_funct(atomize("^"), 0, (void*)xorf);
-    define_funct(atomize("~"), 1, (void*)complement);
-    define_funct(atomize("="), 2, (void*)eqnp);
-    define_funct(atomize(">="), 2, (void*)gep);
-    define_funct(atomize(">"), 2, (void*)gtp);
-    define_funct(atomize("<="), 2, (void*)lep);
-    define_funct(atomize("<<"), 2, (void*)lsh);
-    define_funct(atomize("<"), 2, (void*)ltp);
-    define_funct(atomize(">>"), 2, (void*)rsh);
-    define_funct(atomize("acos"), 1, (void*)acosff);
-    define_funct(atomize("angle"), 1, (void*)angle);
-    define_funct(atomize("append"), 2, (void*)append);
-    define_funct(atomize("apply"), 2, (void*)apply);
-    define_funct(atomize("asin"), 1, (void*)asinff);
-    define_funct(atomize("atan"), 1, (void*)atanff);
-    define_funct(atomize("atan2"), 2, (void*)atan2ff);
-    define_funct(atomize("atom?"), 1, (void*)atomp);
-    define_funct(atomize("atoms"), 0, (void*)atomsf);
-    define_funct(atomize("boolean?"), 1, (void*)booleanp);
-    define_funct(atomize("call-with-input-file"), 2, (void*)call_with_input_file);
-    define_funct(atomize("call-with-output-file"), 2, (void*)call_with_output_file);
-    define_funct(atomize("call-with-output-string"), 1, (void*)call_with_output_string);
-    define_funct(atomize("call-with-truncated-output-string"), 2, (void*)call_with_truncated_output_string);
-    define_funct(atomize("car"), 1, (void*)car);
-    define_funct(atomize("cdr"), 1, (void*)cdr);
-    define_funct(atomize("ceiling"), 1, (void*)ceilingff);
-    define_funct(atomize("char?"), 1, (void*)charp);
-    define_funct(atomize("char=?"), 2, (void*)char_eqp);
-    define_funct(atomize("char>=?"), 2, (void*)char_gep);
-    define_funct(atomize("char>?"), 2, (void*)char_gtp);
-    define_funct(atomize("char<=?"), 2, (void*)char_lep);
-    define_funct(atomize("char<?"), 2, (void*)char_ltp);
-    define_funct(atomize("char-alphabetic?"), 1, (void*)char_alphabeticp);
-    define_funct(atomize("char-ci=?"), 2, (void*)char_cieqp);
-    define_funct(atomize("char-ci>=?"), 2, (void*)char_cigep);
-    define_funct(atomize("char-ci>?"), 2, (void*)char_cigtp);
-    define_funct(atomize("char-ci<=?"), 2, (void*)char_cilep);
-    define_funct(atomize("char-ci<?"), 2, (void*)char_ciltp);
-    define_funct(atomize("char-downcase"), 1, (void*)char_downcase);
-    define_funct(atomize("char->integer"), 1, (void*)char_integer);
-    define_funct(atomize("char-lower-case?"), 1, (void*)char_lower_casep);
-    define_funct(atomize("char-numeric?"), 1, (void*)char_numericp);
-    define_funct(atomize("char-ready?"), 0, (void*)char_readyp);
-    define_funct(atomize("char-upcase"), 1, (void*)char_upcase);
-    define_funct(atomize("char-upper-case?"), 1, (void*)char_upper_casep);
-    define_funct(atomize("char-whitespace?"), 1, (void*)char_whitespacep);
-    define_funct(atomize("close-input-port"), 1, (void*)close_input_port);
-    define_funct(atomize("close-output-port"), 1, (void*)close_output_port);
-    define_funct(atomize("closure?"), 1, (void*)closurep);
-    define_funct(atomize("complex?"), 1, (void*)complexp);
-    define_funct(atomize("cons"), 2, (void*)cons);
-    define_funct(atomize("cos"), 1, (void*)cosff);
-    define_funct(atomize("cosh"),  1, (void*)coshff);
-    define_funct(atomize("current-input-port"), 0, (void*)current_input_port);
-    define_funct(atomize("current-output-port"), 0, (void*)current_output_port);
-    define_funct(atomize("cyclic?"), 1, (void*)cyclicp);
-    define_funct(atomize("diff"), 2, (void*)diff);
-    define_funct(atomize("display"), 0, (void*)displayf);
-    define_funct(atomize("eof-object?"), 1, (void*)eof_objectp);
-    define_funct(atomize("eq?"), 2, (void*)eqp);
-    define_funct(atomize("equal?"), 2, (void*)equalp);
-    define_funct(atomize("eqv?"), 2, (void*)eqvp);
-    define_funct(atomize("eval"), 2, (void*)eval);
-    define_funct(atomize("exact?"), 1, (void*)exactp);
-    define_funct(atomize("exact->inexact"), 1, (void*)exact_inexact);
-    define_funct(atomize("exp"), 1, (void*)expff);
-    define_funct(atomize("floor"), 1, (void*)floorff);
-    define_funct(atomize("force"), 1, (void*)force);
-    define_funct(atomize("form?"), 1, (void*)formp);
-    define_funct(atomize("gc"), 0, (void*)gc);
-    define_funct(atomize("gcd"), 2, (void*)gcdf);
-    define_funct(atomize("get-output-string"),  1, (void*)get_output_string);
-    define_funct(atomize("inexact?"), 1, (void*)inexactp);
-    define_funct(atomize("inexact->exact"), 1, (void*)inexact_exact);
-    define_funct(atomize("input-port?"), 1, (void*)input_portp);
-    define_funct(atomize("integer?"), 1, (void*)integerp);
-    define_funct(atomize("integer->char"), 1, (void*)integer_char);
-    define_funct(atomize("isqrt"), 1, (void*)isqrtf);
-    define_funct(atomize("lcm"), 2, (void*)lcmf);
-    define_funct(atomize("list?"), 1, (void*)listp);
-    define_funct(atomize("list->string"), 1, (void*)list_string);
-    define_funct(atomize("list->vector"), 1, (void*)list_vector);
-    define_funct(atomize("load"), 1, (void*)load);
-    define_funct(atomize("log"), 1, (void*)logff);
-    define_funct(atomize("magnitude"), 1, (void*)magnitude);
-    define_funct(atomize("make-string"), 0, (void*)make_string);
-    define_funct(atomize("make-vector"), 0, (void*)make_vector);
-    define_funct(atomize("neg"), 1, (void*)unineg);
-    define_funct(atomize("negative?"), 1, (void*)negativep);
-    define_funct(atomize("newline"), 0, (void*)newline);
-    define_funct(atomize("not"), 1, (void*)isnot);
-    define_funct(atomize("null?"), 1, (void*)nullp);
-    define_funct(atomize("number?"), 1, (void*)numberp);
-    define_funct(atomize("number->string"), 1, (void*)number_string);
-    define_funct(atomize("open-input-file"), 1, (void*)open_input_file);
-    define_funct(atomize("open-input-string"), 0, (void*)open_input_string);
-    define_funct(atomize("open-output-file"), 1, (void*)open_output_file);
-    define_funct(atomize("open-output-string"), 0, (void*)open_output_string);
-    define_funct(atomize("output-port?"), 1, (void*)output_portp);
-    define_funct(atomize("pair?"), 1, (void*)pairp);
-    define_funct(atomize("peek-char"), 0, (void*)peek_char);
-    define_funct(atomize("positive?"), 1, (void*)positivep);
-    define_funct(atomize("pow"), 2, (void*)powff);
-    define_funct(atomize("procedure?"), 1, (void*)procedurep);
-    define_funct(atomize("product"), 2, (void*)product);
-    define_funct(atomize("promise?"), 1, (void*)promisep);
-    define_funct(atomize("promise-forced?"), 1, (void*)promise_forcedp);
-    define_funct(atomize("promise-value"), 1, (void*)promise_value);
-    define_funct(atomize("quotient"), 2, (void*)quotientf);
-    define_funct(atomize("rational?"), 1, (void*)rationalp);
-    define_funct(atomize("read"), 0, (void*)readf);
-    define_funct(atomize("read-char"), 0, (void*)read_char);
-    define_funct(atomize("real?"), 1, (void*)realp);
-    define_funct(atomize("remainder"), 2, (void*)remainderff);
-    define_funct(atomize("reverse"), 1, (void*)reverse);
-    define_funct(atomize("round"), 1, (void*)roundff);
-    define_funct(atomize("scan"),     0, (void*)scanff);
-    define_funct(atomize("set-car!"), 2, (void*)set_car);
-    define_funct(atomize("set-cdr!"), 2, (void*)set_cdr);
-    define_funct(atomize("sin"), 1, (void*)sinff);
-    define_funct(atomize("sinh"),  1, (void*)sinhff);
-    define_funct(atomize("space"), 0, (void*)space);
-    define_funct(atomize("sqrt"), 1, (void*)sqrtff);
-    define_funct(atomize("string"), 0, (void*)string);
-    define_funct(atomize("string?"), 1, (void*)stringp);
-    define_funct(atomize("string=?"), 2, (void*)string_eqp);
-    define_funct(atomize("string>=?"), 2, (void*)string_gep);
-    define_funct(atomize("string>?"), 2, (void*)string_gtp);
-    define_funct(atomize("string<=?"), 2, (void*)string_lep);
-    define_funct(atomize("string<?"), 2, (void*)string_ltp);
-    define_funct(atomize("string-append"), 2, (void*)string_append);
-    define_funct(atomize("string-ci=?"), 2, (void*)string_cieqp);
-    define_funct(atomize("string-ci>=?"), 2, (void*)string_cigep);
-    define_funct(atomize("string-ci>?"), 2, (void*)string_cigtp);
-    define_funct(atomize("string-ci<=?"), 2, (void*)string_cilep);
-    define_funct(atomize("string-ci<?"), 2, (void*)string_ciltp);
-    define_funct(atomize("string-copy"), 1, (void*)string_copy);
-    define_funct(atomize("string-fill!"), 2, (void*)string_fill);
-    define_funct(atomize("string-length"), 1, (void*)string_length);
-    define_funct(atomize("string->list"), 1, (void*)string_list);
-    define_funct(atomize("string->number"), 1, (void*)string_number);
-    define_funct(atomize("string-ref"), 2, (void*)string_ref);
-    define_funct(atomize("string-set!"), 3, (void*)string_set);
-    define_funct(atomize("string->symbol"), 1, (void*)string_symbol);
-    define_funct(atomize("substring"), 0, (void*)substringf);
-    define_funct(atomize("sum"), 2, (void*)sum);
-    define_funct(atomize("symbol?"), 1, (void*)symbolp);
-    define_funct(atomize("symbol->string"), 1, (void*)symbol_string);
-    define_funct(atomize("tan"), 1, (void*)tanff);
-    define_funct(atomize("tanh"),  1, (void*)tanhff);
-    define_funct(atomize("trace"), 1, (void*)trace);
-    define_funct(atomize("truncate"), 1, (void*)truncateff);
-    define_funct(atomize("undefine"), 1, (void*)undefine);
-    define_funct(atomize("vector"), 0, (void*)vector);
-    define_funct(atomize("vector?"), 1, (void*)vectorp);
-    define_funct(atomize("vector-fill!"), 2, (void*)vector_fill);
-    define_funct(atomize("vector-length"), 1, (void*)vector_length);
-    define_funct(atomize("vector->list"), 1, (void*)vector_list);
-    define_funct(atomize("vector-ref"), 2, (void*)vector_ref);
-    define_funct(atomize("vector-set!"), 3, (void*)vector_set);
-    define_funct(atomize("with-input-from-file"), 2, (void*)with_input_from_file);
-    define_funct(atomize("with-output-to-file"), 2, (void*)with_output_to_file);
-    define_funct(atomize("write"), 0, (void*)writef);
-    define_funct(atomize("write-char"), 0, (void*)write_char);
-    define_funct(atomize("write-to-string"), 0, (void*)write_to_string);
-    define_funct(atomize("zero?"), 1, (void*)zerop);
+    for (FuncTable* p = funcTable; p->name; ++p)
+        define_funct(atomize(p->name), p->arity, p->func);
 
-    define_form(atomize("and"), andform);
-    define_form(atomize("begin"), begin);
-    define_form(atomize("bound?"), boundp);
-    define_form(atomize("case"), caseform);
-    define_form(atomize("complex"), complexform);
-    define_form(atomize("cond"), cond);
-    define_form(atomize("define"), defineform);
-    define_form(atomize("delay"), delayform);
-    define_form(atomize("do"), doform);
-    define_form(atomize("environment"), environment);
-    define_form(atomize("if"), ifform);
-    define_form(atomize("lambda"), lambdaform);
-    define_form(atomize("let"), let);
-    define_form(atomize("let*"), letstar);
-    define_form(atomize("letrec"), letrec);
-    define_form(atomize("or"), orform);
-    define_form(atomize("promise"), promiseform);
-    define_form(atomize("quasiquote"), quasiquoteform);
-    define_form(atomize("quote"), quoteform);
-    define_form(atomize("rational"), rationalform);
-    define_form(atomize("set!"), setform);
-    define_form(atomize("unless"), unlessform);
-    define_form(atomize("when"), whenform);
-    define_form(atomize("while"), whileform);
+    for (FormTable* p = formTable; p->name; ++p)
+        define_form(atomize(p->name), p->form);
 
     tracing = f;
 
+    char* s;
     struct sigaction intr_action;
     intr_action.sa_flags = SA_SIGINFO;
     intr_action.sa_sigaction = intr_handler;
@@ -3943,7 +3981,7 @@ int main(int argc, char **argv, char **envp)
     segv_action.sa_flags = SA_SIGINFO;
     segv_action.sa_sigaction = segv_handler;
 
-    char *s = (char*) sigsetjmp(the_jmpbuf, 1);
+    s = (char*) sigsetjmp(the_jmpbuf, 1);
     if (s)
         std::cout << s << std::endl;
 
@@ -3982,21 +4020,19 @@ int main(int argc, char **argv, char **envp)
         collected = 0;
         std::cout << "> ";
         std::cout.flush();
-        sexp* mark = psp;
-        sexp e = save(read(std::cin, 0));
-        if (eof == e)
+        expr = read(std::cin, 0);
+        if (eof == expr)
             break;
         killed = 0;
-        sexp v = replace(eval(e, global));
+        valu = eval(expr, global);
         {
             std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-            display(s, v, seenSet, ugly, 0, false);
+            display(s, valu, seenSet, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
-            if (voida != v)
+            if (voida != valu)
                 std::cout << std::endl;
         }
-        lose(mark, 0);
     }
     return 0;
 }
