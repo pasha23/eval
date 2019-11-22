@@ -7,7 +7,6 @@
 #define PSIZE   32768
 #define CELLS   262144
 #undef  BROKEN
-#define TRACE
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -39,7 +38,7 @@
 #ifdef BROKEN
 #define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
 #else
-#define error(s) do { psp = protect; longjmp(the_jmpbuf, (long)s); } while(0)
+#define error(s) do { longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
 /*
@@ -51,12 +50,7 @@
  *
  * vectors are stored on the regular heap new / delete
  */
-enum Tag0
-{
-    CONS   = 0,
-    OTHER  = 1,
-    MARK   = 2
-};
+enum Tag0 { CONS = 0, OTHER = 1, MARK = 2 };
 
 enum Tag1
 {
@@ -84,12 +78,9 @@ typedef sexp (*Threeargp)(sexp, sexp, sexp);
 jmp_buf the_jmpbuf;
 
 const bool cache = true;    // cache global environment in value cells
-int  killed = 1;            // we might not make it through initialization
-int  total;         		// total allocation across gc's
-int  marked;        		// how many cells were marked during gc
-int  allocated;     		// how many cells have been allocated
-int  collected;     		// how many gc's
-int  gcstate;           	// handling break during gc
+int killed = 1;             // we might not make it through initialization
+int gcstate;           	    // handling break during gc
+int indent;                 // handling eval trace indent
 sexp expr;              	// the expression read
 sexp valu;              	// the value of it
 sexp cell;         	    	// all the storage starts here
@@ -218,7 +209,7 @@ struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 
 // supports uglyprinting
-class ugly
+class Ugly
 {
     static const int tabs = 2;
     static const int eol = 60;
@@ -226,13 +217,13 @@ class ugly
     std::ostream& s;
     std::streampos pos;
 public:
-    ugly(std::ostream& s) : s(s) { pos = s.tellp(); }
+    Ugly(std::ostream& s) : s(s) { pos = s.tellp(); }
     void wrap(int level, int length) { if (s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
 };
 
-std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, ugly& ugly, int level, bool write);
+std::ostream& display(std::ostream& s, sexp p, std::set<sexp>& seenSet, Ugly& ugly, int level, bool write);
 
 static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -359,9 +350,9 @@ static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 
 static inline sexp lose(sexp p) { --psp; return p; }
 
-static inline void markCell(sexp p)   { ((Tags*)p)->tags[0] |=  MARK; ++marked; }
+static inline void markCell(sexp p)   { ((Tags*)p)->tags[0] |=  MARK; }
 
-static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; --marked; }
+static inline void unmarkCell(sexp p) { ((Tags*)p)->tags[0] &= ~MARK; }
 
 /*
  * visit objects reachable from p, setting their MARK bit
@@ -413,36 +404,30 @@ void deleteoutport(sexp v)
         delete stream;
 }
 
-void deletevector(sexp v) { delete ((Vector*)v)->e; }
+static void deletevector(sexp v) { delete ((Vector*)v)->e; }
 
 /*
  * mark all reachable objects
  *
  * sweep all storage, putting unmarked objects on the freelist
  */
-sexp gc(sexp args)
+sexp gc(void)
 {
     ++gcstate;
-    bool verbose = isCons(args) && args->car;
-    int werefree = CELLS-allocated;
-    int wereprot = psp-protect;
 
-    marked = 0;
+    mark(one);
+    mark(zero);
+    mark(expr);
+    mark(valu);
     mark(atoms);
     mark(global);
     mark(inport);
     mark(errport);
     mark(outport);
-    mark(zero);
-    mark(one);
-    mark(expr);
-    mark(valu);
-    for (sexp *p = protect; p < psp; ++p)
-        mark(*p);
+
+    for (sexp *p = protect; p < psp; mark(*p++)) {}
 
     freelist = 0;
-    int reclaimed = 0;
-    int weremark = marked;
 
     for (sexp p = cell; p < cell+CELLS; ++p)
     {
@@ -457,20 +442,13 @@ sexp gc(sexp args)
             p->car = 0;
             p->cdr = freelist;
             freelist = p;
-            ++reclaimed;
         } else 
             unmarkCell(p);
     }
 
-    if (verbose)
-        std::cout << "gc: allocated: " << allocated << " protected: "    << wereprot  << " marked: "       << weremark
-                  << " reclaimed: "    << reclaimed << " collections: "  << collected << " allocation: "   << total << std::endl;
-
-    allocated -= reclaimed-werefree;
-    total += allocated;
-    ++collected;
     if (!freelist)
-        error("error: storage exhausted");
+        error("gc: storage exhausted");
+
     if (gcstate > 1)
     {
         killed = 0;
@@ -498,10 +476,8 @@ void assertFlonum(sexp s) { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) 
  */
 sexp newcell(void)
 {
-    if (allocated >= CELLS)
-        gc(0);
-
-    ++allocated;
+    if (!freelist)
+        gc();
     Cons* p = freelist;
     freelist = freelist->cdr;
     p->cdr = 0; // this is important!
@@ -587,9 +563,8 @@ sexp cons(sexp car, sexp cdr)
 {
     sexp* mark = psp;
     save(car, cdr);
-    if (allocated >= CELLS)
-        gc(0);
-    ++allocated;
+    if (!freelist)
+        gc();
     sexp p = freelist;
     freelist = freelist->cdr;
     p->car = car;
@@ -639,7 +614,7 @@ sexp trace(sexp arg)
 
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
-double rat2real(sexp x) { return (double)asFixnum(x->cdr->car) / (double)asFixnum(x->cdr->cdr->car); }
+double rat2real(sexp x) { x = x->cdr; return (double)asFixnum(x->car) / (double)asFixnum(x->cdr->car); }
 
 double asFlonum(sexp p)
 {
@@ -659,10 +634,13 @@ double asFlonum(sexp p)
 sexp negativep(sexp x)
 {
     if (isRational(x))
-        if (asFixnum(x->cdr->car) < 0)
-            return asFixnum(x->cdr->cdr->car) < 0 ? f : t;
+    {
+        x = x->cdr;
+        if (asFixnum(x->car) < 0)
+            return asFixnum(x->cdr->car) < 0 ? f : t;
         else
-            return asFixnum(x->cdr->cdr->car) < 0 ? t : f;
+            return asFixnum(x->cdr->car) < 0 ? t : f;
+    }
 
     return asFlonum(x) < 0 ? t : f;
 }
@@ -671,10 +649,13 @@ sexp negativep(sexp x)
 sexp positivep(sexp x)
 {
     if (isRational(x))
-        if (asFixnum(x->cdr->car) < 0)
-            return asFixnum(x->cdr->cdr->car) < 0 ? t : f;
+    {
+        x = x->cdr;
+        if (asFixnum(x->car) < 0)
+            return asFixnum(x->cdr->car) < 0 ? t : f;
         else
-            return asFixnum(x->cdr->cdr->car) < 0 ? 0 : t;
+            return asFixnum(x->cdr->car) < 0 ? 0 : t;
+    }
 
     return asFlonum(x) > 0 ? t : f;
 }
@@ -725,15 +706,17 @@ double imagpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->cdr->car); }
 sexp magnitude(sexp z)
 {
     assertComplex(z);
-    return newflonum(sqrt(asFlonum(z->cdr->car)      * asFlonum(z->cdr->car) +
-                          asFlonum(z->cdr->cdr->car) * asFlonum(z->cdr->cdr->car)));
+    z = z->cdr;
+    return newflonum(sqrt(asFlonum(z->car)      * asFlonum(z->car) +
+                          asFlonum(z->cdr->car) * asFlonum(z->cdr->car)));
 }
 
 // angle
 sexp angle(sexp z)
 {
     assertComplex(z);
-    return newflonum(atan2(asFlonum(z->cdr->cdr->car), asFlonum(z->cdr->car)));
+    z = z->cdr;
+    return newflonum(atan2(asFlonum(z->cdr->car), asFlonum(z->car)));
 }
 
 long gcd(long x, long y)
@@ -1218,6 +1201,13 @@ sexp roundff(sexp x)
     return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
 }
 
+// truncate
+sexp truncateff(sexp x)
+{
+    assertFlonum(x);
+    return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x)));
+}
+
 // integer square root
 uint32_t isqrt(uint64_t v)
 {
@@ -1268,9 +1258,6 @@ sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(
 
 // atan2
 sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(atan2(asFlonum(x), asFlonum(y))); }
-
-// truncate
-sexp truncateff(sexp x) { assertFlonum(x); return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x))); }
 
 // integer?
 sexp integerp(sexp x) { return isFixnum(x) ? t : isFlonum(x) && (long)asFlonum(x) == asFlonum(x) ? t : f; }
@@ -1495,7 +1482,7 @@ sexp newstring(const char* s)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
-    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+    std::stringstream s; Ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(s, exp, seenSet, ugly, 0, true);
     return newstring(s.str().c_str());
@@ -1658,21 +1645,21 @@ sexp open_input_string(sexp args)
     sexp s = args->car;
     assertString(s);
 
-    int ii = 0;
+    int i = 0;
     if (args->cdr)
     {
         assertFixnum(args->cdr->car);
-        ii = asFixnum(args->cdr->car);
+        i = asFixnum(args->cdr->car);
     }
 
-    int jj = slen(s);
+    int j = slen(s);
     if (args->cdr->cdr)
     {
         assertFixnum(args->cdr->cdr->car);
-        jj = asFixnum(args->cdr->cdr->car);
+        j = asFixnum(args->cdr->cdr->car);
     }
 
-    if (ii < 0 || jj <= ii)
+    if (i < 0 || j <= i)
         error("open-input-string: bad arguments");
 
     std::stringstream* ss = new std::stringstream();
@@ -1685,14 +1672,14 @@ sexp open_input_string(sexp args)
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
         Chunk* t = (Chunk*)(p->car);
-        if (k <= ii && ii < k+sizeof(t->text))
+        if (k <= i && i < k+sizeof(t->text))
         {
             for (int m = 0; m < sizeof(t->text); ++m)
             {
                 int n = k+m;
-                if (n == jj)
+                if (n == j)
                     return lose((sexp)port);
-                if (ii <= n && n < jj)
+                if (i <= n && n < j)
                     ss->put(t->text[m]);
             }
         }
@@ -1752,7 +1739,7 @@ sexp write_to_string(sexp args)
         assertFixnum(args->cdr->car);
         limit = asFixnum(args->cdr->car);
     }
-    std::stringstream ss; ugly ugly(ss); std::set<sexp> seenSet;
+    std::stringstream ss; Ugly ugly(ss); std::set<sexp> seenSet;
     ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(ss, object, seenSet, ugly, 0, true);
     if (0 == limit) limit = ss.str().length();
@@ -2102,38 +2089,38 @@ sexp string_set(sexp s, sexp k, sexp c)
 }
 
 // substring
-sexp substringf(sexp s, sexp i, sexp j)
+sexp substringf(sexp s)
 {
     if (!s || !isString(s->car) || !s->cdr || !isFixnum(s->cdr->car))
         error("substring: bad arguments");
 
-    int ii = asFixnum(s->cdr->car);
-    int jj = slen(s->car);
+    int i = asFixnum(s->cdr->car);
+    int j = slen(s->car);
     if (s->cdr->cdr && isFixnum(s->cdr->cdr->car))
-        jj = asFixnum(s->cdr->cdr->car);
+        j = asFixnum(s->cdr->cdr->car);
 
     s = s->car;
 
-    if (ii < 0 || jj <= ii)
+    if (i < 0 || j <= i)
         error("substring: bad arguments");
 
-    char* b = (char*)alloca(jj-ii+1);
+    char* b = (char*)alloca(j-i+1);
 
     int k = 0;
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
         Chunk* t = (Chunk*)(p->car);
-        if (k <= ii && ii < k+sizeof(t->text))
+        if (k <= i && i < k+sizeof(t->text))
         {
             for (int m = 0; m < sizeof(t->text); ++m)
             {
                 int n = k+m;
-                if (n == jj) {
-                    b[n-ii] = 0;
+                if (n == j) {
+                    b[n-i] = 0;
                     return newstring(b);
                 }
-                if (ii <= n && n < jj)
-                    b[n-ii] = t->text[m];
+                if (i <= n && n < j)
+                    b[n-i] = t->text[m];
             }
         }
         k += sizeof(t->text);
@@ -2307,7 +2294,7 @@ sexp eof_objectp(sexp a) { return eof == a ? t : f; }
 // display
 sexp displayf(sexp args)
 {
-    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+    std::stringstream s; Ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
@@ -2319,7 +2306,7 @@ sexp displayf(sexp args)
 // write
 sexp writef(sexp args)
 {
-    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+    std::stringstream s; Ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
@@ -2386,13 +2373,13 @@ sexp cyclicp(sexp x) { return cyclic(x) ? t : f; }
 // for prettyprinting
 int displayLength(sexp exp)
 {
-    std::stringstream ss; ugly ugly(ss); std::set<sexp> seenSet;
+    std::stringstream ss; Ugly ugly(ss); std::set<sexp> seenSet;
     ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(ss, exp, seenSet, ugly, 0, true);
     return ss.str().length();
 }
 
-std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
+std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, Ugly& ugly, int level, bool write)
 {
     s << '(';
     level += 2;
@@ -2425,7 +2412,7 @@ std::ostream& displayList(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ug
     return s;
 }
 
-std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
+std::ostream& displayVector(std::ostream& s, sexp v, std::set<sexp>& seenSet, Ugly& ugly, int level, bool write)
 {
     s << '[';
     level += 2;
@@ -2518,7 +2505,7 @@ std::ostream& displayRational(std::ostream& s, sexp exp)
     return s;
 }
 
-std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& ugly, int level, bool write)
+std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, Ugly& ugly, int level, bool write)
 {
     if (!exp)
     {
@@ -2591,7 +2578,7 @@ std::ostream& display(std::ostream& s, sexp exp, std::set<sexp>& seenSet, ugly& 
 // usual way to see what is happening
 void debug(const char *label, sexp exp)
 {
-    std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+    std::stringstream s; Ugly ugly(s); std::set<sexp> seenSet;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     s << label << ": ";
     if (voida == exp)
@@ -2771,6 +2758,7 @@ void lookup_error(const char* msg, sexp p)
     if (len > sizeof(errorBuffer)-strlen(msg))
         len = sizeof(errorBuffer)-strlen(msg);
     char *r = errorBuffer+strlen(msg);
+    *r++ = '"';
     for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
     {
         if (r >= errorBuffer+sizeof(errorBuffer)-1)
@@ -2778,12 +2766,13 @@ void lookup_error(const char* msg, sexp p)
         Chunk* t = (Chunk*)(q->car);
         for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
     }
+    *r++ = '"';
     *r++ = 0;
     error(errorBuffer);
 }
 
 // an Atom has a value cell used as an environment cache
-sexp value_put(sexp p, sexp v)
+static inline sexp value_put(sexp p, sexp v)
 {
     return ((Atom*)p)->body->car = v;
 }
@@ -3130,7 +3119,8 @@ sexp caseform(sexp exp, sexp env)
  */
 sexp setform(sexp exp, sexp env)
 {
-    return lose(set(exp->cdr->car, save(eval(exp->cdr->cdr->car, env)), env));
+    exp = exp->cdr;
+    return lose(set(exp->car, save(eval(exp->cdr->car, env)), env));
 }
 
 sexp names(sexp bs)
@@ -3149,19 +3139,19 @@ sexp let(sexp exp, sexp env)
     sexp* mark = psp;
     save(exp);
     sexp e = save(env);
-    if (isAtom(exp->cdr->car))
+    exp = exp->cdr;
+    if (isAtom(exp->car))
     {
         // (let name ((var val) (var val) ..) body )
-        exp = exp->cdr;
         sexp l = replace(cons(lambda, replace(cons(save(names(exp->cdr->car)), exp->cdr->cdr))));
         sexp c = replace(cons(closure, replace(cons(l, save(cons(env, 0))))));
         c->cdr->cdr->car = e = replace(cons(save(cons(exp->car, c)), e));
         return lose(mark, apply(e->car->cdr, save(values(exp->cdr->car, e))));
     }
     // (let ((var val) (var val) ..) body )
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    for (sexp v = exp->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
-    return lose(mark, tailforms(exp->cdr->cdr, e));
+    return lose(mark, tailforms(exp->cdr, e));
 }
 
 // (let* ((var val) (var val) ..) body )
@@ -3170,9 +3160,10 @@ sexp letstar(sexp exp, sexp env)
     sexp* mark = psp;
     save(exp);
     sexp e = save(env);
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    exp = exp->cdr;
+    for (sexp v = exp->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
-    return lose(mark, tailforms(exp->cdr->cdr, e));
+    return lose(mark, tailforms(exp->cdr, e));
 }
 
 // (letrec ((var val) (var val) ..) body )
@@ -3181,11 +3172,12 @@ sexp letrec(sexp exp, sexp env)
     sexp* mark = psp;
     save(exp);
     sexp e = save(env);
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    exp = exp->cdr;
+    for (sexp v = exp->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    for (sexp v = exp->car; v; v = v->cdr)
         set(v->car->car, eval(v->car->cdr->car, e), e);
-    return lose(mark, tailforms(exp->cdr->cdr, e));
+    return lose(mark, tailforms(exp->cdr, e));
 }
 
 /*
@@ -3203,22 +3195,23 @@ sexp doform(sexp exp, sexp env)
     sexp* mark = psp;
     save(exp);
     sexp e = save(env);
+    exp = exp->cdr;
     // bind all the variables to their values
-    for (sexp v = exp->cdr->car; v; v = v->cdr)
+    for (sexp v = exp->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     sexp s = save(voida);
     for (;;)
     {
         // if any test succeeds, return s
-        for (sexp t = exp->cdr->cdr->car; t; t = t->cdr)
+        for (sexp t = exp->cdr->car; t; t = t->cdr)
             if (f != eval(t->car, e))
                 return lose(mark, s);
 
         // evaluate each body expression
-        s = replace(tailforms(exp->cdr->cdr->cdr, e));
+        s = replace(tailforms(exp->cdr->cdr, e));
 
         // step each variable
-        for (sexp v = exp->cdr->car; v; v = v->cdr)
+        for (sexp v = exp->car; v; v = v->cdr)
             set(v->car->car, eval(v->car->cdr->cdr->car, e), e);
     }
 }
@@ -3286,18 +3279,13 @@ sexp promiseform(sexp exp, sexp env) { assertPromise(exp); return exp; }
 /*
  * malformed constructs will fail without grace
  */
-
-#ifdef TRACE
-
-int indent = 0;
-
 sexp eval(sexp p, sexp env)
 {
     sexp* mark = psp;
     if (f != tracing)
     {
         ++indent;
-        std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+        std::stringstream s; Ugly ugly(s); std::set<sexp> seenSet;
         s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
         s << "eval:";
         for (int i = indent; --i >= 0; s << ' ') {}
@@ -3329,7 +3317,6 @@ sexp eval(sexp p, sexp env)
         std::cout.write(s.str().c_str(), s.str().length());
         --indent;
         return lose(mark, p);
-
     } else {
         if (!p)
             error("invalid: ()");
@@ -3344,36 +3331,6 @@ sexp eval(sexp p, sexp env)
         return lose(mark, apply(fun, save(evlis(p->cdr, env))));
     }
 }
-
-#else
-
-sexp eval(sexp p, sexp env)
-{
-    if (f != tracing)
-        debug("eval", p);
-
-    if (!p)
-        error("invalid: ()");
-
-    if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
-        return p;
-
-    if (isAtom(p))
-        return get(p, env);
-
-    sexp* mark = psp;
-
-    save(p, env);
-
-    sexp fun = save(eval(p->car, env));
-
-    if (isForm(fun))
-        return lose(mark, (*((Form*)fun)->formp)(p, env));
-
-    return lose(mark, apply(fun, save(evlis(p->cdr, env))));
-}
-
-#endif
 
 /*
  * read Chunks terminated by some character or eof
@@ -3414,7 +3371,7 @@ sexp readChunks(std::istream& fin, const char *ends)
 }
 
 // ignore white space and comments
-char whitespace(std::istream& fin, char c)
+int whitespace(std::istream& fin, int c)
 {
     if (c > 0)
     {
@@ -3499,7 +3456,7 @@ sexp scans(std::istream& fin)
 
     std::stringstream s;
 
-    char c = whitespace(fin, fin.get());
+    int c = whitespace(fin, fin.get());
 
     if (c < 0)
         return eof;
@@ -3743,11 +3700,6 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
     exit(0);
 }
 
-void define_atomize_sexpr(const char* name, sexp value)
-{
-    define(atomize(name), value);
-}
-
 struct FuncTable {
     const char* name;
     short       arity;
@@ -3929,11 +3881,6 @@ struct FuncTable {
     { 0,                                   0, 0 }
 };
 
-void define_funct_atomize(const char* name, int arity, void* function)
-{
-    define_funct(atomize(name), arity, function);
-}
-
 struct FormTable {
     const char* name;
     Formp       form;
@@ -3964,6 +3911,16 @@ struct FormTable {
     { "while",       whileform },
     { 0,             0 }
 };
+
+void define_atomize_sexpr(const char* name, sexp value)
+{
+    define(atomize(name), value);
+}
+
+void define_funct_atomize(const char* name, int arity, void* function)
+{
+    define_funct(atomize(name), arity, function);
+}
 
 void define_form_atomize(const char* name, Formp formp)
 {
@@ -4055,6 +4012,7 @@ int main(int argc, char **argv, char **envp)
     segv_action.sa_sigaction = segv_handler;
 
     s = (char*) sigsetjmp(the_jmpbuf, 1);
+    indent = 0; psp = protect;
     if (s)
         std::cout << s << std::endl;
 
@@ -4074,12 +4032,13 @@ int main(int argc, char **argv, char **envp)
     killed = 0;
 
     s = (char*) sigsetjmp(the_jmpbuf, 1);
+    indent = 0; psp = protect;
     if (s)
         std::cout << s << std::endl;
 
     // read evaluate display ...
 
-    gc(atoms);
+    gc();
 
     for (;;)
     {
@@ -4089,8 +4048,6 @@ int main(int argc, char **argv, char **envp)
             else
                 std::cout << "one item remains on protection stack" << std::endl;
 
-        total = 0;
-        collected = 0;
         std::cout << "> ";
         std::cout.flush();
         expr = read(std::cin, 0);
@@ -4099,7 +4056,7 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         valu = eval(expr, global);
         {
-            std::stringstream s; ugly ugly(s); std::set<sexp> seenSet;
+            std::stringstream s; Ugly ugly(s); std::set<sexp> seenSet;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             display(s, valu, seenSet, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
