@@ -7,7 +7,7 @@
 #define PSIZE   32768
 #define CELLS   262144
 #undef  BROKEN
-#define TRACE
+#undef  TRACE
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -630,7 +630,12 @@ sexp orform(sexp p, sexp env)
 }
 
 // trace
-sexp trace(sexp arg) { sexp r = tracing; tracing = arg ? t : f; return r; }
+sexp trace(sexp arg)
+{
+    sexp r = tracing;
+    tracing = f != arg ? t : f;
+    return r;
+}
 
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
@@ -3220,7 +3225,7 @@ sexp apply(sexp fun, sexp args)
     sexp* mark = psp;
     save(fun, args);
 
-    if (false && tracing)
+    if (false && f != tracing)
     {
         debug("apply-fun", fun);
         debug("apply-args", args);
