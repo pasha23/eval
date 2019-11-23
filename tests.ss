@@ -43,7 +43,6 @@
     (= (~ 0) -1)
     (= 5 (cond (#f 1) (#f 2) (#f 3) (#f 4) (else 5)))
     (= 4 (cond (#f 1) (#f 2) (#t 3 4) (#f 4) (else 5)))
-    (= 41/15 (apply + (map (lambda (x) (/ x)) (cdr (iota 10)))))
     (= 2.0 (+ 2.0 (epsilon)))
     (= 7 (s 4 2))
     (string=? "(0 1 2 3 4 5 6 7 8 " (call-with-truncated-output-string 20 (lambda (port) (write (iota 50) port))))
@@ -96,7 +95,6 @@
     (= 3 (string->number "3"))
     (= 3 (vector-length (list->vector (list 1 2 3))))
     (= 3 (vector-length (vector 1 2 3)))
-    (= 41/15 (apply + (map / (cdr (iota 10)))))
     (= (/ 4 2) 2)
     (= 45.0 (real-part 45.0+18.0i))
     (= 45 (string-length (make-string 45)))
@@ -245,6 +243,12 @@
          (eqv? fib20 (read (open-input-file "/tmp/fib20.out"))))
 
     (= 4 (do ((i 1 (+ 1 i))) ((> i 4)) i))
+
+    (= 41/15 (apply + (map / (cdr (iota 10)))))
+
+    (eqv? '(1 1/2 1/3 1/4 1/5 1/6 1/7 1/8 1/9) (map / (cdr (iota 10))))
+
+    (eqv? '(1 1/2 1/6 1/24 1/120 1/720 1/5040 1/40320 1/362880) (map (lambda (x) (/ (fac x))) (cdr (iota 10))))
 
     #t
 ))

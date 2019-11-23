@@ -171,12 +171,22 @@
 
 (define (fold f i s) (if (null? s) 1 (f (car s) (fold f i (cdr s)))))
 
+(define (reverse! s)
+   (let ((q '())
+         (u '()))
+        (while (pair? s)
+               (set! u (cdr s))
+               (set-cdr! s q)
+               (set! q s)
+               (set! s u))
+         q))
+
 (define (iota n)
         (define (riota n)
                 (cond ((< n 0) (cons n (riota (+ n  1))))
                       ((> n 0) (cons n (riota (+ n -1))))
                       (else (cons 0 '()))))
-        (reverse! (riota n)))
+        (reverse! (cdr (riota n))))
 
 (define (pairs a b)
         (if (null? b)
@@ -214,17 +224,6 @@
                                   (mini (car l) (cadr l))
                                   (mini (car l) (minx (cdr l))))))))
                 (minx l)))
-
-(define (reverse! s)
-   (let ((p s)
-         (q '())
-         (u '()))
-        (while (pair? p)
-               (set! u (cdr p))
-               (set-cdr! p q)
-               (set! q p)
-               (set! p u))
-         q))
 
 (define (list-tail s i)
         (if (null? s)
