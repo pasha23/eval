@@ -2975,6 +2975,7 @@ sexp nesteddefine(sexp p, sexp env)
     {
         // (define (foo ...)
         sexp k = p->cdr->car->car;
+        value_put(k, 0);
         sexp v = replace(cons(lambda, save(cons(p->cdr->car->cdr, p->cdr->cdr))));
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
         v = save(lambdaform(v, env));
@@ -2988,8 +2989,10 @@ sexp nesteddefine(sexp p, sexp env)
         // update the closure definition to include the one we just made
         return lose(mark, v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), env));
     } else {
+        sexp k = p->cdr->car;
+        value_put(k, 0);
         for (sexp q = env; q; q = q->cdr)
-            if (p->cdr->car == q->car->car)
+            if (k == q->car->car)
             {
                 q->car->cdr = eval(p->cdr->cdr->car, env);
                 return lose(mark, env);
@@ -3004,8 +3007,6 @@ sexp defineform(sexp p, sexp env)
     sexp e = nesteddefine(p, env);
     if (global == env)
         global = e;
-    // 99% sure this is the right thing to do
-    value_put(e->car->car, e->car->cdr);
     return voida;
 }
 

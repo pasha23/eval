@@ -172,14 +172,11 @@
 (define (fold f i s) (if (null? s) 1 (f (car s) (fold f i (cdr s)))))
 
 (define (iota n)
-    (let ((s '())
-          (i (- n 1)))
-         (while (>= i 0)
-                (set! s (cons i s))
-                (set! i (- i 1)))
-         s))
-
-;; (define (iota n) (if (= 0 n) '() (cons n (iota (- n 1)))))
+        (define (riota n)
+                (cond ((< n 0) (cons n (riota (+ n  1))))
+                      ((> n 0) (cons n (riota (+ n -1))))
+                      (else (cons 0 '()))))
+        (reverse! (riota n)))
 
 (define (pairs a b)
         (if (null? b)
