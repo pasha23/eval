@@ -1,4 +1,10 @@
-all: eval32 eval
+
+all: .tested
+
+.tested: eval32 eval init.ss tests.ss
+	./eval32 tests.ss
+	./eval tests.ss
+	touch .tested
 
 eval32.list: eval32
 	objdump -C -S eval32 > eval32.list
@@ -6,11 +12,9 @@ eval32.list: eval32
 eval.list: eval
 	objdump -C -S eval > eval.list
 
-eval32: eval.cpp init.ss tests.ss
-	g++ -m32 -std=c++17 -ggdb3 -o eval32 eval.cpp
-	./eval32 tests.ss
+eval32: eval.cpp
+	g++ -m32 -ggdb3 -o eval32 eval.cpp
 
-eval: eval.cpp init.ss tests.ss
-	g++ -DUNWIND -std=c++17 -ggdb3 -O1 -o eval eval.cpp -lunwind
-	./eval tests.ss
+eval: eval.cpp
+	g++ -DUNWIND -ggdb3 -O1 -o eval eval.cpp -lunwind
 
