@@ -2839,6 +2839,12 @@ sexp formp(sexp p)
     return isForm(p) ? t : f;
 }
 
+// function?
+sexp functionp(sexp p)
+{
+    return isFunct(p) ? t : f;
+}
+
 // bound?
 sexp boundp(sexp p, sexp env)
 {
@@ -3782,6 +3788,7 @@ struct FuncTable {
     { "floor",                             1, (void*)floorff },
     { "force",                             1, (void*)force },
     { "form?",                             1, (void*)formp },
+    { "function?",                         1, (void*)functionp },
     { "gc",                                0, (void*)gc },
     { "gcd",                               2, (void*)gcdf },
     { "get-output-string",                 1, (void*)get_output_string },

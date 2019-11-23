@@ -270,5 +270,105 @@
                (newline))
         (read-char))
 
-;; (display (map car (interaction-environment))) (newline)
+(define (edit s)
+
+        (define paste-buffer '())
+
+        (define (cursor-insert s)
+                (cons 'cursor s))
+
+        (define (cursor-replace s)
+                (if (not (pair? s))
+                    s
+                    (if (eq? 'cursor (car s))
+                        (cons (cursor-replace (car s)) (cons (read) (cursor-replace (cdr s))))
+                        (cons (cursor-replace (car s)) (cursor-replace (cdr s))))))
+
+        (define (cursor-remove s)
+                (if (pair? s)
+                    (if (eq? 'cursor (car s))
+                        (cdr s)
+                        (cons (cursor-remove (car s)) (cursor-remove (cdr s))))
+                    s))
+
+        (define (cursor-write s)
+                (begin (eval (cursor-remove s) (environment))
+                       s))
+
+        (define (cursor-cdr s)
+                (if (not (pair? s))
+                    s
+                    (if (and (pair? (cdr s))
+                             (eq? 'cursor (car s)))
+                        (cons (cadr s) (cons 'cursor (cddr s)))
+                        (cons (cursor-cdr (car s)) (cursor-cdr (cdr s))))))
+
+        (define (cursor-car s)
+                (if (and (pair? s)
+                         (pair? (cdr s))
+                         (eq? 'cursor (cadr s))) 
+                    (cons 'cursor (cons (car s) (cddr s)))
+                    (if (pair? s)
+                        (cons (cursor-car (car s)) (cursor-car (cdr s)))
+                        s)))
+
+        (define (cursor-in s)
+                (if (not (pair? s))
+                    s
+                    (if (and (eq? 'cursor (car s))
+                             (pair? (cdr s))
+                             (pair? (cadr s)))
+                        (cons (cons 'cursor (cadr s)) (cddr s))
+                        (cons (cursor-in (car s)) (cursor-in (cdr s))))))
+
+        (define (cursor-out s)
+                (if (not (pair? s))
+                    s
+                    (if (and (pair? (car s))
+                             (pair? (cdr s))
+                             (eq? 'cursor (caar s)))
+                        (cons 'cursor (cons (cdar s) (cddr s)))
+                        (cons (cursor-out (car s)) (cursor-out (cdr s))))))
+
+        (define (cursor-cut s)
+                (if (not (pair? s))
+                    s
+                    (if (eq? 'cursor (car s))
+                        (begin (set! paste-buffer (cadr s))
+                               (cons (cursor-cut (car s)) (cursor-cut (cddr s))))
+                        (cons (cursor-cut (car s)) (cursor-cut (cdr s))))))
+
+        (define (cursor-paste s)
+                (if (not (pair? s))
+                    s
+                    (if (eq? 'cursor (car s))
+                        (cons (cursor-paste (car s)) (cons paste-buffer (cursor-paste (cdr s))))
+                        (cons (cursor-paste (car s)) (cursor-paste (cdr s))))))
+
+        (if (not (pair? s))
+            (read)
+            (begin (set! s (cursor-insert s))
+                   (display s)
+                   (newline)
+                   (while (not (eqv? #\return (peek-char)))
+                          (set! s
+                                (cond
+                                 ((eqv? (peek-char) #\d) (cursor-cdr s))
+                                 ((eqv? (peek-char) #\a) (cursor-car s))
+                                 ((eqv? (peek-char) #\r) (cursor-replace s))
+                                 ((eqv? (peek-char) #\x) (cursor-cut s))
+                                 ((eqv? (peek-char) #\p) (cursor-paste s))
+                                 ((eqv? (peek-char) #\i) (cursor-in s))
+                                 ((eqv? (peek-char) #\o) (cursor-out s))
+                                 ((eqv? (peek-char) #\w) (cursor-write s))
+                                 (else s)))
+                          (display s)
+                          (display " ")
+                          (display (read-char))
+                          (newline))
+                    (while (char-ready?)
+                           (read-char))
+                    (cursor-remove s))))
+
+;; (display (map car (environment))) (newline)
 
