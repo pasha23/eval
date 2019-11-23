@@ -561,15 +561,19 @@ sexp define_funct(sexp name, int arity, void* funcp)
 // cons
 sexp cons(sexp car, sexp cdr)
 {
-    sexp* mark = psp;
-    save(car, cdr);
+    sexp* r = psp;
+    sexp* s = r;
+    *s++ = car;
+    *s++ = cdr;
+    psp = s;
     if (!freelist)
         gc();
     sexp p = freelist;
     freelist = freelist->cdr;
     p->car = car;
     p->cdr = cdr;
-    return lose(mark, p);
+    psp = r;
+    return p;
 }
 
 // car
