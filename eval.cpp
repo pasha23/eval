@@ -211,8 +211,8 @@ struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 // supports uglyprinting
 class Ugly
 {
-    static const int tabs = 2;
-    static const int eol = 60;
+    static const int tabs =  4;
+    static const int eol  = 50;
 
     std::ostream& s;
     std::streampos pos;

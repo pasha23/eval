@@ -255,8 +255,10 @@
 
 (let ((t tests))
      (while (pair? t)
-            (if (eqv? #t (eval (car t) (environment)))
-                (begin (display (car t)) (space) (display 'pass) (newline))
-                (begin (display (car t)) (space) (display 'fail) (newline)))
+            (unless (eqv? #t (eval (car t) (environment)))
+                    (display (car t))
+                    (space)
+                    (display 'fail)
+                    (newline))
             (set! t (cdr t))))
 

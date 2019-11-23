@@ -71,18 +71,11 @@
 
 (define (debug l s) (display l) (display ": ") (display s) (newline) s)
 
-(define (make-rational n d)
-   (cons 'rational (cons n (cons d '()))))
+(define (make-rational n d) (cons 'rational (cons n (cons d '()))))
  
-(define (numerator x)
-        (if (rational? x)
-            (cadr x)
-            x))
+(define (numerator x) (if (rational? x) (cadr x) x))
 
-(define (denominator x)
-        (if (rational? x)
-            (caddr x)
-            1))
+(define (denominator x) (if (rational? x) (caddr x) 1))
 
 (define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
 
@@ -107,18 +100,11 @@
                  (simplest-rational y x)
                  (simplest-rational x y))))
 
-(define (make-complex re im)
-    (cons 'rectangular (cons re (cons im '()))))
+(define (make-complex re im) (cons 'rectangular (cons re (cons im '()))))
 
-(define (real-part x)
-        (if (complex? x)
-            (cadr x)
-            x))
+(define (real-part x) (if (complex? x) (cadr x) x))
 
-(define (imag-part x)
-        (if (complex? x)
-            (caddr x)
-            0))
+(define (imag-part x) (if (complex? x) (caddr x) 0))
 
 (define (fib x) (if (<= x 0) 1 (+ (fib (- x 2)) (fib (- x 1)))))
 
@@ -295,9 +281,7 @@
 
 (define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
 
-(define (make-counter)
-        (let ((n 0))
-             (lambda () (begin (set! n (+ n 1)) n))))
+(define (make-counter) (let ((n 0)) (lambda () (begin (set! n (+ n 1)) n))))
 
 (define (polar->rectangular r theta)
     (cons 'complex (cons (* r (cos theta)) (cons (* r (sin theta)) '()))))
@@ -415,8 +399,8 @@
                                  ((eqv? (peek-char) #\w) (cursor-write s))
                                  (else s)))
                           (display s)
-                          (display " ")
-                          (display (read-char))
+                          (space)
+                          (write-char (read-char))
                           (newline))
                     (while (char-ready?)
                            (read-char))
