@@ -203,7 +203,7 @@ struct Float   { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
 struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
 struct Funct   { char tags[sizeof(sexp)]; void*                      funcp; };
 struct Form    { char tags[sizeof(sexp)]; Formp                      formp; };
-struct Char    { char tags[sizeof(sexp)-sizeof(char)];   char           ch; };
+struct Char    { char tags[sizeof(sexp)-sizeof(short)];  short          ch; };
 struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
 struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
@@ -505,7 +505,7 @@ sexp newfixnum(long number)
     return (sexp)p;
 }
 
-sexp newcharacter(char c)
+sexp newcharacter(int c)
 {
     Char* p = (Char*)newcell(CHAR);
     p->ch = c;
@@ -538,24 +538,6 @@ sexp newflonum(double number)
         p->flonum = number;
         return (sexp)p;
     }
-}
-
-sexp define_form(sexp name, Formp formp)
-{
-    assert(name);
-    Form* p = (Form*)save(newcell(FORM));
-    p->formp = formp;
-    define(name, (sexp)p);
-    return lose(name);
-}
-
-sexp define_funct(sexp name, int arity, void* funcp)
-{
-    assert(name);
-    Funct* p = (Funct*)save(newcell(FUNCT));
-    p->tags[2] = arity; p->funcp = funcp;
-    define(name, (sexp)p);
-    return lose(name);
 }
 
 // cons
@@ -1168,18 +1150,20 @@ sexp unimod(sexp l)
     return lose(mark, result);
 }
 
+sexp floatstub(double (*f)(double), sexp x) { assertFlonum(x); return newflonum((*f)(asFlonum(x))); }
+
 // functions on real numbers
-sexp acosff(sexp x)    { assertFlonum(x); return newflonum(acos(asFlonum(x)));  } // acos
-sexp asinff(sexp x)    { assertFlonum(x); return newflonum(asin(asFlonum(x)));  } // asin
-sexp atanff(sexp x)    { assertFlonum(x); return newflonum(atan(asFlonum(x)));  } // atan
-sexp cosff(sexp x)     { assertFlonum(x); return newflonum(cos(asFlonum(x)));   } // cos
-sexp coshff(sexp x)    { assertFlonum(x); return newflonum(cosh(asFlonum(x)));  } // cosh
-sexp expff(sexp x)     { assertFlonum(x); return newflonum(exp(asFlonum(x)));   } // exp
-sexp logff(sexp x)     { assertFlonum(x); return newflonum(log(asFlonum(x)));   } // log
-sexp sinff(sexp x)     { assertFlonum(x); return newflonum(sin(asFlonum(x)));   } // sin
-sexp sinhff(sexp x)    { assertFlonum(x); return newflonum(sinh(asFlonum(x)));  } // sinh
-sexp tanff(sexp x)     { assertFlonum(x); return newflonum(tan(asFlonum(x)));   } // tan
-sexp tanhff(sexp x)    { assertFlonum(x); return newflonum(tanh(asFlonum(x)));  } // tanh
+sexp acosff(sexp x) { return floatstub(acos, x); } // acos
+sexp asinff(sexp x) { return floatstub(asin, x); } // asin
+sexp atanff(sexp x) { return floatstub(atan, x); } // atan
+sexp cosff(sexp x)  { return floatstub(cos,  x); } // cos
+sexp coshff(sexp x) { return floatstub(cosh, x); } // cosh
+sexp expff(sexp x)  { return floatstub(exp,  x); } // exp
+sexp logff(sexp x)  { return floatstub(log,  x); } // log
+sexp sinff(sexp x)  { return floatstub(sin,  x); } // sin
+sexp sinhff(sexp x) { return floatstub(sinh, x); } // sinh
+sexp tanff(sexp x)  { return floatstub(tan,  x); } // tan
+sexp tanhff(sexp x) { return floatstub(tanh, x); } // tanh
 
 // ceil
 sexp ceilingff(sexp x)
@@ -1372,10 +1356,9 @@ sexp newchunk(const char *t)
     if (0 == *t)
         return 0;
 
-    sexp p = save(newcell());
+    Chunk* r = (Chunk*) save(newcell(CHUNK));
+    sexp p = replace(cons((sexp)r, 0));
     sexp q = p;
-    Chunk* r = (Chunk*) newcell(CHUNK);
-    q->car = (sexp) r;
 
     int i = 0;
     for (;;)
@@ -1397,9 +1380,8 @@ sexp newchunk(const char *t)
         if (i == sizeof(r->text))
         {
             i = 0;
-            q = q->cdr = newcell();
-            r = (Chunk*) newcell(CHUNK);
-            q->car = (sexp) r;
+            r = (Chunk*) save(newcell(CHUNK));
+            q = q->cdr = lose(cons((sexp)r, 0));
         }
     }
 }
@@ -1501,9 +1483,9 @@ sexp make_string(sexp args)
     int l = asFixnum(args->car);
     char *b = (char*) alloca(l+1);
     char *q = b;
-    char c = args->cdr &&
-             isChar(args->cdr->car) ?
-             ((Char*)(args->cdr->car))->ch : ' ';
+    int c = args->cdr && isChar(args->cdr->car) ?
+                  ((Char*)(args->cdr->car))->ch : ' ';
+    // utf8
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
@@ -1552,7 +1534,8 @@ sexp string_fill(sexp s, sexp c)
     assertChar(c);
     assertString(s);
 
-    char k = ((Char*)c)->ch;
+    int k = ((Char*)c)->ch;
+    // utf8
     for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
     {
         Chunk* t = (Chunk*)(p->car);
@@ -1856,6 +1839,8 @@ sexp vector_set(sexp vector, sexp index, sexp value)
     return voida;
 }
 
+// all of these need to be made utf8
+
 // char-alphabetic?
 sexp char_alphabeticp(sexp c) { return isChar(c) && isalpha(((Char*)c)->ch) ? t : f; }
 
@@ -2026,6 +2011,7 @@ sexp write_char(sexp args)
             assertOutPort(port = args->cdr->car);
     }
 
+    // utf8
     ((OutPort*)port)->s->put(((Char*)(args->car))->ch);
 
     return voida;
@@ -2083,6 +2069,7 @@ sexp string_set(sexp s, sexp k, sexp c)
     assertFixnum(k);
     assertChar(c);
 
+    // utf8
     char* p = sref(s, asFixnum(k));
     if (!p)
         error("string-set!: out of bounds");
@@ -2493,7 +2480,7 @@ std::ostream& displayNamed(std::ostream& s, const char *kind, sexp exp, bool wri
 
 std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
 {
-    char c = ((Char*)exp)->ch;
+    int c = ((Char*)exp)->ch;
     for (int i = 0; character_table[i]; ++i)
         if (c == *character_table[i]) {
             s << "#\\" << 1+character_table[i];
@@ -2643,24 +2630,23 @@ sexp list_string(sexp s)
 
     sexp* mark = psp;
     save(s);
-    sexp p = save(newcell());
+    Chunk* r = (Chunk*) save(newcell(CHUNK));
+    sexp p = replace(cons((sexp)r, 0));
     sexp q = p;
-    Chunk* r = (Chunk*) newcell(CHUNK);
-    q->car = (sexp) r;
 
     int i = 0;
     for ( ; s; s = s->cdr)
     {
         assertChar(s->car);
 
+        // utf8
         r->text[i++] = ((Char*)(s->car))->ch;
 
         if (i == sizeof(r->text))
         {
             i = 0;
-            q = q->cdr = newcell();
-            r = (Chunk*) newcell(CHUNK);
-            q->car = (sexp) r;
+            r = (Chunk*) save(newcell(CHUNK));
+            q = q->cdr = lose(cons((sexp)r, 0));
         }
     }
 
@@ -3349,10 +3335,9 @@ sexp eval(sexp p, sexp env)
 sexp readChunks(std::istream& fin, const char *ends)
 {
     sexp* mark = psp;
-    sexp p = save(newcell());
+    Chunk* r = (Chunk*) save(newcell(CHUNK));
+    sexp p = replace(cons((sexp)r, 0));
     sexp q = p;
-    Chunk* r = (Chunk*) newcell(CHUNK);
-    q->car = (sexp) r;
 
     for (int i = 0; ; )
     {
@@ -3374,9 +3359,8 @@ sexp readChunks(std::istream& fin, const char *ends)
         if (i == sizeof(r->text))
         {
             i = 0;
-            q = q->cdr = newcell();
-            r = (Chunk*) newcell(CHUNK);
-            q->car = (sexp) r;
+            r = (Chunk*) save(newcell(CHUNK));
+            q = q->cdr = lose(cons((sexp)r, 0));
         }
     }
 }
@@ -3714,7 +3698,7 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
 struct FuncTable {
     const char* name;
     short       arity;
-    void*       func;
+    void*       funcp;
 } funcTable[] = {
     { "&",                                 0, (void*)andf },
     { "|",                                 0, (void*)orf },
@@ -3895,7 +3879,7 @@ struct FuncTable {
 
 struct FormTable {
     const char* name;
-    Formp       form;
+    Formp       formp;
 } formTable[] = {
     { "and",         andform },
     { "begin",       begin },
@@ -3927,16 +3911,6 @@ struct FormTable {
 void define_atomize_sexpr(const char* name, sexp value)
 {
     define(atomize(name), value);
-}
-
-void define_funct_atomize(const char* name, int arity, void* function)
-{
-    define_funct(atomize(name), arity, function);
-}
-
-void define_form_atomize(const char* name, Formp formp)
-{
-    define_form(atomize(name), formp);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -4008,10 +3982,22 @@ int main(int argc, char **argv, char **envp)
     define_atomize_sexpr("void",     voida);
 
     for (FuncTable* p = funcTable; p->name; ++p)
-        define_funct(atomize(p->name), p->arity, p->func);
+    {
+        sexp* mark = psp;
+        Funct* f = (Funct*)save(newcell(FUNCT));
+        f->tags[2] = p->arity; f->funcp = p->funcp;
+        define(save(atomize(p->name)), (sexp)f);
+        psp = mark;
+    }
 
     for (FormTable* p = formTable; p->name; ++p)
-        define_form(atomize(p->name), p->form);
+    {
+        sexp* mark = psp;
+        Form* f = (Form*)save(newcell(FORM));
+        f->formp = p->formp;
+        define(save(atomize(p->name)), (sexp)f);
+        psp = mark;
+    }
 
     tracing = f;
 
