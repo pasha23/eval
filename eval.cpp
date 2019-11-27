@@ -2486,10 +2486,10 @@ std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
     int c = ((Char*)exp)->ch;
     for (int i = 0; character_table[i]; ++i)
         if (c == *character_table[i]) {
-            s << "#\\" << 1+character_table[i];
+            s << "#\\" << (1+character_table[i]);
             return s;
         }
-    s << "#\\" << ((Char*)exp)->ch;;
+    s << "#\\" << (char)((Char*)exp)->ch;
     return s;
 }
 
