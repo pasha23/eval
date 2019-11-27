@@ -13,8 +13,8 @@ eval.list: eval
 	objdump -C -S eval > eval.list
 
 eval32: eval.cpp
-	g++ -m32 -ggdb3 -o eval32 eval.cpp
+	g++ -std=c++11 -m32 -ggdb3 -o eval32 eval.cpp
 
 eval: eval.cpp
-	g++ -DUNWIND -ggdb3 -O1 -o eval eval.cpp -lunwind
+	g++ -std=c++11 -DUNWIND -ggdb3 -O1 -o eval eval.cpp -lunwind
 

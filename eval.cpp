@@ -427,7 +427,8 @@ sexp gc(void)
     mark(errport);
     mark(outport);
 
-    for (sexp *p = protect; p < psp; mark(*p++)) {}
+    for (sexp *p = protect; p < psp; ++p)
+        mark(*p);
 
     freelist = 0;
 
@@ -3389,6 +3390,11 @@ int whitespace(std::istream& fin, int c)
 
 enum NumStatus { NON_NUMERIC, FIXED, RATIONAL, FLOATING, COMPLEX };
 
+int accept(std::stringstream& s, std::istream& f, int c)
+{
+    s.put(c); return f.get();
+}
+
 // scan a number from fin, copy it to s, set status, return next character
 int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
 {
@@ -3397,45 +3403,35 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
     while (isspace(c))
         c = fin.get();
     if ('-' == c)
-        { s.put(c); c = fin.get(); }
+        c = accept(s, fin, c);
     while (isdigit(c))
-        { status = FIXED; s.put(c); c = fin.get(); }
+        { status = FIXED; c = accept(s, fin, c); }
     if ('.' == c)
-        { status = FLOATING; s.put(c); c = fin.get(); }
+        { status = FLOATING; c = accept(s, fin, c); }
     while (isdigit(c))
-        { status = FLOATING; s.put(c); c = fin.get(); }
-
+        { status = FLOATING; c = accept(s, fin, c); }
     if (status > NON_NUMERIC && ('e' == c || 'E' == c))
     {
         status = NON_NUMERIC;
-        s.put(c);
-        c = fin.get();
-        if ('-' == c) {
-            s.put(c);
-            c = fin.get();
-        } else if ('+' == c) {
-            s.put(c);
-            c = fin.get();
-        }
+        c = accept(s, fin, c);
+        if ('-' == c)
+            c = accept(s, fin, c);
+        else if ('+' == c)
+            c = accept(s, fin, c);
         while (isdigit(c))
         {
             status = FLOATING;
-            s.put(c);
-            c = fin.get();
+            c = accept(s, fin, c);
         }
     }
 
     if (status == FIXED && '/' == c)
     {
-        s.put(c);
-        c = fin.get();
+        c = accept(s, fin, c);
         if ('-' == c)
-        {
-            s.put(c);
-            c = fin.get();
-        }
+            c = accept(s, fin, c);
         while (isdigit(c))
-            { status = RATIONAL; s.put(c); c = fin.get(); }
+            { status = RATIONAL; c = accept(s, fin, c); }
     }
 
     fin.unget();
@@ -3481,7 +3477,7 @@ sexp scans(std::istream& fin)
                case '\\':
                     c = fin.get();
                     do
-                        { s.put(c); c = fin.get(); }
+                        c = accept(s, fin, c);
                     while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
                     fin.unget();
                     const char* buf = s.str().c_str();
