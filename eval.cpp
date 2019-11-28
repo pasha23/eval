@@ -220,7 +220,8 @@ public:
     int label;
     std::ostream& s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(std::ostream& s, bool write) : s(s), label(0), write(write) { pos = s.tellp(); }
+    Context(std::ostream& s, bool write) : s(s), label(0), write(write) { setp(); pos = s.tellp(); }
+    void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
@@ -1475,7 +1476,6 @@ sexp newstring(const char* s)
 sexp number_string(sexp exp)
 {
     std::stringstream s; Context context(s, true);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(context, exp);
     return newstring(s.str().c_str());
 }
@@ -1733,7 +1733,6 @@ sexp write_to_string(sexp args)
         limit = asFixnum(args->cdr->car);
     }
     std::stringstream s; Context context(s, true);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(context, exp);
     if (0 == limit) limit = s.str().length();
     return newstring(s.str().substr(0, limit).c_str());
@@ -2292,7 +2291,6 @@ sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 sexp displayf(sexp args)
 {
     std::stringstream s; Context context(s, false);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
@@ -2304,7 +2302,6 @@ sexp displayf(sexp args)
 sexp writef(sexp args)
 {
     std::stringstream s; Context context(s, true);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
@@ -2370,7 +2367,6 @@ sexp cyclicp(sexp x) { return boolwrap(cyclic(x)); }
 int displayLength(sexp exp)
 {
     std::stringstream s; Context context(s, true);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     display(context, exp);
     return s.str().length();
 }
@@ -2612,7 +2608,6 @@ void display(Context& context, sexp exp)
 void debug(const char *what, sexp exp)
 {
     std::stringstream s; Context context(s, true);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     s << what << ": ";
     if (voida == exp)
         s << "void";
@@ -3326,7 +3321,6 @@ sexp eval(sexp p, sexp env)
     {
         ++indent;
         std::stringstream s; Context context(s, true);
-        s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
         s << "eval:";
         for (int i = indent; --i >= 0; s << ' ') {}
         if (voida == p)
@@ -4093,7 +4087,6 @@ int main(int argc, char **argv, char **envp)
         valu = eval(expr, global);
         {
             std::stringstream s; Context context(s, false);
-            s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             display(context, valu);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != valu)
