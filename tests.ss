@@ -39,10 +39,16 @@
           ((= k n) 1)
           (else (+ (s (- n 1) (- k 1)) (* k (s (- n 1) k))))))
 
+(define bbbbb '(b))
+(define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
+(set-cdr! (cddddr aaaaa) aaaaa)
+
 (define (test s)
         (unless (eq? #t (eval s (environment)))
                 (begin (display "fail ") (display s) (newline)))
         (gc))
+
+(test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
 
 (test '(= 0 0))
 (test '(= (~ 0) -1))

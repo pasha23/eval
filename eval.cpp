@@ -224,7 +224,7 @@ public:
     void space(void) { s << ' '; }
 };
 
-void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, int level);
+void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label);
 
 std::ostream& display(std::ostream& s, sexp p, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write);
 
@@ -1477,7 +1477,7 @@ sexp number_string(sexp exp)
     std::stringstream s; Ugly ugly(s);
     std::unordered_map<sexp,sexp> seenMap; int label = 0;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, seenMap, label, 0);
+    displayCycle(exp, seenMap, label);
     display(s, exp, seenMap, label, ugly, 0, true);
     return newstring(s.str().c_str());
 }
@@ -1737,7 +1737,7 @@ sexp write_to_string(sexp args)
     std::stringstream ss; Ugly ugly(ss);
     std::unordered_map<sexp,sexp> seenMap; int label = 0;
     ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, seenMap, label, 0);
+    displayCycle(exp, seenMap, label);
     display(ss, exp, seenMap, label, ugly, 0, true);
     if (0 == limit) limit = ss.str().length();
     return newstring(ss.str().substr(0, limit).c_str());
@@ -2300,7 +2300,7 @@ sexp displayf(sexp args)
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(args->car, seenMap, label, 0);
+    displayCycle(args->car, seenMap, label);
     display(s, args->car, seenMap, label, ugly, 0, false);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
@@ -2314,7 +2314,7 @@ sexp writef(sexp args)
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(args->car, seenMap, label, 0);
+    displayCycle(args->car, seenMap, label);
     display(s, args->car, seenMap, label, ugly, 0, true);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
@@ -2381,7 +2381,7 @@ int displayLength(sexp exp)
     std::stringstream ss; Ugly ugly(ss);
     std::unordered_map<sexp,sexp> seenMap; int label = 0;
     ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, seenMap, label, 0);
+    displayCycle(exp, seenMap, label);
     display(ss, exp, seenMap, label, ugly, 0, true);
     return ss.str().length();
 }
@@ -2448,9 +2448,8 @@ std::ostream& displayVector(std::ostream& s, sexp v, std::unordered_map<sexp,sex
         else if (t == value) {
             s << '#' << label << '=';
             seenMap[vv->e[i]] = newfixnum(label++);
-            display(s, vv->e[i], seenMap, label, ugly, level+2, write);
-        } else
-            display(s, vv->e[i], seenMap, label, ugly, level+2, write);
+        }
+        display(s, vv->e[i], seenMap, label, ugly, level+2, write);
         if (i < vv->l-1)
         {
             s << ",";
@@ -2535,13 +2534,13 @@ std::ostream& displayRational(std::ostream& s, sexp exp)
     return s;
 }
 
-void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, int level)
+void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label)
 {
     if (isCons(exp)) {
         if (0 == seenMap[exp]) {
             seenMap[exp] = f;
-            displayCycle(exp->car, seenMap, label, level+1);
-            displayCycle(exp->cdr, seenMap, label, level+1);
+            displayCycle(exp->car, seenMap, label);
+            displayCycle(exp->cdr, seenMap, label);
         } else
             seenMap[exp] = t;
     } else if (isVector(exp)) {
@@ -2549,7 +2548,7 @@ void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, 
             seenMap[exp] = f;
             Vector* v = (Vector*)exp;
             for (int i = 0; i < v->l; ++i)
-                displayCycle(v->e[i], seenMap, label, level+1);
+                displayCycle(v->e[i], seenMap, label);
         } else
             seenMap[exp] = t;
     }
@@ -2636,7 +2635,7 @@ void debug(const char *what, sexp exp)
         s << "void";
     else
     {
-        displayCycle(exp, seenMap, label, 0);
+        displayCycle(exp, seenMap, label);
         display(s, exp, seenMap, label, ugly, 0, true);
     }
     s << std::endl;
@@ -3354,7 +3353,7 @@ sexp eval(sexp p, sexp env)
             s << "void";
         else
         {
-            displayCycle(p, seenMap, label, 0);
+            displayCycle(p, seenMap, label);
             display(s, p, seenMap, label, ugly, 0, true);
         }
         s << " ==> ";
@@ -3377,7 +3376,7 @@ sexp eval(sexp p, sexp env)
             s << "void";
         else
         {
-            displayCycle(p, seenMap, label, 0);
+            displayCycle(p, seenMap, label);
             display(s, p, seenMap, label, ugly, 0, true);
         }
         s << std::endl;
@@ -4122,7 +4121,7 @@ int main(int argc, char **argv, char **envp)
             std::stringstream s; Ugly ugly(s);
             std::unordered_map<sexp,sexp> seenMap; int label = 0;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-            displayCycle(valu, seenMap, label, 0);
+            displayCycle(valu, seenMap, label);
             display(s, valu, seenMap, label, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != valu)
