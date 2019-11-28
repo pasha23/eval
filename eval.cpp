@@ -218,9 +218,9 @@ class Context
 public:
     bool write;
     int label;
-    std::ostream& s;
+    std::stringstream s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(std::ostream& s, bool write) : s(s), label(0), write(write) { setp(); pos = s.tellp(); }
+    Context(bool write) : label(0), write(write) { setp(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
@@ -1475,9 +1475,9 @@ sexp newstring(const char* s)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
-    std::stringstream s; Context context(s, true);
+    Context context(true);
     display(context, exp);
-    return newstring(s.str().c_str());
+    return newstring(context.s.str().c_str());
 }
 
 // make-string
@@ -1732,10 +1732,10 @@ sexp write_to_string(sexp args)
         assertFixnum(args->cdr->car);
         limit = asFixnum(args->cdr->car);
     }
-    std::stringstream s; Context context(s, true);
+    Context context(true);
     display(context, exp);
-    if (0 == limit) limit = s.str().length();
-    return newstring(s.str().substr(0, limit).c_str());
+    if (0 == limit) limit = context.s.str().length();
+    return newstring(context.s.str().substr(0, limit).c_str());
 }
 
 // vector?
@@ -2290,22 +2290,22 @@ sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 // display
 sexp displayf(sexp args)
 {
-    std::stringstream s; Context context(s, false);
+    Context context(false);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
-    ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
+    ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
 }
 
 // write
 sexp writef(sexp args)
 {
-    std::stringstream s; Context context(s, true);
+    Context context(true);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
-    ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
+    ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
 }
 
@@ -2366,9 +2366,9 @@ sexp cyclicp(sexp x) { return boolwrap(cyclic(x)); }
 // for prettyprinting
 int displayLength(sexp exp)
 {
-    std::stringstream s; Context context(s, true);
+    Context context(true);
     display(context, exp);
-    return s.str().length();
+    return context.s.str().length();
 }
 
 void display(Context& context, sexp p, int level);
@@ -2607,14 +2607,14 @@ void display(Context& context, sexp exp)
 // usual way to see what is happening
 void debug(const char *what, sexp exp)
 {
-    std::stringstream s; Context context(s, true);
-    s << what << ": ";
+    Context context(true);
+    context.s << what << ": ";
     if (voida == exp)
-        s << "void";
+        context.s << "void";
     else
         display(context, exp);
-    s << std::endl;
-    std::cout.write(s.str().c_str(), s.str().length());
+    context.s << std::endl;
+    std::cout.write(context.s.str().c_str(), context.s.str().length());
 }
 
 // string->symbol
@@ -2635,10 +2635,9 @@ sexp symbol_string(sexp x)
 // string->number (actually we will convert arbitrary s-expressions)
 sexp string_number(sexp exp)
 {
-    std::stringstream s;
-    Context context(s, false);
+    Context context(false);
     displayChunks(context, ((String*)exp)->chunks, false);
-    return read(s, 0);
+    return read(context.s, 0);
 }
 
 // string->list
@@ -3320,14 +3319,14 @@ sexp eval(sexp p, sexp env)
     if (f != tracing)
     {
         ++indent;
-        std::stringstream s; Context context(s, true);
-        s << "eval:";
-        for (int i = indent; --i >= 0; s << ' ') {}
+        Context context(true);
+        context.s << "eval:";
+        for (int i = indent; --i >= 0; context.s << ' ') {}
         if (voida == p)
-            s << "void";
+            context.s << "void";
         else
             display(context, p);
-        s << " ==> ";
+        context.s << " ==> ";
         if (!p)
             error("invalid: ()");
         if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
@@ -3344,11 +3343,11 @@ sexp eval(sexp p, sexp env)
                 p = save(apply(fun, save(evlis(p->cdr, env))));
         }
         if (voida == p)
-            s << "void";
+            context.s << "void";
         else
             display(context, p);
-        s << std::endl;
-        std::cout.write(s.str().c_str(), s.str().length());
+        context.s << std::endl;
+        std::cout.write(context.s.str().c_str(), context.s.str().length());
         --indent;
         return lose(mark, p);
     } else {
@@ -4086,9 +4085,9 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         valu = eval(expr, global);
         {
-            std::stringstream s; Context context(s, false);
+            Context context(false);
             display(context, valu);
-            std::cout.write(s.str().c_str(), s.str().length());
+            std::cout.write(context.s.str().c_str(), context.s.str().length());
             if (voida != valu)
                 std::cout << std::endl;
         }
