@@ -210,23 +210,25 @@ struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 
 // supports uglyprinting
-class Ugly
+class Context
 {
     static const int tabs =  4;
     static const int eol  = 50;
     std::streampos pos;
 public:
+    bool write;
+    int label;
     std::ostream& s;
     std::unordered_map<sexp,sexp> seenMap;
-    Ugly(std::ostream& s) : s(s) { pos = s.tellp(); }
+    Context(std::ostream& s, bool write) : s(s), label(0), write(write) { pos = s.tellp(); }
     void wrap(int level, int length) { if (s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
 };
 
-void displayCycle(sexp exp, Ugly& ugly, int& label);
+void displayCycle(Context& context, sexp exp);
 
-void display(sexp p, int& label, Ugly& ugly, int level, bool write);
+void display(Context& context, sexp p, int level);
 
 static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -1474,11 +1476,10 @@ sexp newstring(const char* s)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
-    std::stringstream s; Ugly ugly(s);
-    int label = 0;
+    std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, ugly, label);
-    display(exp, label, ugly, 0, true);
+    displayCycle(context, exp);
+    display(context, exp, 0);
     return newstring(s.str().c_str());
 }
 
@@ -1734,11 +1735,10 @@ sexp write_to_string(sexp args)
         assertFixnum(args->cdr->car);
         limit = asFixnum(args->cdr->car);
     }
-    std::stringstream s; Ugly ugly(s);
-    int label = 0;
+    std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, ugly, label);
-    display(exp, label, ugly, 0, true);
+    displayCycle(context, exp);
+    display(context, exp, 0);
     if (0 == limit) limit = s.str().length();
     return newstring(s.str().substr(0, limit).c_str());
 }
@@ -2295,13 +2295,12 @@ sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 // display
 sexp displayf(sexp args)
 {
-    std::stringstream s; Ugly ugly(s);
-    int label = 0;
+    std::stringstream s; Context context(s, false);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(args->car, ugly, label);
-    display(args->car, label, ugly, 0, false);
+    displayCycle(context, args->car);
+    display(context, args->car, 0);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
@@ -2309,21 +2308,20 @@ sexp displayf(sexp args)
 // write
 sexp writef(sexp args)
 {
-    std::stringstream s; Ugly ugly(s);
-    int label = 0;
+    std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(args->car, ugly, label);
-    display(args->car, label, ugly, 0, true);
+    displayCycle(context, args->car);
+    display(context, args->car, 0);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
 
-void displayChunks(std::ostream& s, sexp exp, bool atom, bool write)
+void displayChunks(Context& context, sexp exp, bool atom)
 {
-    if (write && !atom)
-        s << '"';
+    if (context.write && !atom)
+        context.s << '"';
     while (exp)
     {
         Chunk* t = (Chunk*)(exp->car);
@@ -2332,15 +2330,15 @@ void displayChunks(std::ostream& s, sexp exp, bool atom, bool write)
             char c = t->text[i];
             if (!c)
                 break;
-            if (write && strchr("\007\b\t\n\r\"\\", c))
-                s << '\\' << encodeEscape(c);
+            if (context.write && strchr("\007\b\t\n\r\"\\", c))
+                context.s << '\\' << encodeEscape(c);
             else
-                s << c;
+                context.s << c;
         }
         exp = exp->cdr;
     }
-    if (write && !atom)
-        s << '"';
+    if (context.write && !atom)
+        context.s << '"';
 }
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
@@ -2377,52 +2375,51 @@ sexp cyclicp(sexp x) { return boolwrap(cyclic(x)); }
 // for prettyprinting
 int displayLength(sexp exp)
 {
-    std::stringstream s; Ugly ugly(s);
-    int label = 0;
+    std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, ugly, label);
-    display(exp, label, ugly, 0, true);
+    displayCycle(context, exp);
+    display(context, exp, 0);
     return s.str().length();
 }
 
-void displayList(sexp exp, int& label, Ugly& ugly, int level, bool write)
+void displayList(Context& context, sexp exp, int level)
 {
     bool first = true;
-    sexp value = ugly.seenMap[exp];
+    sexp value = context.seenMap[exp];
     if (isFixnum(value)) {
-        ugly.s << '#' << asFixnum(value) << '#';
+        context.s << '#' << asFixnum(value) << '#';
         return;
     } else if (t == value) {
-        ugly.s << '#' << label << '=';
-        ugly.seenMap[exp] = newfixnum(label++);
+        context.s << '#' << context.label << '=';
+        context.seenMap[exp] = newfixnum(context.label++);
     }
-    ugly.s << '(';
+    context.s << '(';
     level += 2;
     while (exp)
     {
         if (!first)
         {
-            sexp value = ugly.seenMap[exp];
+            sexp value = context.seenMap[exp];
             if (isFixnum(value)) {
-                ugly.s << ". " << '#' << asFixnum(value) << '#';
+                context.s << ". " << '#' << asFixnum(value) << '#';
                 break;
             } else if (t == value) {
-                ugly.s << '#' << label << '=';
-                ugly.seenMap[exp] = newfixnum(label++);
+                context.s << '#' << context.label << '=';
+                context.seenMap[exp] = newfixnum(context.label++);
             }
         }
-        display(exp->car, label, ugly, level+2, write);
+        display(context, exp->car, level+2);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr) && global != exp->cdr) {
-                if (write)
-                    ugly.s << ' ';
+                if (context.write)
+                    context.s << ' ';
                 else
-                    ugly.wrap(level, displayLength(exp->cdr->car));
+                    context.wrap(level, displayLength(exp->cdr->car));
                 exp = exp->cdr;
             } else {
-                ugly.s << " . ";
+                context.s << " . ";
                 exp = exp->cdr;
-                display(exp, label, ugly, level+2, write);
+                display(context, exp, level+2);
                 exp = 0;
             }
         } else
@@ -2430,35 +2427,35 @@ void displayList(sexp exp, int& label, Ugly& ugly, int level, bool write)
         first = false;
     }
     level -= 2;
-    ugly.s << ')';
+    context.s << ')';
 }
 
-void displayVector(sexp v, int& label, Ugly& ugly, int level, bool write)
+void displayVector(Context& context, sexp v, int level)
 {
-    ugly.s << '[';
+    context.s << '[';
     level += 2;
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        sexp value = ugly.seenMap[vv->e[i]];
+        sexp value = context.seenMap[vv->e[i]];
         if (isFixnum(value))
-            ugly.s << '#' << asFixnum(value) << '#';
+            context.s << '#' << asFixnum(value) << '#';
         else if (t == value) {
-            ugly.s << '#' << label << '=';
-            ugly.seenMap[vv->e[i]] = newfixnum(label++);
+            context.s << '#' << context.label << '=';
+            context.seenMap[vv->e[i]] = newfixnum(context.label++);
         }
-        display(vv->e[i], label, ugly, level+2, write);
+        display(context, vv->e[i], level+2);
         if (i < vv->l-1)
         {
-            ugly.s << ",";
-            if (write)
-                ugly.s << ' ';
+            context.s << ",";
+            if (context.write)
+                context.s << ' ';
             else
-                ugly.wrap(level, displayLength(vv->e[i+1]));
+                context.wrap(level, displayLength(vv->e[i+1]));
         }
     }
     level -= 2;
-    ugly.s << ']';
+    context.s << ']';
 }
 
 const char * const character_table[] =
@@ -2470,14 +2467,14 @@ const char * const character_table[] =
     "\040space",     "\177del", 0
 };
 
-void displayAtom(std::ostream& s, sexp exp, bool write)
+void displayAtom(Context& context, sexp exp)
 {
-    displayChunks(s, ((Atom*)exp)->body->cdr, true, write);
+    displayChunks(context, ((Atom*)exp)->body->cdr, true);
 }
 
-void displayString(std::ostream& s, sexp exp, bool write)
+void displayString(Context& context, sexp exp)
 {
-    displayChunks(s, ((String*)exp)->chunks, false, write);
+    displayChunks(context, ((String*)exp)->chunks, false);
 }
 
 // used for displaying functions, forms. and closures by name
@@ -2489,70 +2486,70 @@ sexp getName(sexp exp)
     return 0;
 }
 
-void displayFunction(std::ostream& s, sexp exp, bool write)
+void displayFunction(Context& context, sexp exp)
 {
-    s << "#<function" << arity(exp) << '@';
+    context.s << "#<function" << arity(exp) << '@';
     sexp name = getName(exp);
     if (name)
-        displayAtom(s, name, write);
+        displayAtom(context, name);
     else
-        s << std::hex << (void*)exp << std::dec;
-    s << '>';
+        context.s << std::hex << (void*)exp << std::dec;
+    context.s << '>';
 }
 
-void displayNamed(std::ostream& s, const char *kind, sexp exp, bool write)
+void displayNamed(Context& context, const char *kind, sexp exp)
 {
-    s << "#<" << kind << '@';
+    context.s << "#<" << kind << '@';
     sexp name = getName(exp);
     if (name)
-        displayAtom(s, name, write);
+        displayAtom(context, name);
     else
-        s << std::hex << (void*)exp << std::dec;
-    s << '>';
+        context.s << std::hex << (void*)exp << std::dec;
+    context.s << '>';
 }
 
-void displayChar(std::ostream& s, sexp exp, bool write)
+void displayChar(Context& context, sexp exp)
 {
     int c = ((Char*)exp)->ch;
     for (int i = 0; character_table[i]; ++i)
         if (c == *character_table[i]) {
-            s << "#\\" << 1+character_table[i];
+            context.s << "#\\" << 1+character_table[i];
             return;
         }
-    s << "#\\" << (char)((Char*)exp)->ch;
+    context.s << "#\\" << (char)((Char*)exp)->ch;
 }
 
-void displayRational(std::ostream& s, sexp exp)
+void displayRational(Context& context, sexp exp)
 {
-    s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
+    context.s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
 }
 
-void displayCycle(sexp exp, Ugly& ugly, int& label)
+void displayCycle(Context& context, sexp exp)
 {
     if (isCons(exp)) {
-        if (0 == ugly.seenMap[exp]) {
-            ugly.seenMap[exp] = f;
-            displayCycle(exp->car, ugly, label);
-            displayCycle(exp->cdr, ugly, label);
+        if (0 == context.seenMap[exp]) {
+            context.seenMap[exp] = f;
+            displayCycle(context, exp->car);
+            displayCycle(context, exp->cdr);
         } else
-            ugly.seenMap[exp] = t;
+            context.seenMap[exp] = t;
     } else if (isVector(exp)) {
-        if (0 == ugly.seenMap[exp]) {
-            ugly.seenMap[exp] = f;
+        if (0 == context.seenMap[exp]) {
+            context.seenMap[exp] = f;
             Vector* v = (Vector*)exp;
             for (int i = 0; i < v->l; ++i)
-                displayCycle(v->e[i], ugly, label);
+                displayCycle(context, v->e[i]);
         } else
-            ugly.seenMap[exp] = t;
+            context.seenMap[exp] = t;
     }
 }
 
 
-void display(sexp exp, int& label, Ugly& ugly, int level, bool write)
+void display(Context& context, sexp exp, int level)
 {
     if (!exp)
     {
-        ugly.s << "()";
+        context.s << "()";
         return;
     }
     if (isCons(exp)) {
@@ -2561,40 +2558,40 @@ void display(sexp exp, int& label, Ugly& ugly, int level, bool write)
         {
             quoted = true;
             sexp p = exp->car;
-            if      (quote           == p) ugly.s << '\'';
-            else if (quasiquote      == p) ugly.s <<  '`';
-            else if (unquote         == p) ugly.s <<  ',';
-            else if (unquotesplicing == p) ugly.s << ",@";
+            if      (quote           == p) context.s << '\'';
+            else if (quasiquote      == p) context.s <<  '`';
+            else if (unquote         == p) context.s <<  ',';
+            else if (unquotesplicing == p) context.s << ",@";
             else quoted = false;
         }
         if (quoted)
-            display(exp->cdr->car, label, ugly, level, write);
+            display(context, exp->cdr->car, level);
         else if (global == exp)
-            ugly.s << "#<global environment>";
+            context.s << "#<global environment>";
         else if (isRational(exp))
-            displayRational(ugly.s, exp);
+            displayRational(context, exp);
         else if (isClosure(exp))
-            displayNamed(ugly.s, "closure", exp, write);
+            displayNamed(context, "closure", exp);
         else if (isPromise(exp))
-            displayNamed(ugly.s, "promise", exp, write);
+            displayNamed(context, "promise", exp);
         else if (isComplex(exp)) {
             if (isRational(exp->cdr->car))
-                displayRational(ugly.s, exp->cdr->car);
+                displayRational(context, exp->cdr->car);
             else
-                ugly.s << asFlonum(exp->cdr->car);
+                context.s << asFlonum(exp->cdr->car);
             double im = asFlonum(exp->cdr->cdr->car);
             if (im > 0.0)
-                ugly.s << '+';
+                context.s << '+';
             if (im)
             {
                 if (isRational(exp->cdr->cdr->car))
-                    displayRational(ugly.s, exp->cdr->cdr->car);
+                    displayRational(context, exp->cdr->cdr->car);
                 else
-                    ugly.s << asFlonum(exp->cdr->cdr->car);
-                ugly.s << 'i';
+                    context.s << asFlonum(exp->cdr->cdr->car);
+                context.s << 'i';
             }
         } else
-            displayList(exp, label, ugly, level, write);
+            displayList(context, exp, level);
         return;
     }
 
@@ -2602,17 +2599,17 @@ void display(sexp exp, int& label, Ugly& ugly, int level, bool write)
     {
     default:      error("display: unknown object");
     case FLOAT: 
-    case DOUBLE:  ugly.s << asFlonum(exp);                                       break;
-    case CHUNK:   ugly.s << "#<chunk>";                                          break;
-    case FIXNUM:  ugly.s << asFixnum(exp);                                       break;
-    case STRING:  displayString(ugly.s, exp, write);                             break;
-    case ATOM:    displayAtom(ugly.s, exp, write);                               break;
-    case FUNCT:   displayFunction(ugly.s, exp, write);                           break;
-    case FORM:    displayNamed(ugly.s, "form", exp, write);                      break;
-    case INPORT:  displayNamed(ugly.s, "input", exp, write);                     break;
-    case OUTPORT: displayNamed(ugly.s, "output", exp, write);                    break;
-    case CHAR:    displayChar(ugly.s, exp, write);                               break;
-    case VECTOR:  displayVector(exp, label, ugly, level, write);
+    case DOUBLE:  context.s << asFlonum(exp);              break;
+    case CHUNK:   context.s << "#<chunk>";                 break;
+    case FIXNUM:  context.s << asFixnum(exp);              break;
+    case STRING:  displayString(context, exp);             break;
+    case ATOM:    displayAtom(context, exp);               break;
+    case FUNCT:   displayFunction(context, exp);           break;
+    case FORM:    displayNamed(context, "form", exp);      break;
+    case INPORT:  displayNamed(context, "input", exp);     break;
+    case OUTPORT: displayNamed(context, "output", exp);    break;
+    case CHAR:    displayChar(context, exp);               break;
+    case VECTOR:  displayVector(context, exp, level);
     }
     return;
 }
@@ -2620,16 +2617,15 @@ void display(sexp exp, int& label, Ugly& ugly, int level, bool write)
 // usual way to see what is happening
 void debug(const char *what, sexp exp)
 {
-    std::stringstream s; Ugly ugly(s);
-    int label = 0;
+    std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     s << what << ": ";
     if (voida == exp)
         s << "void";
     else
     {
-        displayCycle(exp, ugly, label);
-        display(exp, label, ugly, 0, true);
+        displayCycle(context, exp);
+        display(context, exp, 0);
     }
     s << std::endl;
     std::cout.write(s.str().c_str(), s.str().length());
@@ -2654,7 +2650,8 @@ sexp symbol_string(sexp x)
 sexp string_number(sexp exp)
 {
     std::stringstream s;
-    displayChunks(s, ((String*)exp)->chunks, false, false);
+    Context context(s, false);
+    displayChunks(context, ((String*)exp)->chunks, false);
     return read(s, 0);
 }
 
@@ -3337,8 +3334,7 @@ sexp eval(sexp p, sexp env)
     if (f != tracing)
     {
         ++indent;
-        std::stringstream s; Ugly ugly(s);
-        int label = 0;
+        std::stringstream s; Context context(s, true);
         s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
         s << "eval:";
         for (int i = indent; --i >= 0; s << ' ') {}
@@ -3346,8 +3342,8 @@ sexp eval(sexp p, sexp env)
             s << "void";
         else
         {
-            displayCycle(p, ugly, label);
-            display(p, label, ugly, 0, true);
+            displayCycle(context, p);
+            display(context, p, 0);
         }
         s << " ==> ";
         if (!p)
@@ -3369,8 +3365,8 @@ sexp eval(sexp p, sexp env)
             s << "void";
         else
         {
-            displayCycle(p, ugly, label);
-            display(p, label, ugly, 0, true);
+            displayCycle(context, p);
+            display(context, p, 0);
         }
         s << std::endl;
         std::cout.write(s.str().c_str(), s.str().length());
@@ -4111,11 +4107,10 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         valu = eval(expr, global);
         {
-            std::stringstream s; Ugly ugly(s);
-            int label = 0;
+            std::stringstream s; Context context(s, false);
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-            displayCycle(valu, ugly, label);
-            display(valu, label, ugly, 0, false);
+            displayCycle(context, valu);
+            display(context, valu, 0);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != valu)
                 std::cout << std::endl;
