@@ -214,10 +214,9 @@ class Ugly
 {
     static const int tabs =  4;
     static const int eol  = 50;
-
-    std::ostream& s;
     std::streampos pos;
 public:
+    std::ostream& s;
     Ugly(std::ostream& s) : s(s) { pos = s.tellp(); }
     void wrap(int level, int length) { if (s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
@@ -226,7 +225,7 @@ public:
 
 void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label);
 
-std::ostream& display(std::ostream& s, sexp p, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write);
+void display(sexp p, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write);
 
 static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -1478,7 +1477,7 @@ sexp number_string(sexp exp)
     std::unordered_map<sexp,sexp> seenMap; int label = 0;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     displayCycle(exp, seenMap, label);
-    display(s, exp, seenMap, label, ugly, 0, true);
+    display(exp, seenMap, label, ugly, 0, true);
     return newstring(s.str().c_str());
 }
 
@@ -1734,13 +1733,13 @@ sexp write_to_string(sexp args)
         assertFixnum(args->cdr->car);
         limit = asFixnum(args->cdr->car);
     }
-    std::stringstream ss; Ugly ugly(ss);
+    std::stringstream s; Ugly ugly(s);
     std::unordered_map<sexp,sexp> seenMap; int label = 0;
-    ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     displayCycle(exp, seenMap, label);
-    display(ss, exp, seenMap, label, ugly, 0, true);
-    if (0 == limit) limit = ss.str().length();
-    return newstring(ss.str().substr(0, limit).c_str());
+    display(exp, seenMap, label, ugly, 0, true);
+    if (0 == limit) limit = s.str().length();
+    return newstring(s.str().substr(0, limit).c_str());
 }
 
 // vector?
@@ -2301,7 +2300,7 @@ sexp displayf(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     displayCycle(args->car, seenMap, label);
-    display(s, args->car, seenMap, label, ugly, 0, false);
+    display(args->car, seenMap, label, ugly, 0, false);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
@@ -2315,12 +2314,12 @@ sexp writef(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     displayCycle(args->car, seenMap, label);
-    display(s, args->car, seenMap, label, ugly, 0, true);
+    display(args->car, seenMap, label, ugly, 0, true);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
 
-std::ostream& displayChunks(std::ostream& s, sexp exp, bool atom, bool write)
+void displayChunks(std::ostream& s, sexp exp, bool atom, bool write)
 {
     if (write && !atom)
         s << '"';
@@ -2341,7 +2340,6 @@ std::ostream& displayChunks(std::ostream& s, sexp exp, bool atom, bool write)
     }
     if (write && !atom)
         s << '"';
-    return s;
 }
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
@@ -2378,26 +2376,26 @@ sexp cyclicp(sexp x) { return boolwrap(cyclic(x)); }
 // for prettyprinting
 int displayLength(sexp exp)
 {
-    std::stringstream ss; Ugly ugly(ss);
+    std::stringstream s; Ugly ugly(s);
     std::unordered_map<sexp,sexp> seenMap; int label = 0;
-    ss << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     displayCycle(exp, seenMap, label);
-    display(ss, exp, seenMap, label, ugly, 0, true);
-    return ss.str().length();
+    display(exp, seenMap, label, ugly, 0, true);
+    return s.str().length();
 }
 
-std::ostream& displayList(std::ostream& s, sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write)
+void displayList(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write)
 {
     bool first = true;
     sexp value = seenMap[exp];
     if (isFixnum(value)) {
-        s << '#' << asFixnum(value) << '#';
-        return s;
+        ugly.s << '#' << asFixnum(value) << '#';
+        return;
     } else if (t == value) {
-        s << '#' << label << '=';
+        ugly.s << '#' << label << '=';
         seenMap[exp] = newfixnum(label++);
     }
-    s << '(';
+    ugly.s << '(';
     level += 2;
     while (exp)
     {
@@ -2405,25 +2403,25 @@ std::ostream& displayList(std::ostream& s, sexp exp, std::unordered_map<sexp,sex
         {
             sexp value = seenMap[exp];
             if (isFixnum(value)) {
-                s << ". " << '#' << asFixnum(value) << '#';
+                ugly.s << ". " << '#' << asFixnum(value) << '#';
                 break;
             } else if (t == value) {
-                s << '#' << label << '=';
+                ugly.s << '#' << label << '=';
                 seenMap[exp] = newfixnum(label++);
             }
         }
-        display(s, exp->car, seenMap, label, ugly, level+2, write);
+        display(exp->car, seenMap, label, ugly, level+2, write);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr) && global != exp->cdr) {
                 if (write)
-                    s << ' ';
+                    ugly.s << ' ';
                 else
                     ugly.wrap(level, displayLength(exp->cdr->car));
                 exp = exp->cdr;
             } else {
-                s << " . ";
+                ugly.s << " . ";
                 exp = exp->cdr;
-                display(s, exp, seenMap, label, ugly, level+2, write);
+                display(exp, seenMap, label, ugly, level+2, write);
                 exp = 0;
             }
         } else
@@ -2431,37 +2429,35 @@ std::ostream& displayList(std::ostream& s, sexp exp, std::unordered_map<sexp,sex
         first = false;
     }
     level -= 2;
-    s << ')';
-    return s;
+    ugly.s << ')';
 }
 
-std::ostream& displayVector(std::ostream& s, sexp v, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write)
+void displayVector(sexp v, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write)
 {
-    s << '[';
+    ugly.s << '[';
     level += 2;
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
         sexp value = seenMap[vv->e[i]];
         if (isFixnum(value))
-            s << '#' << asFixnum(value) << '#';
+            ugly.s << '#' << asFixnum(value) << '#';
         else if (t == value) {
-            s << '#' << label << '=';
+            ugly.s << '#' << label << '=';
             seenMap[vv->e[i]] = newfixnum(label++);
         }
-        display(s, vv->e[i], seenMap, label, ugly, level+2, write);
+        display(vv->e[i], seenMap, label, ugly, level+2, write);
         if (i < vv->l-1)
         {
-            s << ",";
+            ugly.s << ",";
             if (write)
-                s << ' ';
+                ugly.s << ' ';
             else
                 ugly.wrap(level, displayLength(vv->e[i+1]));
         }
     }
     level -= 2;
-    s << ']';
-    return s;
+    ugly.s << ']';
 }
 
 const char * const character_table[] =
@@ -2473,14 +2469,14 @@ const char * const character_table[] =
     "\040space",     "\177del", 0
 };
 
-std::ostream& displayAtom(std::ostream& s, sexp exp, bool write)
+void displayAtom(std::ostream& s, sexp exp, bool write)
 {
-    return displayChunks(s, ((Atom*)exp)->body->cdr, true, write);
+    displayChunks(s, ((Atom*)exp)->body->cdr, true, write);
 }
 
-std::ostream& displayString(std::ostream& s, sexp exp, bool write)
+void displayString(std::ostream& s, sexp exp, bool write)
 {
-    return displayChunks(s, ((String*)exp)->chunks, false, write);
+    displayChunks(s, ((String*)exp)->chunks, false, write);
 }
 
 // used for displaying functions, forms. and closures by name
@@ -2492,7 +2488,7 @@ sexp getName(sexp exp)
     return 0;
 }
 
-std::ostream& displayFunction(std::ostream& s, sexp exp, bool write)
+void displayFunction(std::ostream& s, sexp exp, bool write)
 {
     s << "#<function" << arity(exp) << '@';
     sexp name = getName(exp);
@@ -2501,10 +2497,9 @@ std::ostream& displayFunction(std::ostream& s, sexp exp, bool write)
     else
         s << std::hex << (void*)exp << std::dec;
     s << '>';
-    return s;
 }
 
-std::ostream& displayNamed(std::ostream& s, const char *kind, sexp exp, bool write)
+void displayNamed(std::ostream& s, const char *kind, sexp exp, bool write)
 {
     s << "#<" << kind << '@';
     sexp name = getName(exp);
@@ -2513,25 +2508,22 @@ std::ostream& displayNamed(std::ostream& s, const char *kind, sexp exp, bool wri
     else
         s << std::hex << (void*)exp << std::dec;
     s << '>';
-    return s;
 }
 
-std::ostream& displayChar(std::ostream& s, sexp exp, bool write)
+void displayChar(std::ostream& s, sexp exp, bool write)
 {
     int c = ((Char*)exp)->ch;
     for (int i = 0; character_table[i]; ++i)
         if (c == *character_table[i]) {
             s << "#\\" << 1+character_table[i];
-            return s;
+            return;
         }
     s << "#\\" << (char)((Char*)exp)->ch;
-    return s;
 }
 
-std::ostream& displayRational(std::ostream& s, sexp exp)
+void displayRational(std::ostream& s, sexp exp)
 {
     s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
-    return s;
 }
 
 void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label)
@@ -2555,12 +2547,12 @@ void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label)
 }
 
 
-std::ostream& display(std::ostream& s, sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write)
+void display(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label, Ugly& ugly, int level, bool write)
 {
     if (!exp)
     {
-        s << "()";
-        return s;
+        ugly.s << "()";
+        return;
     }
     if (isCons(exp)) {
         bool quoted = false;
@@ -2568,60 +2560,60 @@ std::ostream& display(std::ostream& s, sexp exp, std::unordered_map<sexp,sexp>& 
         {
             quoted = true;
             sexp p = exp->car;
-            if      (quote           == p) s << '\'';
-            else if (quasiquote      == p) s <<  '`';
-            else if (unquote         == p) s <<  ',';
-            else if (unquotesplicing == p) s << ",@";
+            if      (quote           == p) ugly.s << '\'';
+            else if (quasiquote      == p) ugly.s <<  '`';
+            else if (unquote         == p) ugly.s <<  ',';
+            else if (unquotesplicing == p) ugly.s << ",@";
             else quoted = false;
         }
         if (quoted)
-            display(s, exp->cdr->car, seenMap, label, ugly, level, write);
+            display(exp->cdr->car, seenMap, label, ugly, level, write);
         else if (global == exp)
-            s << "#<global environment>";
+            ugly.s << "#<global environment>";
         else if (isRational(exp))
-            displayRational(s, exp);
+            displayRational(ugly.s, exp);
         else if (isClosure(exp))
-            displayNamed(s, "closure", exp, write);
+            displayNamed(ugly.s, "closure", exp, write);
         else if (isPromise(exp))
-            displayNamed(s, "promise", exp, write);
+            displayNamed(ugly.s, "promise", exp, write);
         else if (isComplex(exp)) {
             if (isRational(exp->cdr->car))
-                displayRational(s, exp->cdr->car);
+                displayRational(ugly.s, exp->cdr->car);
             else
-                s << asFlonum(exp->cdr->car);
+                ugly.s << asFlonum(exp->cdr->car);
             double im = asFlonum(exp->cdr->cdr->car);
             if (im > 0.0)
-                s << '+';
+                ugly.s << '+';
             if (im)
             {
                 if (isRational(exp->cdr->cdr->car))
-                    displayRational(s, exp->cdr->cdr->car);
+                    displayRational(ugly.s, exp->cdr->cdr->car);
                 else
-                    s << asFlonum(exp->cdr->cdr->car);
-                s << 'i';
+                    ugly.s << asFlonum(exp->cdr->cdr->car);
+                ugly.s << 'i';
             }
         } else
-            displayList(s, exp, seenMap, label, ugly, level, write);
-        return s;
+            displayList(exp, seenMap, label, ugly, level, write);
+        return;
     }
 
     switch (((Stags*)exp)->stags)
     {
     default:      error("display: unknown object");
     case FLOAT: 
-    case DOUBLE:  s << asFlonum(exp);                                       break;
-    case CHUNK:   s << "#<chunk>";                                          break;
-    case FIXNUM:  s << asFixnum(exp);                                       break;
-    case STRING:  displayString(s, exp, write);                             break;
-    case ATOM:    displayAtom(s, exp, write);                               break;
-    case FUNCT:   displayFunction(s, exp, write);                           break;
-    case FORM:    displayNamed(s, "form", exp, write);                      break;
-    case INPORT:  displayNamed(s, "input", exp, write);                     break;
-    case OUTPORT: displayNamed(s, "output", exp, write);                    break;
-    case CHAR:    displayChar(s, exp, write);                               break;
-    case VECTOR:  displayVector(s, exp, seenMap, label, ugly, level, write);
+    case DOUBLE:  ugly.s << asFlonum(exp);                                       break;
+    case CHUNK:   ugly.s << "#<chunk>";                                          break;
+    case FIXNUM:  ugly.s << asFixnum(exp);                                       break;
+    case STRING:  displayString(ugly.s, exp, write);                             break;
+    case ATOM:    displayAtom(ugly.s, exp, write);                               break;
+    case FUNCT:   displayFunction(ugly.s, exp, write);                           break;
+    case FORM:    displayNamed(ugly.s, "form", exp, write);                      break;
+    case INPORT:  displayNamed(ugly.s, "input", exp, write);                     break;
+    case OUTPORT: displayNamed(ugly.s, "output", exp, write);                    break;
+    case CHAR:    displayChar(ugly.s, exp, write);                               break;
+    case VECTOR:  displayVector(exp, seenMap, label, ugly, level, write);
     }
-    return s;
+    return;
 }
 
 // usual way to see what is happening
@@ -2636,7 +2628,7 @@ void debug(const char *what, sexp exp)
     else
     {
         displayCycle(exp, seenMap, label);
-        display(s, exp, seenMap, label, ugly, 0, true);
+        display(exp, seenMap, label, ugly, 0, true);
     }
     s << std::endl;
     std::cout.write(s.str().c_str(), s.str().length());
@@ -3354,7 +3346,7 @@ sexp eval(sexp p, sexp env)
         else
         {
             displayCycle(p, seenMap, label);
-            display(s, p, seenMap, label, ugly, 0, true);
+            display(p, seenMap, label, ugly, 0, true);
         }
         s << " ==> ";
         if (!p)
@@ -3377,7 +3369,7 @@ sexp eval(sexp p, sexp env)
         else
         {
             displayCycle(p, seenMap, label);
-            display(s, p, seenMap, label, ugly, 0, true);
+            display(p, seenMap, label, ugly, 0, true);
         }
         s << std::endl;
         std::cout.write(s.str().c_str(), s.str().length());
@@ -4122,7 +4114,7 @@ int main(int argc, char **argv, char **envp)
             std::unordered_map<sexp,sexp> seenMap; int label = 0;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
             displayCycle(valu, seenMap, label);
-            display(s, valu, seenMap, label, ugly, 0, false);
+            display(valu, seenMap, label, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != valu)
                 std::cout << std::endl;
