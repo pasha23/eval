@@ -224,7 +224,7 @@ public:
     void space(void) { s << ' '; }
 };
 
-void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label);
+void displayCycle(sexp exp, Ugly& ugly, int& label);
 
 void display(sexp p, int& label, Ugly& ugly, int level, bool write);
 
@@ -1477,7 +1477,7 @@ sexp number_string(sexp exp)
     std::stringstream s; Ugly ugly(s);
     int label = 0;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, ugly.seenMap, label);
+    displayCycle(exp, ugly, label);
     display(exp, label, ugly, 0, true);
     return newstring(s.str().c_str());
 }
@@ -1737,7 +1737,7 @@ sexp write_to_string(sexp args)
     std::stringstream s; Ugly ugly(s);
     int label = 0;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, ugly.seenMap, label);
+    displayCycle(exp, ugly, label);
     display(exp, label, ugly, 0, true);
     if (0 == limit) limit = s.str().length();
     return newstring(s.str().substr(0, limit).c_str());
@@ -2300,7 +2300,7 @@ sexp displayf(sexp args)
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(args->car, ugly.seenMap, label);
+    displayCycle(args->car, ugly, label);
     display(args->car, label, ugly, 0, false);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
@@ -2314,7 +2314,7 @@ sexp writef(sexp args)
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(args->car, ugly.seenMap, label);
+    displayCycle(args->car, ugly, label);
     display(args->car, label, ugly, 0, true);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
@@ -2380,7 +2380,7 @@ int displayLength(sexp exp)
     std::stringstream s; Ugly ugly(s);
     int label = 0;
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(exp, ugly.seenMap, label);
+    displayCycle(exp, ugly, label);
     display(exp, label, ugly, 0, true);
     return s.str().length();
 }
@@ -2527,23 +2527,23 @@ void displayRational(std::ostream& s, sexp exp)
     s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
 }
 
-void displayCycle(sexp exp, std::unordered_map<sexp,sexp>& seenMap, int& label)
+void displayCycle(sexp exp, Ugly& ugly, int& label)
 {
     if (isCons(exp)) {
-        if (0 == seenMap[exp]) {
-            seenMap[exp] = f;
-            displayCycle(exp->car, seenMap, label);
-            displayCycle(exp->cdr, seenMap, label);
+        if (0 == ugly.seenMap[exp]) {
+            ugly.seenMap[exp] = f;
+            displayCycle(exp->car, ugly, label);
+            displayCycle(exp->cdr, ugly, label);
         } else
-            seenMap[exp] = t;
+            ugly.seenMap[exp] = t;
     } else if (isVector(exp)) {
-        if (0 == seenMap[exp]) {
-            seenMap[exp] = f;
+        if (0 == ugly.seenMap[exp]) {
+            ugly.seenMap[exp] = f;
             Vector* v = (Vector*)exp;
             for (int i = 0; i < v->l; ++i)
-                displayCycle(v->e[i], seenMap, label);
+                displayCycle(v->e[i], ugly, label);
         } else
-            seenMap[exp] = t;
+            ugly.seenMap[exp] = t;
     }
 }
 
@@ -2628,7 +2628,7 @@ void debug(const char *what, sexp exp)
         s << "void";
     else
     {
-        displayCycle(exp, ugly.seenMap, label);
+        displayCycle(exp, ugly, label);
         display(exp, label, ugly, 0, true);
     }
     s << std::endl;
@@ -3346,7 +3346,7 @@ sexp eval(sexp p, sexp env)
             s << "void";
         else
         {
-            displayCycle(p, ugly.seenMap, label);
+            displayCycle(p, ugly, label);
             display(p, label, ugly, 0, true);
         }
         s << " ==> ";
@@ -3369,7 +3369,7 @@ sexp eval(sexp p, sexp env)
             s << "void";
         else
         {
-            displayCycle(p, ugly.seenMap, label);
+            displayCycle(p, ugly, label);
             display(p, label, ugly, 0, true);
         }
         s << std::endl;
@@ -4114,7 +4114,7 @@ int main(int argc, char **argv, char **envp)
             std::stringstream s; Ugly ugly(s);
             int label = 0;
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-            displayCycle(valu, ugly.seenMap, label);
+            displayCycle(valu, ugly, label);
             display(valu, label, ugly, 0, false);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != valu)
