@@ -221,14 +221,12 @@ public:
     std::ostream& s;
     std::unordered_map<sexp,sexp> seenMap;
     Context(std::ostream& s, bool write) : s(s), label(0), write(write) { pos = s.tellp(); }
-    void wrap(int level, int length) { if (s.tellp() - pos + length > eol) newline(level); else space(); }
+    void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
 };
 
-void displayCycle(Context& context, sexp exp);
-
-void display(Context& context, sexp p, int level);
+void display(Context& context, sexp p);
 
 static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -1478,8 +1476,7 @@ sexp number_string(sexp exp)
 {
     std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(context, exp);
-    display(context, exp, 0);
+    display(context, exp);
     return newstring(s.str().c_str());
 }
 
@@ -1737,8 +1734,7 @@ sexp write_to_string(sexp args)
     }
     std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(context, exp);
-    display(context, exp, 0);
+    display(context, exp);
     if (0 == limit) limit = s.str().length();
     return newstring(s.str().substr(0, limit).c_str());
 }
@@ -2299,8 +2295,7 @@ sexp displayf(sexp args)
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(context, args->car);
-    display(context, args->car, 0);
+    display(context, args->car);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
@@ -2312,8 +2307,7 @@ sexp writef(sexp args)
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    displayCycle(context, args->car);
-    display(context, args->car, 0);
+    display(context, args->car);
     ((OutPort*)port)->s->write(s.str().c_str(), s.str().length());
     return voida;
 }
@@ -2377,10 +2371,11 @@ int displayLength(sexp exp)
 {
     std::stringstream s; Context context(s, true);
     s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-    displayCycle(context, exp);
-    display(context, exp, 0);
+    display(context, exp);
     return s.str().length();
 }
+
+void display(Context& context, sexp p, int level);
 
 void displayList(Context& context, sexp exp, int level)
 {
@@ -2411,10 +2406,7 @@ void displayList(Context& context, sexp exp, int level)
         display(context, exp->car, level+2);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr) && global != exp->cdr) {
-                if (context.write)
-                    context.s << ' ';
-                else
-                    context.wrap(level, displayLength(exp->cdr->car));
+                context.wrap(level, displayLength(exp->cdr->car));
                 exp = exp->cdr;
             } else {
                 context.s << " . ";
@@ -2448,10 +2440,7 @@ void displayVector(Context& context, sexp v, int level)
         if (i < vv->l-1)
         {
             context.s << ",";
-            if (context.write)
-                context.s << ' ';
-            else
-                context.wrap(level, displayLength(vv->e[i+1]));
+            context.wrap(level, displayLength(vv->e[i+1]));
         }
     }
     level -= 2;
@@ -2544,7 +2533,6 @@ void displayCycle(Context& context, sexp exp)
     }
 }
 
-
 void display(Context& context, sexp exp, int level)
 {
     if (!exp)
@@ -2614,6 +2602,12 @@ void display(Context& context, sexp exp, int level)
     return;
 }
 
+void display(Context& context, sexp exp)
+{
+    displayCycle(context, exp);
+    display(context, exp, 0);
+}
+
 // usual way to see what is happening
 void debug(const char *what, sexp exp)
 {
@@ -2623,10 +2617,7 @@ void debug(const char *what, sexp exp)
     if (voida == exp)
         s << "void";
     else
-    {
-        displayCycle(context, exp);
-        display(context, exp, 0);
-    }
+        display(context, exp);
     s << std::endl;
     std::cout.write(s.str().c_str(), s.str().length());
 }
@@ -3341,10 +3332,7 @@ sexp eval(sexp p, sexp env)
         if (voida == p)
             s << "void";
         else
-        {
-            displayCycle(context, p);
-            display(context, p, 0);
-        }
+            display(context, p);
         s << " ==> ";
         if (!p)
             error("invalid: ()");
@@ -3364,10 +3352,7 @@ sexp eval(sexp p, sexp env)
         if (voida == p)
             s << "void";
         else
-        {
-            displayCycle(context, p);
-            display(context, p, 0);
-        }
+            display(context, p);
         s << std::endl;
         std::cout.write(s.str().c_str(), s.str().length());
         --indent;
@@ -4109,8 +4094,7 @@ int main(int argc, char **argv, char **envp)
         {
             std::stringstream s; Context context(s, false);
             s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15);
-            displayCycle(context, valu);
-            display(context, valu, 0);
+            display(context, valu);
             std::cout.write(s.str().c_str(), s.str().length());
             if (voida != valu)
                 std::cout << std::endl;
