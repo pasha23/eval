@@ -225,7 +225,7 @@ public:
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
-    bool tag(sexp exp, bool last);
+    bool tagCycles(sexp exp, bool last);
 };
 
 void display(Context& context, sexp p);
@@ -414,9 +414,9 @@ void deleteoutport(sexp v)
 static void deletevector(sexp v) { delete ((Vector*)v)->e; }
 
 /*
- * mark all reachable objects
+ * mark all reachable cells
  *
- * sweep all storage, putting unmarked objects on the freelist
+ * sweep all storage, putting unmarked cells on the freelist
  */
 sexp gc(void)
 {
@@ -548,7 +548,7 @@ sexp newflonum(double number)
     }
 }
 
-// cons
+// cons inlined
 sexp cons(sexp car, sexp cdr)
 {
     sexp* r = psp;
@@ -608,11 +608,14 @@ sexp trace(sexp arg)
 
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
-bool Context::tag(sexp exp, bool last)
+// supports labeling of cyclic structures
+bool Context::tagCycles(sexp exp, bool last)
 {
     sexp value = seenMap[exp];
     if (isFixnum(value)) {
-        s << (last ? ". #" : "#") << asFixnum(value) << '#';
+        if (last)
+            s << ". ";
+        s << '#' << asFixnum(value) << '#';
         return true;
     } else if (t == value) {
         s << '#' << label << '=';
@@ -1653,17 +1656,17 @@ sexp open_input_string(sexp args)
     assertString(s);
 
     int i = 0;
-    if (args->cdr)
+    if (args = args->cdr)
     {
-        assertFixnum(args->cdr->car);
-        i = asFixnum(args->cdr->car);
+        assertFixnum(args->car);
+        i = asFixnum(args->car);
     }
 
     int j = slen(s);
-    if (args->cdr->cdr)
+    if (args = args->cdr)
     {
-        assertFixnum(args->cdr->cdr->car);
-        j = asFixnum(args->cdr->cdr->car);
+        assertFixnum(args->car);
+        j = asFixnum(args->car);
     }
 
     if (i < 0 || j <= i)
@@ -1741,10 +1744,10 @@ sexp write_to_string(sexp args)
     sexp* mark = psp;
     sexp exp = args->car;
     int limit = 0;
-    if (args->cdr)
+    if (args = args->cdr)
     {
-        assertFixnum(args->cdr->car);
-        limit = asFixnum(args->cdr->car);
+        assertFixnum(args->car);
+        limit = asFixnum(args->car);
     }
     Context context(true);
     display(context, exp);
@@ -1771,8 +1774,8 @@ sexp make_vector(sexp args)
     if (args->car && isFixnum(args->car))
         len = asFixnum(args->car);
     sexp fill = 0;
-    if (args->cdr && args->cdr->car)
-        fill = args->cdr->car;
+    if ((args = args->cdr) && args->car)
+        fill = args->car;
     return newvector(len, fill);
 }
 
@@ -2156,12 +2159,18 @@ sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
 sexp eqnp(sexp x, sexp y)
 {
     if (isRational(x) && isRational(y))
-        return boolwrap(asFixnum(x->cdr->car) == asFixnum(y->cdr->car) &&
+    {
+        x = x->cdr; y = y->cdr;
+        return boolwrap(asFixnum(x->car) == asFixnum(y->car) &&
                         asFixnum(x->cdr->car) == asFixnum(y->cdr->car));
+    }
  
     if (isComplex(x) && isComplex(y))
-        return boolwrap(asFlonum(x->cdr->car) == asFlonum(y->cdr->car) &&
-                        asFlonum(x->cdr->cdr->car) == asFlonum(y->cdr->cdr->car));
+    {
+        x = x->cdr; y = y->cdr;
+        return boolwrap(asFlonum(x->car) == asFlonum(y->car) &&
+                        asFlonum(x->cdr->car) == asFlonum(y->cdr->car));
+    }
 
     return boolwrap(asFlonum(x) == asFlonum(y));
 }
@@ -2224,13 +2233,13 @@ sexp force(sexp p)
 {
     if (!isPromise(p))
         error("force: not a promise");
-    if (!p->cdr->car)
+    if (!(p = p->cdr)->car)
     {
-        p->cdr->car = t;
-        p->cdr->cdr->car = eval(p->cdr->cdr->cdr->car,
-                                p->cdr->cdr->cdr->cdr->car);
+        p->car = t;
+        p->cdr->car = eval(p->cdr->cdr->car,
+                           p->cdr->cdr->cdr->car);
     }
-    return p->cdr->cdr->car;
+    return p->cdr->car;
 }
 
 // promise_forced?
@@ -2246,9 +2255,9 @@ sexp promise_value(sexp p)
 {
     if (!isPromise(p))
         error("promise-value: not a promise");
-    if (!p->cdr->car)
+    if (!(p = p->cdr)->car)
         error("promise not forced yet");
-    return p->cdr->cdr->car;
+    return p->cdr->car;
 }
 
 // load
@@ -2390,27 +2399,25 @@ void display(Context& context, sexp p, int level);
 void displayList(Context& context, sexp exp, int level)
 {
     bool first = true;
-    if (context.tag(exp, false))
+    if (context.tagCycles(exp, false))
         return;
     context.s << '(';
     level += 2;
     while (exp)
     {
-        if (!first && context.tag(exp, true))
+        if (!first && context.tagCycles(exp, true))
             break;
         display(context, exp->car, level+2);
-        if (exp->cdr) {
-            if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr) && global != exp->cdr) {
-                context.wrap(level, displayLength(exp->cdr->car));
-                exp = exp->cdr;
+        exp = exp->cdr;
+        if (exp) {
+            if (isCons(exp) && !isClosure(exp) && !isPromise(exp) && global != exp) {
+                context.wrap(level, displayLength(exp->car));
             } else {
                 context.s << " . ";
-                exp = exp->cdr;
                 display(context, exp, level+2);
                 exp = 0;
             }
-        } else
-            exp = exp->cdr;
+        }
         first = false;
     }
     level -= 2;
@@ -2424,7 +2431,7 @@ void displayVector(Context& context, sexp v, int level)
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        if (!context.tag(vv->e[i], false))
+        if (!context.tagCycles(vv->e[i], false))
             display(context, vv->e[i], level+2);
         if (i < vv->l-1)
         {
@@ -2499,16 +2506,17 @@ void displayChar(Context& context, sexp exp)
 
 void displayRational(Context& context, sexp exp)
 {
-    context.s << asFixnum(exp->cdr->car) << '/' << asFixnum(exp->cdr->cdr->car);
+    exp = exp->cdr;
+    context.s << asFixnum(exp->car) << '/' << asFixnum(exp->cdr->car);
 }
 
-void displayCycle(Context& context, sexp exp)
+void mapCycles(Context& context, sexp exp)
 {
     if (isCons(exp)) {
         if (0 == context.seenMap[exp]) {
             context.seenMap[exp] = f;
-            displayCycle(context, exp->car);
-            displayCycle(context, exp->cdr);
+            mapCycles(context, exp->car);
+            mapCycles(context, exp->cdr);
         } else
             context.seenMap[exp] = t;
     } else if (isVector(exp)) {
@@ -2516,7 +2524,7 @@ void displayCycle(Context& context, sexp exp)
             context.seenMap[exp] = f;
             Vector* v = (Vector*)exp;
             for (int i = 0; i < v->l; ++i)
-                displayCycle(context, v->e[i]);
+                mapCycles(context, v->e[i]);
         } else
             context.seenMap[exp] = t;
     }
@@ -2593,7 +2601,7 @@ void display(Context& context, sexp exp, int level)
 
 void display(Context& context, sexp exp)
 {
-    displayCycle(context, exp);
+    mapCycles(context, exp);
     display(context, exp, 0);
 }
 
@@ -2603,7 +2611,7 @@ void debug(const char *what, sexp exp)
     Context context(true);
     context.s << what << ": ";
     if (voida == exp)
-        context.s << "void";
+        context.s << "#void";
     else
         display(context, exp);
     context.s << std::endl;
@@ -2751,8 +2759,7 @@ sexp envhead(sexp env, sexp ref)
     return (env == 0 || env == ref) ? 0 : cons(cons(env->car->car, env->car->cdr), envhead(env->cdr, ref));
 }
 
-// update all the closures in an environment so they reference
-// that environment instead of earlier ones for init.ss
+// resets closures like letrec
 void fixenvs(sexp env)
 {
     for (sexp e = env; e; e = e->cdr)
@@ -2997,12 +3004,12 @@ sexp lambdaform(sexp exp, sexp env)
 sexp nesteddefine(sexp p, sexp env)
 {
     sexp* mark = psp;
-    if (isCons(p->cdr->car))
+    if (isCons((p = p->cdr)->car))
     {
         // (define (foo ...)
-        sexp k = p->cdr->car->car;
+        sexp k = p->car->car;
         value_put(k, 0);
-        sexp v = replace(cons(lambda, save(cons(p->cdr->car->cdr, p->cdr->cdr))));
+        sexp v = replace(cons(lambda, save(cons(p->car->cdr, p->cdr))));
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
         v = save(lambdaform(v, env));
         // v is a closure (closure exp env)
@@ -3013,17 +3020,17 @@ sexp nesteddefine(sexp p, sexp env)
                 return lose(mark, env);
             }
         // update the closure definition to include the one we just made
-        return lose(mark, v->cdr->cdr->car = cons(save(cons(p->cdr->car->car, save(v))), env));
+        return lose(mark, v->cdr->cdr->car = cons(save(cons(p->car->car, save(v))), env));
     } else {
-        sexp k = p->cdr->car;
+        sexp k = p->car;
         value_put(k, 0);
         for (sexp q = env; q; q = q->cdr)
             if (k == q->car->car)
             {
-                q->car->cdr = eval(p->cdr->cdr->car, env);
+                q->car->cdr = eval(p->cdr->car, env);
                 return lose(mark, env);
             }
-        return lose(mark, cons(replace(cons(p->cdr->car, save(eval(p->cdr->cdr->car, env)))), env));
+        return lose(mark, cons(replace(cons(p->car, save(eval(p->cdr->car, env)))), env));
     }
 }
 
@@ -3075,9 +3082,8 @@ sexp scanff(sexp args) { sexp port = inport; if (args) assertInPort(port = args-
  */
 sexp ifform(sexp exp, sexp env)
 {
-    if (!exp->cdr)
+    if (!(exp = exp->cdr))
         error("if: missing predicate");
-    exp = exp->cdr;
     if (!exp->cdr)
         error("if: missing consequent");
     if (f != eval(exp->car, env))
@@ -3091,8 +3097,7 @@ sexp ifform(sexp exp, sexp env)
 // (when predicate form..)
 sexp whenform(sexp exp, sexp env)
 {
-    exp = exp->cdr;
-    if (!exp)
+    if (!(exp = exp->cdr))
         error("when: missing predicate");
     if (!exp->cdr)
         error("when: missing consequents");
@@ -3104,8 +3109,7 @@ sexp whenform(sexp exp, sexp env)
 // (unless predicate form..)
 sexp unlessform(sexp exp, sexp env)
 {
-    exp = exp->cdr;
-    if (!exp)
+    if (!(exp = exp->cdr))
         error("when: missing predicate");
     if (!exp->cdr)
         error("when: missing consequents");
@@ -3119,9 +3123,7 @@ sexp caseform(sexp exp, sexp env)
 {
     sexp* mark = psp;
 
-    exp = exp->cdr;
-
-    if (!exp)
+    if (!(exp = exp->cdr))
         error("case: missing key");
 
     sexp key = eval(exp->car, env);
@@ -3150,11 +3152,13 @@ sexp setform(sexp exp, sexp env)
     return lose(set(exp->car, save(eval(exp->cdr->car, env)), env));
 }
 
+// accumulates names from a let expression
 sexp names(sexp bs)
 {
     return bs ? lose(replace(cons(bs->car->car, save(names(bs->cdr))))) : 0;
 }
 
+// accumulates values from a let expression
 sexp values(sexp bs, sexp env)
 {
     return bs ? lose(lose(cons(save(eval(bs->car->cdr->car, env)), save(values(bs->cdr, env))))) : 0;
@@ -3316,7 +3320,7 @@ sexp eval(sexp p, sexp env)
         context.s << "eval:";
         for (int i = indent; --i >= 0; context.s << ' ') {}
         if (voida == p)
-            context.s << "void";
+            context.s << "#void";
         else
             display(context, p);
         context.s << " ==> ";
@@ -3336,7 +3340,7 @@ sexp eval(sexp p, sexp env)
                 p = save(apply(fun, save(evlis(p->cdr, env))));
         }
         if (voida == p)
-            context.s << "void";
+            context.s << "#void";
         else
             display(context, p);
         context.s << std::endl;
