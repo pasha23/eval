@@ -228,7 +228,7 @@ public:
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
-    bool labelCycles(sexp exp, bool last);
+    bool tagCycles(sexp exp, bool last);
 };
 
 void display(Context& context, sexp p);
@@ -608,7 +608,7 @@ sexp trace(sexp arg)
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
 // supports labeling of cyclic structures
-bool Context::labelCycles(sexp exp, bool last)
+bool Context::tagCycles(sexp exp, bool last)
 {
     sexp value = seenMap[exp];
     if (isFixnum(value)) {
@@ -2381,42 +2381,48 @@ void display(Context& context, sexp p, int level);
 
 void displayList(Context& context, sexp exp, int level)
 {
-    if (context.labelCycles(exp, false))
+    bool first = false;
+    if (context.tagCycles(exp, false))
         return;
     context.s << '(';
-    while (p)
+    level += 2;
+    while (exp)
     {
-        if (exp != p && context.labelCycles(p, true))
+        if (first && context.tagCycles(exp, true))
             break;
-        display(context, p->car, level+context.tabs);
-        p = p->cdr;
-        if (p) {
-            if (isCons(p) && !isClosure(p) && !isPromise(p) && global != p) {
-                context.wrap(level, displayLength(p->car));
+        display(context, exp->car, level+2);
+        exp = exp->cdr;
+        if (exp) {
+            if (isCons(exp) && !isClosure(exp) && !isPromise(exp) && global != exp) {
+                context.wrap(level, displayLength(exp->car));
             } else {
                 context.s << " . ";
-                display(context, p, level+context.tabs);
-                p = 0;
+                display(context, exp, level+2);
+                exp = 0;
             }
         }
+        first = true;
     }
+    level -= 2;
     context.s << ')';
 }
 
 void displayVector(Context& context, sexp v, int level)
 {
     context.s << '[';
+    level += 2;
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        if (!context.labelCycles(vv->e[i], false))
-            display(context, vv->e[i], level+context.tabs);
+        if (!context.tagCycles(vv->e[i], false))
+            display(context, vv->e[i], level+2);
         if (i < vv->l-1)
         {
             context.s << ",";
             context.wrap(level, displayLength(vv->e[i+1]));
         }
     }
+    level -= 2;
     context.s << ']';
 }
 
@@ -3486,7 +3492,8 @@ sexp scans(std::istream& fin)
                     return comma;
                } else
                    return commaat;
-    case '#':  switch (c = fin.get())
+    case '#':  c = fin.get();
+               switch (c)
                {
                case 'f': return f;
                case 't': return t;
@@ -3502,11 +3509,12 @@ sexp scans(std::istream& fin)
                             return newcharacter(*character_table[i]);
                     return newcharacter(*buf);
                 }
-    case '-':   c = fin.get();
-                if ('.' == c || isdigit(c))
-                    s.put('-');
-                else
-                    { fin.unget(); return minus; } 
+    case '-':
+        c = fin.get();
+        if ('.' == c || isdigit(c))
+            s.put('-');
+        else
+            { fin.unget(); return minus; } 
     }
 
     fin.unget();
@@ -3572,17 +3580,14 @@ sexp scans(std::istream& fin)
         }
     }
 
-    switch (status)
-    {
-    case FIXED:
+    if (FIXED == status)
         { long num; s >> num; return newfixnum(num); }
-    case FLOATING:
+
+    if (FLOATING == status)
         { double re; s >> re; return newflonum(re); }
-    case RATIONAL:
+
+    if (RATIONAL == status)
         { long num, den; s >> num; s.get(); s >> den; return newrational(num, den); }
-    default:
-        break;
-    }
 
     if ('"' != c)
         return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
