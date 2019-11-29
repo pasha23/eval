@@ -1170,56 +1170,33 @@ sexp unimod(sexp l)
     return lose(mark, result);
 }
 
+double truncate(double x) { return x < 0 ? ceil(x) : floor(x); }
+
 sexp floatstub(double (*f)(double), sexp x) { assertFlonum(x); return newflonum((*f)(asFlonum(x))); }
 
+sexp flintstub(double (*f)(double), sexp x)
+{
+    assertFlonum(x);
+    double r = (*f)(asFlonum(x));
+    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
+}
+
 // functions on real numbers
-sexp acosff(sexp x) { return floatstub(acos, x); } // acos
-sexp asinff(sexp x) { return floatstub(asin, x); } // asin
-sexp atanff(sexp x) { return floatstub(atan, x); } // atan
-sexp cosff(sexp x)  { return floatstub(cos,  x); } // cos
-sexp coshff(sexp x) { return floatstub(cosh, x); } // cosh
-sexp expff(sexp x)  { return floatstub(exp,  x); } // exp
-sexp logff(sexp x)  { return floatstub(log,  x); } // log
-sexp sinff(sexp x)  { return floatstub(sin,  x); } // sin
-sexp sinhff(sexp x) { return floatstub(sinh, x); } // sinh
-sexp tanff(sexp x)  { return floatstub(tan,  x); } // tan
-sexp tanhff(sexp x) { return floatstub(tanh, x); } // tanh
-
-// ceil
-sexp ceilingff(sexp x)
-{
-    assertFlonum(x);
-    double r = ceil(asFlonum(x));
-    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
-}
-
-// floor
-sexp floorff(sexp x)
-{
-    assertFlonum(x);
-    double r = floor(asFlonum(x));
-    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
-}
-
-// round
-sexp roundff(sexp x)
-{
-    assertFlonum(x);
-    double r = round(asFlonum(x));
-    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
-}
-
-double truncate(double x)
-{
-    return x < 0 ? ceil(x) : floor(x);
-}
-
-// truncate
-sexp truncateff(sexp x)
-{
-    assertFlonum(x);
-    return newflonum(truncate(asFlonum(x)));
-}
+sexp acosff(sexp x)     { return floatstub(acos,     x); } // acos
+sexp asinff(sexp x)     { return floatstub(asin,     x); } // asin
+sexp atanff(sexp x)     { return floatstub(atan,     x); } // atan
+sexp cosff(sexp x)      { return floatstub(cos,      x); } // cos
+sexp coshff(sexp x)     { return floatstub(cosh,     x); } // cosh
+sexp expff(sexp x)      { return floatstub(exp,      x); } // exp
+sexp logff(sexp x)      { return floatstub(log,      x); } // log
+sexp sinff(sexp x)      { return floatstub(sin,      x); } // sin
+sexp sinhff(sexp x)     { return floatstub(sinh,     x); } // sinh
+sexp tanff(sexp x)      { return floatstub(tan,      x); } // tan
+sexp tanhff(sexp x)     { return floatstub(tanh,     x); } // tanh
+sexp truncateff(sexp x) { return flintstub(truncate, x); } // truncate
+sexp ceilingff(sexp x)  { return flintstub(ceil,     x); } // ceil
+sexp floorff(sexp x)    { return flintstub(floor,    x); } // floor
+sexp roundff(sexp x)    { return flintstub(round,    x); } // round
 
 // integer square root
 uint32_t isqrt(uint64_t v)
@@ -2532,11 +2509,9 @@ void mapCycles(Context& context, sexp exp)
 // ensure there is some way of distinguishing a fixnum from a flonum
 void displayFlonum(Context& context, sexp exp)
 {
-    std::stringstream s;
-    double flonum = asFlonum(exp);
-    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15) << flonum;
-    std::string sstr = s.str();
-    context.s << sstr;
+    std::streampos pos = context.s.tellp();
+    context.s << asFlonum(exp);
+    std::string sstr = context.s.str().substr(pos);
     if (std::string::npos == sstr.find('e') && std::string::npos == sstr.find('.'))
         context.s << ".0";
 }
