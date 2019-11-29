@@ -381,12 +381,8 @@ void mark(sexp p)
 
     switch (((Stags*)p)->stags)
     {
-    case ATOM:
-        mark(((Atom*)p)->body);
-        break;
-    case STRING:
-        mark(((String*)p)->chunks);
-        break;
+    case ATOM:   mark(((Atom*)p)->body);     break;
+    case STRING: mark(((String*)p)->chunks); break;
     case VECTOR:
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
@@ -2381,10 +2377,8 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
     return false;
 }
 
-bool cyclic(sexp exp) { std::set<sexp> seenSet; return cyclic(seenSet, exp); }
-
 // cyclic?
-sexp cyclicp(sexp x) { return boolwrap(cyclic(x)); }
+sexp cyclicp(sexp x) { std::set<sexp> seenSet; return boolwrap(cyclic(seenSet, x)); }
 
 // for prettyprinting
 int displayLength(sexp exp)
@@ -2398,14 +2392,14 @@ void display(Context& context, sexp p, int level);
 
 void displayList(Context& context, sexp exp, int level)
 {
-    bool first = true;
+    bool first = false;
     if (context.tagCycles(exp, false))
         return;
     context.s << '(';
     level += 2;
     while (exp)
     {
-        if (!first && context.tagCycles(exp, true))
+        if (first && context.tagCycles(exp, true))
             break;
         display(context, exp->car, level+2);
         exp = exp->cdr;
@@ -2418,7 +2412,7 @@ void displayList(Context& context, sexp exp, int level)
                 exp = 0;
             }
         }
-        first = false;
+        first = true;
     }
     level -= 2;
     context.s << ')';
@@ -3632,16 +3626,17 @@ sexp readVector(std::istream& fin, int level)
         if (eof == s)
             return lose(mark, 0);
         if (rbracket == s)
-            return lose(mark, list_vector(save(reverse(q))));
+            break;
         while (unquote == s->car)
             s = s->cdr->car;
         q = replace(cons(s, q));
         s = scan(fin);
         if (rbracket == s)
-            return lose(mark, list_vector(save(reverse(q))));
+            break;
         if (comma != s)
             error("comma expected in vector");
     }
+    return lose(mark, list_vector(save(reverse(q))));
 }
 
 /*
