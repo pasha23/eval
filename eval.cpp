@@ -87,9 +87,12 @@ sexp valu;              	// the value of it
 sexp cell;         	    	// all the storage starts here
 sexp atoms;         		// all atoms are linked in a list
 sexp global;        		// this is the global symbol table (a list)
+sexp cinport;               // the port associated with std::cin
 sexp inport;        		// the current input port
+sexp coutport;              // the port associated with std::cout
 sexp outport;       		// the current output port
 sexp tracing;       		// trace everything
+sexp cerrport;              // the port associated with std::cerr
 sexp errport;       		// the stderr port
 sexp freelist;      		// available cells are linked in a list
 sexp *psp;          		// protection stack pointer
@@ -2295,6 +2298,8 @@ sexp displayf(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
+    if (coutport == port)
+        context.s << std::endl;
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
 }
@@ -2306,6 +2311,8 @@ sexp writef(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
+    if (coutport == port)
+        context.s << std::endl;
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
 }
@@ -3944,9 +3951,9 @@ int main(int argc, char **argv, char **envp)
     psend = protect + PSIZE;
 
     // allocate ports for cin, cout, cerr
-    inport  = newcell(INPORT,  (sexp)&cinStream);
-    outport = newcell(OUTPORT, (sexp)&coutStream);
-    errport = newcell(OUTPORT, (sexp)&cerrStream);
+    inport  = cinport  = newcell(INPORT,  (sexp)&cinStream);
+    outport = coutport = newcell(OUTPORT, (sexp)&coutStream);
+    errport = cerrport = newcell(OUTPORT, (sexp)&cerrStream);
 
     // constants
     zero = newfixnum(0);

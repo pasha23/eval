@@ -45,7 +45,7 @@
 
 (define (test s)
         (unless (eq? #t (eval s (environment)))
-                (begin (display "fail ") (display s) (newline)))
+                (begin (display 'fail) (space) (display s)))
         (gc))
 
 (test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
@@ -301,4 +301,7 @@
             (eqv? fib20 (read (open-input-file "/tmp/fib20.out")))))
 
 (test #t)
+
+(display "tests complete.")
+
 
