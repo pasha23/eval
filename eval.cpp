@@ -225,6 +225,7 @@ public:
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
+    bool tag(sexp exp, bool last);
 };
 
 void display(Context& context, sexp p);
@@ -606,6 +607,19 @@ sexp trace(sexp arg)
 }
 
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
+
+bool Context::tag(sexp exp, bool last)
+{
+    sexp value = seenMap[exp];
+    if (isFixnum(value)) {
+        s << (last ? ". #" : "#") << asFixnum(value) << '#';
+        return true;
+    } else if (t == value) {
+        s << '#' << label << '=';
+        seenMap[exp] = newfixnum(label++);
+    }
+    return false;
+}
 
 double rat2real(sexp x) { x = x->cdr; return (double)asFixnum(x->car) / (double)asFixnum(x->cdr->car); }
 
@@ -2376,29 +2390,14 @@ void display(Context& context, sexp p, int level);
 void displayList(Context& context, sexp exp, int level)
 {
     bool first = true;
-    sexp value = context.seenMap[exp];
-    if (isFixnum(value)) {
-        context.s << '#' << asFixnum(value) << '#';
+    if (context.tag(exp, false))
         return;
-    } else if (t == value) {
-        context.s << '#' << context.label << '=';
-        context.seenMap[exp] = newfixnum(context.label++);
-    }
     context.s << '(';
     level += 2;
     while (exp)
     {
-        if (!first)
-        {
-            sexp value = context.seenMap[exp];
-            if (isFixnum(value)) {
-                context.s << ". " << '#' << asFixnum(value) << '#';
-                break;
-            } else if (t == value) {
-                context.s << '#' << context.label << '=';
-                context.seenMap[exp] = newfixnum(context.label++);
-            }
-        }
+        if (!first && context.tag(exp, true))
+            break;
         display(context, exp->car, level+2);
         if (exp->cdr) {
             if (isCons(exp->cdr) && !isClosure(exp->cdr) && !isPromise(exp->cdr) && global != exp->cdr) {
@@ -2425,14 +2424,8 @@ void displayVector(Context& context, sexp v, int level)
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        sexp value = context.seenMap[vv->e[i]];
-        if (isFixnum(value))
-            context.s << '#' << asFixnum(value) << '#';
-        else if (t == value) {
-            context.s << '#' << context.label << '=';
-            context.seenMap[vv->e[i]] = newfixnum(context.label++);
-        }
-        display(context, vv->e[i], level+2);
+        if (!context.tag(vv->e[i], false))
+            display(context, vv->e[i], level+2);
         if (i < vv->l-1)
         {
             context.s << ",";
