@@ -2083,20 +2083,24 @@ sexp string_set(sexp s, sexp k, sexp c)
 }
 
 // substring
-sexp substringf(sexp s)
+sexp substringf(sexp args)
 {
-    if (!s || !isString(s->car) || !s->cdr || !isFixnum(s->cdr->car))
-        error("substring: bad arguments");
+    if (!args || !isString(args->car))
+        error("substring: no string");
 
-    int i = asFixnum(s->cdr->car);
-    int j = slen(s->car);
-    if (s->cdr->cdr && isFixnum(s->cdr->cdr->car))
-        j = asFixnum(s->cdr->cdr->car);
+    sexp s = args->car;
 
-    s = s->car;
+    if (!(args = args->cdr) || !isFixnum(args->car))
+        error("substring: bad start index");
+
+    int i = asFixnum(args->car);
+    int j = slen(s);
+
+    if ((args = args->cdr) && isFixnum(args->car))
+        j = asFixnum(args->car);
 
     if (i < 0 || j <= i)
-        error("substring: bad arguments");
+        error("substring: start negative or end before start");
 
     char* b = (char*)alloca(j-i+1);
 
