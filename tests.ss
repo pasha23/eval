@@ -15,7 +15,7 @@
 
 (define (fibs)
     (let ((f '(1 1)))
-         (while (> (car f) 0)
+         (while (positive? (car f))
                 (set! f (cons (+ (car f) (cadr f)) f)))
          (cdr f)))
 

@@ -3,15 +3,9 @@
 ;; metacircular evaluator
 ;;
 
-(define (f x) x)
-(define (l . x) x)
-(define (five) 5)
-
-(define (iota n) (if (= 0 n) '() (cons n (iota (- n 1)))))
+(define eval-primitive eval)
 
 (define apply-primitive apply)
-
-(define eval-primitive eval)
 
 (define display-primitive display)
 
@@ -19,15 +13,14 @@
 
 (define (read-tail)
         (let ((q (read)))
-             (cond ((eq? rparen  q) #f)
+             (cond ((eq? rparen  q) '())
                    ((eof-object? q) q)
                    ((eq? dot     q) (car (read-tail)))
                    (else (cons q (read-tail))))))
 
 (define (read)
         (let ((p (scan)))
-             (cond ((eq? #f      p) #f)
-                   ((eof-object? p) p)
+             (cond ((eof-object? p) p)
                    ((eq? lparen  p) (read-tail))
                    ((eq? qchar   p) (cons 'quote (cons (read) #f)))
                    ((eq? tick    p) (cons 'quasiquote (cons (read) #f)))
@@ -163,7 +156,7 @@
 ;; (promise forced value exp env)
 
 (define (delayform exp env)
-    (cons 'promise (cons #f (cons #f (cons exp env)))))
+    (cons 'promise (cons #f (cons #f (cons exp (cons env '())))))
 
 (define (force promise)
     (unless (cadr promise)

@@ -213,7 +213,7 @@ struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 class Context
 {
     static const int tabs =  4;
-    static const int eol  = 50;
+    static const int eol  = 80;
     std::streampos pos;
 public:
     bool write;

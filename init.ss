@@ -65,9 +65,9 @@
 (define (cddddar x) (cdr (cdr (cdr (cdr (car x))))))
 (define (cdddddr x) (cdr (cdr (cdr (cdr (cdr x))))))
 
-(define (odd? x) (= 1 (remainder x 2)))
-
 (define (even? x) (zero? (remainder x 2)))
+
+(define (odd? x) (not (zero? (remainder x 2))))
 
 (define (debug l s) (display l) (display ": ") (display s) (newline) s)
 
@@ -221,8 +221,8 @@
 
 (define (iota n)
         (define (riota n)
-                (cond ((< n 0) (cons n (riota (+ n  1))))
-                      ((> n 0) (cons n (riota (+ n -1))))
+                (cond ((negative? n) (cons n (riota (+ n  1))))
+                      ((positive? n) (cons n (riota (+ n -1))))
                       (else (cons 0 '()))))
         (reverse! (cdr (riota n))))
 
@@ -237,7 +237,7 @@
             (cons (pairs (car a) b)
                   (cross (cdr a) b))))
 
-(define (abs x) (if (< x 0) (- x) x))
+(define (abs x) (if (negative? x) (neg x) x))
 
 (define (max . l)
         (letrec ((maxi
