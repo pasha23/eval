@@ -215,7 +215,7 @@ struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 // supports uglyprinting
 struct Context
 {
-    static const int eol  = 80;
+    static const int eol  = 50;
     static const int tabs =  4;
 
     std::streampos pos;
@@ -2394,7 +2394,7 @@ void displayList(Context& context, sexp exp, int level)
         p = p->cdr;
         if (p) {
             if (isCons(p) && !isClosure(p) && !isPromise(p) && global != p) {
-                context.wrap(level, displayLength(p->car));
+                context.wrap(level+context.tabs, displayLength(p->car));
             } else {
                 context.s << " . ";
                 display(context, p, level+context.tabs);
