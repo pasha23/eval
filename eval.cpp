@@ -213,12 +213,12 @@ struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
 
 // supports uglyprinting
-class Context
+struct Context
 {
-    static const int tabs =  4;
     static const int eol  = 80;
+    static const int tabs =  4;
+
     std::streampos pos;
-public:
     bool write;
     int label;
     std::stringstream s;
@@ -228,7 +228,7 @@ public:
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
-    bool tagCycles(sexp exp, bool last);
+    bool labelCycles(sexp exp, bool last);
 };
 
 void display(Context& context, sexp p);
@@ -608,7 +608,7 @@ sexp trace(sexp arg)
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
 // supports labeling of cyclic structures
-bool Context::tagCycles(sexp exp, bool last)
+bool Context::labelCycles(sexp exp, bool last)
 {
     sexp value = seenMap[exp];
     if (isFixnum(value)) {
@@ -2382,47 +2382,44 @@ void display(Context& context, sexp p, int level);
 void displayList(Context& context, sexp exp, int level)
 {
     bool first = false;
-    if (context.tagCycles(exp, false))
+    if (context.labelCycles(exp, false))
         return;
     context.s << '(';
-    level += 2;
-    while (exp)
+    sexp p = exp;
+    while (p)
     {
-        if (first && context.tagCycles(exp, true))
+        if (first && context.labelCycles(p, true))
             break;
-        display(context, exp->car, level+2);
-        exp = exp->cdr;
-        if (exp) {
-            if (isCons(exp) && !isClosure(exp) && !isPromise(exp) && global != exp) {
-                context.wrap(level, displayLength(exp->car));
+        display(context, p->car, level+context.tabs);
+        p = p->cdr;
+        if (p) {
+            if (isCons(p) && !isClosure(p) && !isPromise(p) && global != p) {
+                context.wrap(level, displayLength(p->car));
             } else {
                 context.s << " . ";
-                display(context, exp, level+2);
-                exp = 0;
+                display(context, p, level+context.tabs);
+                p = 0;
             }
         }
         first = true;
     }
-    level -= 2;
     context.s << ')';
 }
 
 void displayVector(Context& context, sexp v, int level)
 {
     context.s << '[';
-    level += 2;
     Vector *vv = (Vector*)v;
     for (int i = 0; i < vv->l; ++i)
     {
-        if (!context.tagCycles(vv->e[i], false))
-            display(context, vv->e[i], level+2);
+        if (!context.labelCycles(vv->e[i], false))
+            display(context, vv->e[i], level+context.tabs);
         if (i < vv->l-1)
         {
             context.s << ",";
             context.wrap(level, displayLength(vv->e[i+1]));
         }
     }
-    level -= 2;
     context.s << ']';
 }
 
@@ -3492,8 +3489,7 @@ sexp scans(std::istream& fin)
                     return comma;
                } else
                    return commaat;
-    case '#':  c = fin.get();
-               switch (c)
+    case '#':  switch (c = fin.get())
                {
                case 'f': return f;
                case 't': return t;
@@ -3509,12 +3505,11 @@ sexp scans(std::istream& fin)
                             return newcharacter(*character_table[i]);
                     return newcharacter(*buf);
                 }
-    case '-':
-        c = fin.get();
-        if ('.' == c || isdigit(c))
-            s.put('-');
-        else
-            { fin.unget(); return minus; } 
+    case '-':   c = fin.get();
+                if ('.' == c || isdigit(c))
+                    s.put('-');
+                else
+                    { fin.unget(); return minus; } 
     }
 
     fin.unget();
@@ -3580,14 +3575,17 @@ sexp scans(std::istream& fin)
         }
     }
 
-    if (FIXED == status)
+    switch (status)
+    {
+    case FIXED:
         { long num; s >> num; return newfixnum(num); }
-
-    if (FLOATING == status)
+    case FLOATING:
         { double re; s >> re; return newflonum(re); }
-
-    if (RATIONAL == status)
+    case RATIONAL:
         { long num, den; s >> num; s.get(); s >> den; return newrational(num, den); }
+    default:
+        break;
+    }
 
     if ('"' != c)
         return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
