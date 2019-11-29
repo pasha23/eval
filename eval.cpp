@@ -1209,11 +1209,16 @@ sexp roundff(sexp x)
     return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
 }
 
+double truncate(double x)
+{
+    return x < 0 ? ceil(x) : floor(x);
+}
+
 // truncate
 sexp truncateff(sexp x)
 {
     assertFlonum(x);
-    return newflonum(asFlonum(x) < 0 ? ceil(asFlonum(x)) : floor(asFlonum(x)));
+    return newflonum(truncate(asFlonum(x)));
 }
 
 // integer square root
@@ -2524,6 +2529,18 @@ void mapCycles(Context& context, sexp exp)
     }
 }
 
+// ensure there is some way of distinguishing a fixnum from a flonum
+void displayFlonum(Context& context, sexp exp)
+{
+    std::stringstream s;
+    double flonum = asFlonum(exp);
+    s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15) << flonum;
+    std::string sstr = s.str();
+    context.s << sstr;
+    if (std::string::npos == sstr.find('e') && std::string::npos == sstr.find('.'))
+        context.s << ".0";
+}
+
 void display(Context& context, sexp exp, int level)
 {
     if (!exp)
@@ -2557,7 +2574,7 @@ void display(Context& context, sexp exp, int level)
             if (isRational(exp->cdr->car))
                 displayRational(context, exp->cdr->car);
             else
-                context.s << asFlonum(exp->cdr->car);
+                displayFlonum(context, exp->cdr->car);
             double im = asFlonum(exp->cdr->cdr->car);
             if (im > 0.0)
                 context.s << '+';
@@ -2566,7 +2583,7 @@ void display(Context& context, sexp exp, int level)
                 if (isRational(exp->cdr->cdr->car))
                     displayRational(context, exp->cdr->cdr->car);
                 else
-                    context.s << asFlonum(exp->cdr->cdr->car);
+                    displayFlonum(context, exp->cdr->cdr->car);
                 context.s << 'i';
             }
         } else
@@ -2578,7 +2595,7 @@ void display(Context& context, sexp exp, int level)
     {
     default:      error("display: unknown object");
     case FLOAT: 
-    case DOUBLE:  context.s << asFlonum(exp);              break;
+    case DOUBLE:  displayFlonum(context, exp);             break;
     case CHUNK:   context.s << "#<chunk>";                 break;
     case FIXNUM:  context.s << asFixnum(exp);              break;
     case STRING:  displayString(context, exp);             break;
