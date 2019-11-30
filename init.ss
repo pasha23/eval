@@ -433,10 +433,10 @@
 (define (make-random)
     (let ((a 69069)
           (c 1)
-          (m (<< 1 30))
+          (m (<< 1 31))
           (seed 19380110))
           (lambda () (set! seed (remainder (+ (* seed a) c) m)) 
-                     (exact->inexact (/ seed m)))))
+                     (exact->inexact (abs (/ seed m))))))
  
 (define (shuffle random s)
         (sort (lambda (x y) (<= 0.5 (random))) s))
