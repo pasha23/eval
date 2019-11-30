@@ -441,5 +441,12 @@
 (define (shuffle random s)
         (sort (lambda (x y) (<= 0.5 (random))) s))
 
+(define (make-lfsr)
+    (let ((r 0)
+          (t 2147483735))
+         (lambda () (set! r (^ (>> r 1) (& (~ (- (& r 1))) t))) (if (zero? (& r 1)) #f #t))))
+
+(define (bits lfsr) (while #t (write-char (if (lfsr) #\1 #\0))))
+
 ;; (display (map car (environment))) (newline)
 
