@@ -414,21 +414,32 @@
                   (cons (car q) (merge f (cdr q) p))))))
 
 (define (alternate p)
-  (cond ((null? p) p)
-        ((null? (cdr p)) (list (car p)))
-        (else (cons (car p) (alternate (cdr (cdr p)))))))
+  (if (or (null? p) (null? (cdr p)))
+      p
+      (cons (car p) (alternate (cdr (cdr p))))))
 
 (define (sort f p)
-  (cond ((null? p) p)
-        ((null? (cdr p)) p)
-        (else (merge f (sort f (alternate p))
-                       (sort f (alternate (cdr p)))))))
+  (if (or (null? p) (null? (cdr p)))
+      p
+      (merge f (sort f (alternate p))
+               (sort f (alternate (cdr p))))))
 
 (define (numeric-sort p) (sort < p))
 
 (define (char-sort p) (sort char<? p))
 
 (define (string-sort p) (sort string<? p))
+
+(define (make-random)
+    (let ((a 69069)
+          (c 1)
+          (m (<< 1 30))
+          (seed 19380110))
+          (lambda () (set! seed (remainder (+ (* seed a) c) m)) 
+                     (exact->inexact (/ seed m)))))
+ 
+(define (shuffle random s)
+        (sort (lambda (x y) (<= 0.5 (random))) s))
 
 ;; (display (map car (environment))) (newline)
 

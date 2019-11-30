@@ -54,6 +54,8 @@
 
 (test '(string=?  "aaaaabbcdrr" (list->string (char-sort (string->list "abracadabra")))))
 
+(test '(eqv? (iota 50) (sort < (shuffle (make-random) (iota 50)))))
+
 (test '(= 0 0))
 (test '(= (~ 0) -1))
 (test '(= 1.0 (cos (acos 1.0))))
