@@ -50,7 +50,9 @@
 
 (test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
 
-(test '(eqv? '(1 2 4 5 7 8) (sort '(1 4 2 8 5 7))))
+(test '(eqv? '(1 2 4 5 7 8) (sort-numeric '(1 4 2 8 5 7))))
+
+(test '(string=?  "aaaaabbcdrr" (list->string (char-sort (string->list "abracadabra")))))
 
 (test '(= 0 0))
 (test '(= (~ 0) -1))
@@ -305,5 +307,4 @@
 (test #t)
 
 (display "tests complete.")
-
 

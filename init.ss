@@ -406,23 +406,29 @@
                            (read-char))
                     (cursor-remove s))))
 
-(define (merge p q)
+(define (merge f p q)
   (cond ((null? p) q)
         ((null? q) p)
-        (else (if (< (car p) (car q))
-                  (cons (car p) (merge (cdr p) q))
-                  (cons (car q) (merge (cdr q) p))))))
+        (else (if (f (car p) (car q))
+                  (cons (car p) (merge f (cdr p) q))
+                  (cons (car q) (merge f (cdr q) p))))))
 
 (define (alternate p)
   (cond ((null? p) p)
         ((null? (cdr p)) (list (car p)))
         (else (cons (car p) (alternate (cdr (cdr p)))))))
 
-(define (sort p)
+(define (sort f p)
   (cond ((null? p) p)
         ((null? (cdr p)) p)
-        (else (merge (sort (alternate p))
-                     (sort (alternate (cdr p)))))))
+        (else (merge f (sort f (alternate p))
+                       (sort f (alternate (cdr p)))))))
+
+(define (numeric-sort p) (sort < p))
+
+(define (char-sort p) (sort char<? p))
+
+(define (string-sort p) (sort string<? p))
 
 ;; (display (map car (environment))) (newline)
 
