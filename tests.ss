@@ -50,6 +50,8 @@
 
 (test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
 
+(test '(eqv? '(1 2 4 5 7 8) (sort '(1 4 2 8 5 7))))
+
 (test '(= 0 0))
 (test '(= (~ 0) -1))
 (test '(= 1.0 (cos (acos 1.0))))
