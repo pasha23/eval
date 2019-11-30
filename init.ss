@@ -441,10 +441,17 @@
 (define (shuffle random s)
         (sort (lambda (x y) (<= 0.5 (random))) s))
 
-(define (make-lfsr)
-    (let ((r 0)
-          (t 2147483735))
-         (lambda () (set! r (^ (>> r 1) (& (~ (- (& r 1))) t))) (if (zero? (& r 1)) #f #t))))
+(define polynomials
+        [6, 12, 20, 48, 72, 178, 272, 576, 1128, 2224, 4320,
+        8592, 16512, 33568, 66560, 132096, 266112, 527488,
+        1053440, 2103552, 4202496, 8418816, 16790528,
+        33604608, 67177472, 134234112, 268576768, 537145344,
+        1073848320, 2147880960])
+
+(define (make-lfsr n)
+        (let ((r 0)
+              (p (vector-ref polynomials (- n 3))))
+             (lambda () (set! r (^ (>> r 1) (& (~ (- (& r 1))) p))) (if (zero? (& r 1)) #f #t))))
 
 (define (bits lfsr) (while #t (write-char (if (lfsr) #\1 #\0))))
 
