@@ -308,5 +308,5 @@
 
 (test #t)
 
-(display "tests complete.")
+(display "tests complete.") (newline)
 

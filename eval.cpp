@@ -218,12 +218,14 @@ struct Context
     static const int eol  = 50;
     static const int tabs =  4;
 
-    std::streampos pos;
     bool write;
-    int label;
+    int  label;
+    std::streampos pos;
+    std::streampos limit;
     std::stringstream s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(bool write) : label(0), write(write) { setp(); pos = s.tellp(); }
+    Context(bool write) : limit(0), label(0), write(write) { setp(); pos = s.tellp(); }
+    Context(int limit, bool write) : limit(limit), label(0), write(write) { setp(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
     void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
@@ -231,7 +233,8 @@ struct Context
     bool labelCycles(sexp exp, bool last);
 };
 
-void display(Context& context, sexp p);
+void mapCycles(Context& context, sexp exp);
+void display(Context& context, sexp p, int level);
 
 static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
 static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
@@ -1553,7 +1556,8 @@ sexp newstring(const char* s)
 sexp number_string(sexp exp)
 {
     Context context(true);
-    display(context, exp);
+    mapCycles(context, exp);
+    display(context, exp, 0);
     return newstring(context.s.str().c_str());
 }
 
@@ -1809,8 +1813,9 @@ sexp write_to_string(sexp args)
         assertFixnum(args->car);
         limit = asFixnum(args->car);
     }
-    Context context(true);
-    display(context, exp);
+    Context context(limit, true);
+    mapCycles(context, exp);
+    display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
     return newstring(context.s.str().substr(0, limit).c_str());
 }
@@ -2384,9 +2389,8 @@ sexp displayf(sexp args)
     Context context(false);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(context, args->car);
-    if (false && coutport == port)
-        context.s << std::endl;
+    mapCycles(context, args->car);
+    display(context, args->car, 0);
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
 }
@@ -2397,9 +2401,8 @@ sexp writef(sexp args)
     Context context(true);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
-    display(context, args->car);
-    if (false && coutport == port)
-        context.s << std::endl;
+    mapCycles(context, args->car);
+    display(context, args->car, 0);
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
 }
@@ -2460,11 +2463,10 @@ sexp cyclicp(sexp x) { std::set<sexp> seenSet; return boolwrap(cyclic(seenSet, x
 int displayLength(sexp exp)
 {
     Context context(true);
-    display(context, exp);
+    mapCycles(context, exp);
+    display(context, exp, 0);
     return context.s.str().length();
 }
-
-void display(Context& context, sexp p, int level);
 
 void displayList(Context& context, sexp exp, int level)
 {
@@ -2609,6 +2611,9 @@ void displayFlonum(Context& context, sexp exp)
 
 void display(Context& context, sexp exp, int level)
 {
+    if (context.limit && context.s.tellp() >= context.limit)
+        return;
+
     if (!exp)
     {
         context.s << "()";
@@ -2676,21 +2681,26 @@ void display(Context& context, sexp exp, int level)
     return;
 }
 
-void display(Context& context, sexp exp)
+void display(sexp exp)
 {
+    Context context(0, true);
     mapCycles(context, exp);
-    display(context, exp, 0);
+    if (voida == exp)
+        context.s << "#void";
+    else
+        display(context, exp, 0);
 }
 
 // usual way to see what is happening
 void debug(const char *what, sexp exp)
 {
     Context context(true);
+    mapCycles(context, exp);
     context.s << what << ": ";
     if (voida == exp)
         context.s << "#void";
     else
-        display(context, exp);
+        display(context, exp, 0);
     context.s << std::endl;
     std::cout.write(context.s.str().c_str(), context.s.str().length());
 }
@@ -3399,11 +3409,9 @@ sexp eval(sexp p, sexp env)
         if (voida == p)
             context.s << "#void";
         else
-            display(context, p);
+            display(context, p, 0);
         context.s << " ==> ";
-        if (!p)
-            error("invalid: ()");
-        if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
+        if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
             {}
         else if (isAtom(p))
             p = get(p, env);
@@ -3419,15 +3427,13 @@ sexp eval(sexp p, sexp env)
         if (voida == p)
             context.s << "#void";
         else
-            display(context, p);
+            display(context, p, 0);
         context.s << std::endl;
         std::cout.write(context.s.str().c_str(), context.s.str().length());
         --indent;
         return lose(mark, p);
     } else {
-        if (!p)
-            error("invalid: ()");
-        if (f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
+        if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
             return p;
         if (isAtom(p))
             return get(p, env);
@@ -4164,7 +4170,8 @@ int main(int argc, char **argv, char **envp)
         valu = eval(expr, global);
         {
             Context context(false);
-            display(context, valu);
+            mapCycles(context, valu);
+            display(context, valu, 0);
             std::cout.write(context.s.str().c_str(), context.s.str().length());
             if (voida != valu)
                 std::cout << std::endl;
