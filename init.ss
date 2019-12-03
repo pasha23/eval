@@ -406,6 +406,72 @@
                            (read-char))
                     (cursor-remove s))))
 
+(define (hexout n)
+	(let ((r '()))
+         (while (> n 0)
+                (if (< (& n 15) 10)
+                    (set! r (cons (integer->char (+ (char->integer #\0) (& n 15))) r))
+                    (set! r (cons (integer->char (+ (char->integer #\W) (& n 15))) r)))
+                (set! n (>> n 4)))
+         (list->string r)))
+
+(define (hexin s)
+    (let ((l (string->list s))
+          (n 0))
+         (while (pair? l)
+                (set! n (<< n 4))
+                (if (and (char<=? #\0 (car l)) (char<=? (car l) #\9))
+                    (set! n (+ n (- (char->integer (car l)) (char->integer #\0))))
+                    (set! n (+ n (- (char->integer (car l)) (char->integer #\W)))))
+                (set! l (cdr l)))
+         n))
+
+(define (make-random)
+    (let ((a 69069)
+          (c 1)
+          (m (<< 1 31))
+          (seed 19380110))
+          (lambda () (set! seed (remainder (+ (* seed a) c) m)) 
+                     (abs (/ (exact->inexact seed) m)))))
+ 
+;; 32-bit and longer polynomials will not work on 32-bit machines
+
+(define polynomials
+    [1, 3, 5, 9, 18, 33, 65, 142, 264, 516, 1026,
+    2089, 4109, 8213, 16385, 32790, 65540, 131091,
+    262163, 524292, 1048578, 2097153, 4194320,
+    8388621, 16777220, 33554467, 67108883,
+    134217732, 268435458, 536870953, 1073741828,
+    2147483735, 4294967337, 8589934707, 17179869186,
+    34359738427, 68719476767, 137438953521,
+    274877906952, 549755813916, 1099511627780,
+    2199023255583, 4398046511148, 8796093022258,
+    17592186044429, 35184372088983, 70368744177680,
+    140737488355419, 281474976710712,
+    562949953421326, 1125899906842661,
+    2251799813685252, 4503599627370531,
+    9007199254741054, 18014398509482019,
+    36028797018964042, 72057594037927958,
+    144115188075855921, 288230376151711805,
+    576460752303423489, 1152921504606846995,
+    2305843009213694004, 4611686018427387905,
+    9223372036854775811])
+
+(define (make-lfsr n)
+        (let ((r 0)
+              (p (vector-ref polynomials (- n 1))))
+             (lambda () (set! r (^ (>> r 1) (& (~ (- (& r 1))) p))) (if (zero? (& r 1)) #f #t))))
+
+(define (bits lfsr) (while #t (write-char (if (lfsr) #\1 #\0))))
+
+(define (allbits n)
+    (let ((length (- (<< 1 n) 1))
+          (lfsr (make-lfsr n)))
+         (while (> length 0)
+                (write-char (if (lfsr) #\1 #\0))
+                (set! length (- length 1)))
+         (newline)))
+
 (define (merge f p q)
   (cond ((null? p) q)
         ((null? q) p)
@@ -430,53 +496,10 @@
 
 (define (string-sort p) (sort string<? p))
 
-(define (make-random)
-    (let ((a 69069)
-          (c 1)
-          (m (<< 1 31))
-          (seed 19380110))
-          (lambda () (set! seed (remainder (+ (* seed a) c) m)) 
-                     (exact->inexact (abs (/ seed m))))))
- 
 (define (shuffle random s)
         (sort (lambda (x y) (<= 0.5 (random))) s))
 
-(define polynomials
-    [1, 3, 5, 9, 18, 33, 65, 142, 264, 516, 1026,
-    2089, 4109, 8213, 16385, 32790, 65540, 131091,
-    262163, 524292, 1048578, 2097153, 4194320,
-    8388621, 16777220, 33554467, 67108883,
-    134217732, 268435458, 536870953, 1073741828,
-    2147483735, 4294967337, 8589934707, 17179869186,
-    34359738427, 68719476767, 137438953521,
-    274877906952, 549755813916, 1099511627780,
-    2199023255583, 4398046511148, 8796093022258,
-    17592186044429, 35184372088983, 70368744177680,
-    140737488355419, 281474976710712,
-    562949953421326, 1125899906842661,
-    2251799813685252, 4503599627370531,
-    9007199254741054, 18014398509482019,
-    36028797018964042, 72057594037927958,
-    144115188075855921, 288230376151711805,
-    576460752303423489, 1152921504606846995,
-    2305843009213694004, 4611686018427387905])
-
-(define (make-lfsr n)
-        (let ((r 0)
-              (p (vector-ref polynomials (- n 1))))
-             (lambda () (set! r (^ (>> r 1) (& (~ (- (& r 1))) p))) (if (zero? (& r 1)) #f #t))))
-
-(define (bits lfsr) (while #t (write-char (if (lfsr) #\1 #\0))))
-
-(define (crbits n)
-    (let ((count 0)
-          (length (- (<< 1 n) 1))
-          (lfsr (make-lfsr n)))
-         (while #t
-                (set! count (+ count 1))
-                (write-char (if (lfsr) #\1 #\0))
-                (when (zero? (remainder count length))
-                      (newline)))))
-
 ;; (display (map car (environment))) (newline)
 
+ 
+ 

@@ -605,6 +605,18 @@ sexp trace(sexp arg)
     return r;
 }
 
+double threadTime()
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1000000000.0;
+}
+
+sexp timeff(sexp args)
+{
+    return newflonum(threadTime());
+}
+
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
 // supports labeling of cyclic structures
@@ -1114,15 +1126,82 @@ sexp unidiv(sexp l)
     return lose(mark, result);
 }
 
+long rem(long x, long y)
+{
+    long r = x % y;
+    if (r > 0)
+    {
+        if (x < 0)
+            r -= abs(y);
+    } else if (r < 0) {
+        if (x > 0)
+            r += abs(y);
+    }
+    return r;
+}
+
+long mod(long x, long y)
+{
+    long r = x % y;
+    if (r * y < 0)
+        r += y;
+    return r;
+}
+
 sexp rational_mod(sexp x, sexp y)
 {
     long d = lcm(den(x), den(y));
     long xn = num(x) * d / den(x);
     long yn = num(y) * d / den(y);
-    return rational_reduce(xn % yn, d);
+    return rational_reduce(mod(xn, yn), d);
+}
+
+sexp rational_rem(sexp x, sexp y)
+{
+    long d = lcm(den(x), den(y));
+    long xn = num(x) * d / den(x);
+    long yn = num(y) * d / den(y);
+    return rational_reduce(rem(xn, yn), d);
 }
 
 sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
+
+sexp moduloff(sexp x, sexp y)
+{
+    if (isComplex(x)) {
+        if (isComplex(y))
+            return complex_mod(x, y);
+        if (isRational(y) || isFixnum(y) || isFlonum(y))
+            return lose(complex_mod(x, save(make_complex(y, zero))));
+    } else if (isRational(x)) {
+        if (isComplex(y))
+            return lose(complex_mod(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y))
+            return rational_mod(x, y);
+        if (isFlonum(y))
+            return newflonum(fmod(rat2real(x), asFlonum(y)));
+    } else if (isFixnum(x)) {
+        if (isComplex(y))
+            return lose(complex_mod(y, save(make_complex(x, zero))));
+        if (isRational(y))
+            return lose(rational_mod(save(make_rational(x, one)), y));
+        if (isFixnum(y))
+            return newfixnum(mod(asFixnum(x), asFixnum(y)));
+        if (isFlonum(y))
+            return newflonum(fmod((double)asFixnum(x), asFlonum(y)));
+    } else if (isFlonum(x)) {
+        if (isComplex(y))
+            return lose(complex_mod(save(make_complex(x, zero)), y));
+        if (isRational(y))
+            return newflonum(fmod(asFlonum(x), rat2real(y)));
+        if (isFixnum(y))
+            return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
+        if (isFlonum(y))
+            return newflonum(fmod(asFlonum(x), asFlonum(y)));
+    }
+
+    error("modulo: operand");
+}
 
 // x % y
 sexp remainderff(sexp x, sexp y)
@@ -1814,7 +1893,11 @@ sexp vector_ref(sexp vector, sexp index)
 {
     assertFixnum(index);
     assertVector(vector);
-    return ((Vector*)vector)->e[asFixnum(index)];
+    int i = asFixnum(index);
+    Vector* v = (Vector*)vector;
+    if (0 <= i && i < v->l)
+        return ((Vector*)vector)->e[asFixnum(index)];
+    error("vector-ref: bounds check");
 }
 
 // (vector e0 e1 e2 ...)
@@ -2302,7 +2385,7 @@ sexp displayf(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
-    if (coutport == port)
+    if (false && coutport == port)
         context.s << std::endl;
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
@@ -2315,7 +2398,7 @@ sexp writef(sexp args)
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     display(context, args->car);
-    if (coutport == port)
+    if (false && coutport == port)
         context.s << std::endl;
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
@@ -3819,6 +3902,7 @@ struct FuncTable {
     { "magnitude",                         1, (void*)magnitude },
     { "make-string",                       0, (void*)make_string },
     { "make-vector",                       0, (void*)make_vector },
+    { "modulo",                            2, (void*)moduloff },
     { "neg",                               1, (void*)unineg },
     { "negative?",                         1, (void*)negativep },
     { "newline",                           0, (void*)newline },
@@ -3882,6 +3966,7 @@ struct FuncTable {
     { "symbol->string",                    1, (void*)symbol_string },
     { "tan",                               1, (void*)tanff },
     { "tanh",                              1, (void*)tanhff },
+    { "time",                              1, (void*)timeff },
     { "trace",                             1, (void*)trace },
     { "truncate",                          1, (void*)truncateff },
     { "undefine",                          1, (void*)undefine },
