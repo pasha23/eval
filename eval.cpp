@@ -594,16 +594,11 @@ sexp trace(sexp arg)
     return r;
 }
 
-double threadTime()
+sexp timeff(sexp args)
 {
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
-    return ts.tv_sec + ts.tv_nsec / 1000000000.0;
-}
-
-sexp timeff(sexp args)
-{
-    return newflonum(threadTime());
+    return newflonum(ts.tv_sec + ts.tv_nsec / 1000000000.0);
 }
 
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
@@ -2509,7 +2504,10 @@ const char * const character_table[] =
 
 void displayAtom(Context& context, sexp exp)
 {
-    displayChunks(context, ((Atom*)exp)->body->cdr, true);
+    if (context.write && voida == exp)
+        context.s << "#void";
+    else
+        displayChunks(context, ((Atom*)exp)->body->cdr, true);
 }
 
 void displayString(Context& context, sexp exp)
@@ -2587,6 +2585,7 @@ void display(Context& context, sexp exp, int level)
         context.s << "()";
         return;
     }
+
     if (isCons(exp)) {
         bool quoted = false;
         if (isCons(exp->cdr))
@@ -2653,10 +2652,7 @@ void display(sexp exp)
 {
     Context context(0, true, true);
     mapCycles(context, exp);
-    if (voida == exp)
-        context.s << "#void";
-    else
-        display(context, exp, 0);
+    display(context, exp, 0);
 }
 
 // usual way to see what is happening
@@ -2665,10 +2661,7 @@ void debug(const char *what, sexp exp)
     Context context(0, true, true);
     mapCycles(context, exp);
     context.s << what << ": ";
-    if (voida == exp)
-        context.s << "#void";
-    else
-        display(context, exp, 0);
+    display(context, exp, 0);
     context.s << std::endl;
     std::cout.write(context.s.str().c_str(), context.s.str().length());
 }
@@ -3389,10 +3382,7 @@ sexp eval(sexp p, sexp env)
         Context context(0, true, false);
         context.s << "eval:";
         for (int i = indent; --i >= 0; context.s << ' ') {}
-        if (voida == p)
-            context.s << "#void";
-        else
-            display(context, p, 0);
+        display(context, p, 0);
         context.s << " ==> ";
         if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
             {}
@@ -3407,10 +3397,7 @@ sexp eval(sexp p, sexp env)
             else
                 p = save(apply(fun, save(evlis(p->cdr, env))));
         }
-        if (voida == p)
-            context.s << "#void";
-        else
-            display(context, p, 0);
+        display(context, p, 0);
         context.s << std::endl;
         std::cout.write(context.s.str().c_str(), context.s.str().length());
         --indent;
