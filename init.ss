@@ -296,8 +296,8 @@
 
 (define (definitions)
         (for-each (lambda (x)
-                  (if (closure? (cdr x))
-                      (begin (display (definition (car x))) (newline) (newline))))
+                  (if (or (closure? (cdr x)) (vector? (cdr x)) (string? (cdr x)) (number? (cdr x)))
+                      (begin (write (definition (car x))) (newline) (newline))))
                   (reverse (environment))))
 
 (define (ttytest)

@@ -219,15 +219,15 @@ struct Context
     static const int tabs =  4;
 
     bool write;
+    bool pretty;
     int  label;
     std::streampos pos;
     std::streampos limit;
     std::stringstream s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(bool write) : limit(0), label(0), write(write) { setp(); pos = s.tellp(); }
-    Context(int limit, bool write) : limit(limit), label(0), write(write) { setp(); pos = s.tellp(); }
+    Context(int limit, bool write, bool pretty) : limit(limit), label(0), write(write), pretty(pretty) { setp(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
-    void wrap(int level, int length) { if (!write && s.tellp() - pos + length > eol) newline(level); else space(); }
+    void wrap(int level, int length) { if (pretty && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
     bool labelCycles(sexp exp, bool last);
@@ -344,20 +344,6 @@ static inline void save(sexp p, sexp q, sexp r)
  * replace the top of the protection stack, return it
  */
 static inline sexp replace(sexp p) { return *psp = p; }
-
-/*
- * pop n items from the protection stack then return p
- */
-sexp lose(int n, sexp p)
-{
-    if (psp-n < protect)
-    {
-        psp = protect;
-        error("error: protection stack underflow");
-    }
-    psp -= n;
-    return p;
-}
 
 static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
 
@@ -1555,7 +1541,7 @@ sexp newstring(const char* s)
 // number->string (actually we will convert arbitrary s-expressions)
 sexp number_string(sexp exp)
 {
-    Context context(true);
+    Context context(0, true, false);
     mapCycles(context, exp);
     display(context, exp, 0);
     return newstring(context.s.str().c_str());
@@ -1674,7 +1660,7 @@ sexp with_input_from_file(sexp p, sexp thunk)
 {
     sexp* mark = psp;
     sexp t = save(inport);
-    inport = save(open_input_file(p));
+    inport = open_input_file(p);
     sexp q = save(apply(thunk, 0));
     close_input_port(inport);
     inport = t;
@@ -1686,7 +1672,7 @@ sexp with_output_to_file(sexp p, sexp thunk)
 {
     sexp* mark = psp;
     sexp t = save(outport);
-    outport = save(open_output_file(p));
+    outport = open_output_file(p);
     sexp q = save(apply(thunk, 0));
     close_output_port(outport);
     outport = t;
@@ -1813,7 +1799,7 @@ sexp write_to_string(sexp args)
         assertFixnum(args->car);
         limit = asFixnum(args->car);
     }
-    Context context(limit, true);
+    Context context(limit, true, false);
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
@@ -2386,7 +2372,7 @@ sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 // display
 sexp displayf(sexp args)
 {
-    Context context(false);
+    Context context(0, false, true);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -2398,7 +2384,7 @@ sexp displayf(sexp args)
 // write
 sexp writef(sexp args)
 {
-    Context context(true);
+    Context context(0, true, true);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -2462,7 +2448,7 @@ sexp cyclicp(sexp x) { std::set<sexp> seenSet; return boolwrap(cyclic(seenSet, x
 // for prettyprinting
 int displayLength(sexp exp)
 {
-    Context context(true);
+    Context context(0, true, false);
     mapCycles(context, exp);
     display(context, exp, 0);
     return context.s.str().length();
@@ -2531,35 +2517,17 @@ void displayString(Context& context, sexp exp)
     displayChunks(context, ((String*)exp)->chunks, false);
 }
 
-// used for displaying functions, forms. and closures by name
-sexp getName(sexp exp)
-{
-    for (sexp p = global; p; p = p->cdr)
-        if (exp == p->car->cdr)
-            return p->car->car;
-    return 0;
-}
-
-void displayFunction(Context& context, sexp exp)
-{
-    context.s << "#<function" << arity(exp) << '@';
-    sexp name = getName(exp);
-    if (name)
-        displayAtom(context, name);
-    else
-        context.s << std::hex << (void*)exp << std::dec;
-    context.s << '>';
-}
-
 void displayNamed(Context& context, const char *kind, sexp exp)
 {
     context.s << "#<" << kind << '@';
-    sexp name = getName(exp);
-    if (name)
-        displayAtom(context, name);
-    else
-        context.s << std::hex << (void*)exp << std::dec;
-    context.s << '>';
+    for (sexp p = global; p; p = p->cdr)
+        if (exp == p->car->cdr)
+        {
+            displayAtom(context, p->car->car);
+            context.s << '>';
+            return;
+        }
+    context.s << std::hex << (void*)exp << std::dec << '>';
 }
 
 void displayChar(Context& context, sexp exp)
@@ -2671,7 +2639,7 @@ void display(Context& context, sexp exp, int level)
     case FIXNUM:  context.s << asFixnum(exp);              break;
     case STRING:  displayString(context, exp);             break;
     case ATOM:    displayAtom(context, exp);               break;
-    case FUNCT:   displayFunction(context, exp);           break;
+    case FUNCT:   displayNamed(context, "function", exp);  break;
     case FORM:    displayNamed(context, "form", exp);      break;
     case INPORT:  displayNamed(context, "input", exp);     break;
     case OUTPORT: displayNamed(context, "output", exp);    break;
@@ -2683,7 +2651,7 @@ void display(Context& context, sexp exp, int level)
 
 void display(sexp exp)
 {
-    Context context(0, true);
+    Context context(0, true, true);
     mapCycles(context, exp);
     if (voida == exp)
         context.s << "#void";
@@ -2694,7 +2662,7 @@ void display(sexp exp)
 // usual way to see what is happening
 void debug(const char *what, sexp exp)
 {
-    Context context(true);
+    Context context(0, true, true);
     mapCycles(context, exp);
     context.s << what << ": ";
     if (voida == exp)
@@ -2720,10 +2688,10 @@ sexp symbol_string(sexp x)
     return lose(mark, string_copy(save(newcell(STRING, ((Atom*)save(x))->body->cdr))));
 }
 
-// string->number (actually we will convert arbitrary s-expressions)
+// string->number
 sexp string_number(sexp exp)
 {
-    Context context(false);
+    Context context(0, false, false);
     displayChunks(context, ((String*)exp)->chunks, false);
     return read(context.s, 0);
 }
@@ -3403,7 +3371,7 @@ sexp eval(sexp p, sexp env)
     if (f != tracing)
     {
         ++indent;
-        Context context(true);
+        Context context(0, true, false);
         context.s << "eval:";
         for (int i = indent; --i >= 0; context.s << ' ') {}
         if (voida == p)
@@ -4169,7 +4137,7 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         valu = eval(expr, global);
         {
-            Context context(false);
+            Context context(0, false, true);
             mapCycles(context, valu);
             display(context, valu, 0);
             std::cout.write(context.s.str().c_str(), context.s.str().length());
