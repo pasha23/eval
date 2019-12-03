@@ -303,9 +303,8 @@ bool isComplex(sexp p)
 // complex?
 sexp complexp(sexp s) { return boolwrap(isComplex(s)); }
 
-/*
- * save the argument on the protection stack, return it
- */
+// protection stack management
+
 void psoverflow(void)
 {
     error("protection stack overflow");
@@ -340,9 +339,6 @@ static inline void save(sexp p, sexp q, sexp r)
     psp = s;
 }
 
-/*
- * replace the top of the protection stack, return it
- */
 static inline sexp replace(sexp p) { return *psp = p; }
 
 static inline sexp lose(sexp* mark, sexp p) { psp = mark; return p; }
@@ -383,7 +379,7 @@ void mark(sexp p)
     markCell(p);
 }
 
-void deleteinport(sexp v)
+static void deleteinport(sexp v)
 {
     PortStream* stream = ((InPort*)v)->s;
     ((InPort*)v)->s = 0;
@@ -391,7 +387,7 @@ void deleteinport(sexp v)
         delete stream;
 }
 
-void deleteoutport(sexp v)
+static void deleteoutport(sexp v)
 {
     PortStream* stream = ((OutPort*)v)->s;
     ((OutPort*)v)->s = 0;
@@ -594,6 +590,7 @@ sexp trace(sexp arg)
     return r;
 }
 
+// time
 sexp timeff(sexp args)
 {
     struct timespec ts;
@@ -1523,11 +1520,13 @@ sexp intern(sexp p)
     return p;
 }
 
+// create an interned atom
 sexp newatom(const char* s, sexp value)
 {
     return lose(intern(replace(newcell(ATOM, replace(cons(value, save(newchunk(s))))))));
 }
 
+// create a string
 sexp newstring(const char* s)
 {
     return lose(newcell(STRING, save(newchunk(s))));
@@ -3052,7 +3051,11 @@ sexp lambdaform(sexp exp, sexp env)
 sexp nesteddefine(sexp p, sexp env)
 {
     sexp* mark = psp;
-    if (isCons((p = p->cdr)->car))
+
+    if (!(p = p->cdr) || !p->cdr)
+        error("define: missing operands");
+
+    if (isCons(p->car))
     {
         // (define (foo ...)
         sexp k = p->car->car;
@@ -3197,6 +3200,8 @@ sexp caseform(sexp exp, sexp env)
 sexp setform(sexp exp, sexp env)
 {
     exp = exp->cdr;
+    if (!exp || !exp->cdr)
+        error("set!: missing operands");
     return lose(set(exp->car, save(eval(exp->cdr->car, env)), env));
 }
 
@@ -3376,7 +3381,7 @@ sexp promiseform(sexp exp, sexp env) { assertPromise(exp); return exp; }
 sexp eval(sexp p, sexp env)
 {
     sexp* mark = psp;
-    if (f != tracing)
+    if (f != tracing && (isAtom(p) || isCons(p)))
     {
         ++indent;
         Context context(0, true, false);
