@@ -3236,7 +3236,10 @@ sexp let(sexp exp, sexp env)
     }
     // (let ((var val) (var val) ..) body )
     for (sexp v = exp->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
+        if (!v->car->cdr)
+            error("let: missing value");
+        else
+            e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     return lose(mark, tailforms(exp->cdr, e));
 }
 
@@ -3248,7 +3251,10 @@ sexp letstar(sexp exp, sexp env)
     sexp e = save(env);
     exp = exp->cdr;
     for (sexp v = exp->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
+        if (!v->car->cdr)
+            error("let*: missing value");
+        else
+            e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
     return lose(mark, tailforms(exp->cdr, e));
 }
 
@@ -3260,9 +3266,12 @@ sexp letrec(sexp exp, sexp env)
     sexp e = save(env);
     exp = exp->cdr;
     for (sexp v = exp->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+        e = save(cons(save(cons(v->car->car, 0)), e));
     for (sexp v = exp->car; v; v = v->cdr)
-        set(v->car->car, eval(v->car->cdr->car, e), e);
+        if (!v->car->cdr)
+            error("letrec: missing value");
+        else
+            set(v->car->car, save(eval(v->car->cdr->car, e)), e);
     return lose(mark, tailforms(exp->cdr, e));
 }
 
@@ -3284,7 +3293,10 @@ sexp doform(sexp exp, sexp env)
     exp = exp->cdr;
     // bind all the variables to their values
     for (sexp v = exp->car; v; v = v->cdr)
-        e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
+        if (!v->car->cdr)
+            error("do: missing value");
+        else
+            e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
     sexp s = save(voida);
     for (;;)
     {
@@ -3298,7 +3310,10 @@ sexp doform(sexp exp, sexp env)
 
         // step each variable
         for (sexp v = exp->car; v; v = v->cdr)
-            set(v->car->car, eval(v->car->cdr->cdr->car, e), e);
+            if (!v->car->cdr->cdr)
+                error("do: missing step");
+            else
+                set(v->car->car, eval(v->car->cdr->cdr->car, e), e);
     }
 }
 

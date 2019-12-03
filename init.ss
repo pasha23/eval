@@ -426,6 +426,11 @@
                 (set! l (cdr l)))
          n))
 
+(define (timer thunk)
+    (let ((start (time)))
+        (thunk)
+        (- (time) start)))
+
 (define (make-random)
     (let ((a 69069)
           (c 1)
