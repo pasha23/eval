@@ -3329,17 +3329,19 @@ sexp apply(sexp fun, sexp args)
 
     if (isFunct(fun))
     {
-        switch (arity(fun))
-        {
-        default: error("unsupported arity");
-        case 0: return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
-        case 1: return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(args ? args->car : voida));
-        case 2: return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(args ? args->car : voida,
-                                                                   args && args->cdr ? args->cdr->car : voida));
-        case 3: return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(args ? args->car : voida,
-                                                                     args && args->cdr ? args->cdr->car : voida,
-                                                                     args && args->cdr && args->cdr->cdr ? args->cdr->cdr->car : voida));
-        }
+        int a = arity(fun);
+        if (0 == a)
+            return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
+        sexp arg0 = save(args ? args->car : voida);
+        if (1 == a)
+            return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
+        sexp arg1 = save((args = args->cdr) ? args->car : voida);
+        if (2 == a)
+            return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
+        sexp arg2 = save((args = args->cdr) ? args->car : voida);
+        if (3 == a)
+            return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
+        error("apply: unsupported arity");
     }
 
     if (isClosure(fun))
@@ -3410,12 +3412,34 @@ sexp eval(sexp p, sexp env)
     } else {
         if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
             return p;
+
         if (isAtom(p))
             return get(p, env);
+
         save(p, env);
         sexp fun = save(eval(p->car, env));
+
         if (isForm(fun))
             return lose(mark, (*((Form*)fun)->formp)(p, env));
+
+        if (isFunct(fun))
+        {
+            // this is probably better than calling evlis/apply
+            int a = arity(fun);
+            if (0 == a)
+                return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(save(evlis(p->cdr, env))));
+            sexp arg0 = save((p = p->cdr) ? eval(p->car, env) : voida);
+            if (1 == a)
+                return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
+            sexp arg1 = save((p = p->cdr) ? eval(p->car, env) : voida);
+            if (2 == a)
+                return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
+            sexp arg2 = save((p = p->cdr) ? eval(p->car, env) : voida);
+            if (3 == a)
+                return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
+            error("eval: unsupported arity");
+        }
+
         return lose(mark, apply(fun, save(evlis(p->cdr, env))));
     }
 }
