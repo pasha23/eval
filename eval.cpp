@@ -35,6 +35,8 @@
 #include <string>
 #include <termios.h>
 #include <unistd.h>
+#include "num.hpp"
+#include "rat.hpp"
 
 #ifdef BROKEN
 #define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
@@ -55,18 +57,20 @@ enum Tag0 { CONS = 0, OTHER = 1, MARK = 2 };
 
 enum Tag1
 {
-    ATOM    = 0x0001,
-    STRING  = 0x0101,
-    CHUNK   = 0x0201,
-    FORM    = 0x0301,
-    FIXNUM  = 0x0401,
-    FUNCT   = 0x0501,
-    FLOAT   = 0x0601,
-    DOUBLE  = 0x0701,
-    CHAR    = 0x0801,
-    INPORT  = 0x0901,
-    OUTPORT = 0x0A01,
-    VECTOR  = 0x0B01
+    ATOM     = 0x0001,
+    STRING   = 0x0101,
+    CHUNK    = 0x0201,
+    FORM     = 0x0301,
+    FIXNUM   = 0x0401,
+    FUNCT    = 0x0501,
+    FLOAT    = 0x0601,
+    DOUBLE   = 0x0701,
+    CHAR     = 0x0801,
+    INPORT   = 0x0901,
+    OUTPORT  = 0x0A01,
+    VECTOR   = 0x0B01,
+    BIGNUM   = 0x0C01,
+    RATIONAL = 0x0D01
 };
 
 typedef struct Cons *sexp;
@@ -196,21 +200,23 @@ void StrPortStream::write(const char *s, int len)
 /*
  * note that there is just no room for virtual function pointers
  */
-struct Cons    { sexp                cdr; sexp                         car; };
-struct Tags    { char                                   tags[sizeof(Cons)]; };
-struct Stags   { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
-struct Chunk   { char tags[2];            char        text[sizeof(Cons)-2]; };
-struct Atom    { char tags[sizeof(sexp)]; sexp                        body; };
-struct String  { char tags[sizeof(sexp)]; sexp                      chunks; };
-struct Fixnum  { char tags[sizeof(sexp)]; long                      fixnum; };
-struct Float   { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
-struct Double  { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
-struct Funct   { char tags[sizeof(sexp)]; void*                      funcp; };
-struct Form    { char tags[sizeof(sexp)]; Formp                      formp; };
-struct Char    { char tags[sizeof(sexp)-sizeof(short)];  short          ch; };
-struct InPort  { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
-struct OutPort { char tags[sizeof(sexp)]; PortStream*                    s; };
-struct Vector  { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
+struct Cons     { sexp                cdr; sexp                         car; };
+struct Tags     { char                                   tags[sizeof(Cons)]; };
+struct Stags    { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
+struct Chunk    { char tags[2];            char        text[sizeof(Cons)-2]; };
+struct Atom     { char tags[sizeof(sexp)]; sexp                        body; };
+struct String   { char tags[sizeof(sexp)]; sexp                      chunks; };
+struct Fixnum   { char tags[sizeof(sexp)]; long                      fixnum; };
+struct Float    { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
+struct Double   { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
+struct Funct    { char tags[sizeof(sexp)]; void*                      funcp; };
+struct Form     { char tags[sizeof(sexp)]; Formp                      formp; };
+struct Char     { char tags[sizeof(sexp)-sizeof(short)];  short          ch; };
+struct InPort   { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
+struct OutPort  { char tags[sizeof(sexp)]; PortStream*                    s; };
+struct Vector   { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
+struct Bignum   { char tags[sizeof(sexp)]; Num*                        nump; };
+struct Rational { char tags[sizeof(sexp)]; Rat*                        ratp; };
 
 // supports uglyprinting
 struct Context
@@ -236,21 +242,23 @@ struct Context
 void mapCycles(Context& context, sexp exp);
 void display(Context& context, sexp p, int level);
 
-static inline int  shortType(const sexp p) { return       (~MARK &  ((Stags*)p)->stags);  }
-static inline int  arity(const sexp p)     { return                 ((Funct*)p)->tags[2]; }
-static inline bool isMarked(const sexp p)  { return       ( MARK &  ((Tags*)p)->tags[0]); }
-static inline bool isCons(const sexp p)    { return p && !(OTHER &  ((Tags*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)    { return p &&         ATOM    == shortType(p); }
-static inline bool isString(const sexp p)  { return p &&         STRING  == shortType(p); }
-static inline bool isFunct(const sexp p)   { return p &&         FUNCT   == shortType(p); }
-static inline bool isForm(const sexp p)    { return p &&         FORM    == shortType(p); }
-static inline bool isFixnum(const sexp p)  { return p &&         FIXNUM  == shortType(p); }
-static inline bool isFloat(const sexp p)   { return p &&         FLOAT   == shortType(p); }
-static inline bool isDouble(const sexp p)  { return p &&         DOUBLE  == shortType(p); }
-static inline bool isChar(const sexp p)    { return p &&         CHAR    == shortType(p); }
-static inline bool isInPort(const sexp p)  { return p &&         INPORT  == shortType(p); }
-static inline bool isOutPort(const sexp p) { return p &&         OUTPORT == shortType(p); }
-static inline bool isVector(const sexp p)  { return p &&         VECTOR  == shortType(p); }
+static inline int  shortType(const sexp p)  { return       (~MARK &    ((Stags*)p)->stags); }
+static inline int  arity(const sexp p)      { return                  ((Funct*)p)->tags[2]; }
+static inline bool isMarked(const sexp p)   { return       ( MARK &   ((Tags*)p)->tags[0]); }
+static inline bool isCons(const sexp p)     { return p && !(OTHER &   ((Tags*)p)->tags[0]); }
+static inline bool isAtom(const sexp p)     { return p &&         ATOM     == shortType(p); }
+static inline bool isString(const sexp p)   { return p &&         STRING   == shortType(p); }
+static inline bool isFunct(const sexp p)    { return p &&         FUNCT    == shortType(p); }
+static inline bool isForm(const sexp p)     { return p &&         FORM     == shortType(p); }
+static inline bool isFixnum(const sexp p)   { return p &&         FIXNUM   == shortType(p); }
+static inline bool isFloat(const sexp p)    { return p &&         FLOAT    == shortType(p); }
+static inline bool isDouble(const sexp p)   { return p &&         DOUBLE   == shortType(p); }
+static inline bool isChar(const sexp p)     { return p &&         CHAR     == shortType(p); }
+static inline bool isInPort(const sexp p)   { return p &&         INPORT   == shortType(p); }
+static inline bool isOutPort(const sexp p)  { return p &&         OUTPORT  == shortType(p); }
+static inline bool isVector(const sexp p)   { return p &&         VECTOR   == shortType(p); }
+static inline bool isBignum(const sexp p)   { return p &&         BIGNUM   == shortType(p); }
+static inline bool isRational(const sexp p) { return p &&         RATIONAL == shortType(p); }
 
 static inline sexp boolwrap(bool x) { return x ? t : f; }
 
@@ -278,14 +286,6 @@ bool isPromise(sexp p)
 
 // promise?
 sexp promisep(sexp s) { return boolwrap(isPromise(s)); }
-
-bool isRational(sexp p)
-{
-    return isCons(p) && rational == p->car &&          // (rational
-           isCons(p = p->cdr) && isFixnum(p->car) &&   //  numerator
-           isCons(p = p->cdr) && isFixnum(p->car) &&   //  denominator
-           !p->cdr;                                    // )
-}
 
 // rational?
 sexp rationalp(sexp s) { return boolwrap(isRational(s)); }
@@ -397,6 +397,10 @@ static void deleteoutport(sexp v)
 
 static void deletevector(sexp v) { delete ((Vector*)v)->e; }
 
+static void deletebignum(sexp n) { delete ((Bignum*)n)->nump; }
+
+static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
+
 /*
  * mark all reachable cells
  *
@@ -427,9 +431,11 @@ sexp gc(void)
         {
             switch (((Stags*)p)->stags)
             {
-            case OUTPORT: deleteoutport(p); break;
-            case INPORT:  deleteinport(p);  break;
-            case VECTOR:  deletevector(p);  break;
+            case OUTPORT:  deleteoutport(p);  break;
+            case INPORT:   deleteinport(p);   break;
+            case VECTOR:   deletevector(p);   break;
+            case BIGNUM:   deletebignum(p);   break;
+            case RATIONAL: deleterational(p); break;
             }
             p->car = 0;
             p->cdr = freelist;
@@ -532,6 +538,36 @@ sexp newflonum(double number)
     }
 }
 
+sexp newbignum(const Num& num)
+{
+    Bignum* bignum = (Bignum*)newcell(BIGNUM);
+    bignum->nump = new Num(num);
+    int r; return bignum->nump->can_convert_to_int(&r) ? newfixnum(r) : (sexp)bignum;
+}
+
+sexp newbignum(const char *s)
+{
+    Bignum* bignum = (Bignum*)newcell(BIGNUM);
+    bignum->nump = new Num(s);
+    int r; return bignum->nump->can_convert_to_int(&r) ? newfixnum(r) : (sexp)bignum;
+}
+
+sexp newrational(const Rat& rat)
+{
+    Rational* rational = (Rational*)newcell(RATIONAL);
+    rational->ratp = new Rat(rat);
+    rational->ratp->reduce();
+    return Num(1) == rational->ratp->den ? newbignum(rational->ratp->num) : (sexp)rational;
+}
+
+sexp newrational(const Num& num, const Num& den)
+{
+    Rational* rational = (Rational*)newcell(RATIONAL);
+    rational->ratp = new Rat(num, den);
+    rational->ratp->reduce();
+    return Num(1) == rational->ratp->den ? newbignum(rational->ratp->num) : (sexp)rational;
+}
+
 // cons inlined
 sexp cons(sexp car, sexp cdr)
 {
@@ -600,6 +636,10 @@ sexp timeff(sexp args)
 
 static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
+Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
+
+Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
+
 // supports labeling of cyclic structures
 bool Context::labelCycles(sexp exp, bool last)
 {
@@ -616,19 +656,18 @@ bool Context::labelCycles(sexp exp, bool last)
     return false;
 }
 
-double rat2real(sexp x) { x = x->cdr; return (double)asFixnum(x->car) / (double)asFixnum(x->cdr->car); }
+double rat2real(sexp x) { return ((Rational*)x)->ratp->to_double(); }
 
 double asFlonum(sexp p)
 {
-    if (isRational(p))
-        return rat2real(p);
-
     switch (shortType(p))
     {
-    default:     error("asFlonum: not a flonum");
-    case FLOAT:  return ((Float*)p)->flonum;
-    case DOUBLE: return ((Double*)p)->flonum;
-    case FIXNUM: return (double) asFixnum(p);
+    default:       error("asFlonum: not a flonum");
+    case FLOAT:    return ((Float*)p)->flonum;
+    case DOUBLE:   return ((Double*)p)->flonum;
+    case FIXNUM:   return (double) asFixnum(p);
+    case BIGNUM:   return ((Bignum*)p)->nump->to_double();
+    case RATIONAL: return ((Rational*)p)->ratp->to_double();
     }
 }
 
@@ -637,11 +676,17 @@ sexp negativep(sexp x)
 {
     if (isRational(x))
     {
-        x = x->cdr;
-        if (asFixnum(x->car) < 0)
-            return boolwrap(asFixnum(x->cdr->car) >= 0);
+        Rat* ratp = ((Rational*)x)->ratp;
+        if (ratp->num < 0)
+            return boolwrap(ratp->den >= 0);
         else
-            return boolwrap(asFixnum(x->cdr->car) <  0);
+            return boolwrap(ratp->den <  0);
+    }
+
+    if (isBignum(x))
+    {
+        Num* nump = ((Bignum*)x)->nump;
+        return boolwrap(*nump < 0);
     }
 
     return boolwrap(asFlonum(x) < 0);
@@ -652,11 +697,17 @@ sexp positivep(sexp x)
 {
     if (isRational(x))
     {
-        x = x->cdr;
-        if (asFixnum(x->car) < 0)
-            return boolwrap(asFixnum(x->cdr->car) <  0);
+        Rat* ratp = ((Rational*)x)->ratp;
+        if (ratp->num < 0)
+            return boolwrap(ratp->den <  0);
         else
-            return boolwrap(asFixnum(x->cdr->car) >= 0);
+            return boolwrap(ratp->den >= 0);
+    }
+
+    if (isBignum(x))
+    {
+        Num* nump = ((Bignum*)x)->nump;
+        return boolwrap(*nump > 0);
     }
 
     return boolwrap(asFlonum(x) > 0);
@@ -677,21 +728,25 @@ sexp gep(sexp x, sexp y) { return boolwrap(asFlonum(x) >= asFlonum(y)); }
 // >
 sexp gtp(sexp x, sexp y) { return boolwrap(asFlonum(x) > asFlonum(y)); }
 
-sexp make_rational(sexp num, sexp den)
-{
-    return lose(cons(rational, replace(cons(num, save(cons(den, 0))))));
-}
-
-sexp newrational(long n, long d)
-{
-    sexp* mark = psp;
-    return lose(mark, make_rational(save(newfixnum(n)), save(newfixnum(d))));
-}
-
 sexp make_complex(sexp re, sexp im)
 {
     sexp* mark = psp;
     return lose(mark, cons(complex, replace(cons(save(re), replace(cons(save(im), 0))))));
+}
+
+sexp make_rational(sexp num, sexp den)
+{
+    if (isFixnum(num))
+        if (isFixnum(den))
+            return newrational(Num(asFixnum(num)), Num(asFixnum(den)));
+        else if (isBignum(den))
+            return newrational(Num(asFixnum(num)), asBignum(den));
+    else if (isBignum(num))
+        if (isFixnum(den))
+            return newrational(asBignum(num), Num(asFixnum(den)));
+        else if (isBignum(den))
+            return newrational(asBignum(num), asBignum(den));
+    error("make_rational: operands");
 }
 
 sexp newcomplex(double re, double im)
@@ -721,6 +776,8 @@ sexp angle(sexp z)
 
 long gcd(long x, long y)
 {
+    if (x < 0) x = -x;
+    if (y < 0) y = -y;
     for (;;)
     {
         if (0 == x) return y;
@@ -731,63 +788,195 @@ long gcd(long x, long y)
 }
 
 // gcd
-sexp gcdf(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(gcd(asFixnum(x), asFixnum(y))); }
-
-long lcm(long x, long y) { long g = gcd(x, y); return (x / g) * (y / g); }
-
-// lcm
-sexp lcmf(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(lcm(asFixnum(x), asFixnum(y))); }
-
-sexp rational_reduce(long n, long d)
+sexp gcdf(sexp x, sexp y)
 {
-    long g = gcd(n, d);
-    long ng = n / g;
-    long dg = d / g;
-    if (dg < 0)
-        { dg = -dg; ng = -ng; }
-    if (1 == dg)
-        return newfixnum(ng);
-    else
-        return newrational(ng, dg);
+    if (isFixnum(x))
+        if (isFixnum(y))
+            return newfixnum(gcd(asFixnum(x), asFixnum(y)));
+        else if (isBignum(y))
+        {
+            Num g = Num::gcd(Num(asFixnum(x)), Num(asBignum(y)));
+            int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
+        }
+    else if (isBignum(x))
+        if (isFixnum(y))
+        {
+            Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
+            int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
+        }
+        else if (isBignum(y))
+        {
+            Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
+            int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
+        }
+    error("gcd: operands");
 }
 
-static inline long num(sexp x) { return isRational(x) ? asFixnum(x->cdr->car) : asFixnum(x); }
+long lcm(long x, long y)
+{
+    long g = gcd(x, y);
+    return (x / g) * (y / g);
+}
 
-static inline long den(sexp x) { return isRational(x) ? asFixnum(x->cdr->cdr->car) : 1; }
+// lcm
+sexp lcmf(sexp x, sexp y)
+{
+    if (isFixnum(x))
+        if (isFixnum(y)) {
+            long g = gcd(asFixnum(x), asFixnum(y));
+            return newfixnum((asFixnum(x) / g) * (asFixnum(y) / g));
+        } else if (isBignum(y))
+        {
+            Num g = Num::gcd(Num(asFixnum(x)), Num(asBignum(y)));
+            return newbignum((Num(asFixnum(x)) / g) * (Num(asBignum(y) / g)));
+        }
+    else if (isBignum(x))
+        if (isFixnum(y))
+        {
+            Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
+            return newbignum((Num(asBignum(x)) / g) * (Num(asFixnum(y)) / g));
+        }
+        else if (isBignum(y))
+        {
+            Num g = Num::gcd(Num(asBignum(x)), Num(asBignum(y)));
+            return newbignum((Num(asBignum(x)) / g) * (Num(asBignum(y) / g)));
+        }
+    error("gcd: operands");
+}
+
+// exact?
+sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x) || isBignum(x)); }
+
+// inexact?
+sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
 
 sexp rational_add(sexp x, sexp y)
 {
-    long d = lcm(den(x), den(y));
-    long xn = num(x) * d / den(x);
-    long yn = num(y) * d / den(y);
-    return rational_reduce(xn + yn, d);
+    Rat xrat, yrat;
+
+    if (isFixnum(x))
+        xrat = Rat(asFixnum(x));
+    else if (isBignum(x))
+        xrat = Rat(asBignum(x));
+    else if (isRational(x))
+        xrat = Rat(asRational(x));
+
+    if (isFixnum(y))
+        yrat = Rat(asFixnum(y));
+    else if (isBignum(y))
+        yrat = Rat(asBignum(y));
+    else if (isRational(y))
+        yrat = Rat(asRational(y));
+
+    Rat result = xrat + yrat;
+
+    result.reduce();
+
+    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
 }
 
 sexp rational_sub(sexp x, sexp y)
 {
-    long d = lcm(den(x), den(y));
-    long xn = num(x) * d / den(x);
-    long yn = num(y) * d / den(y);
-    return rational_reduce(xn - yn, d);
+    Rat xrat, yrat;
+
+    if (isFixnum(x))
+        xrat = Rat(asFixnum(x));
+    else if (isBignum(x))
+        xrat = Rat(asBignum(x));
+    else if (isRational(x))
+        xrat = Rat(asRational(x));
+
+    if (isFixnum(y))
+        yrat = Rat(asFixnum(y));
+    else if (isBignum(y))
+        yrat = Rat(asBignum(y));
+    else if (isRational(y))
+        yrat = Rat(asRational(y));
+
+    Rat result = xrat - yrat;
+
+    result.reduce();
+
+    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
 }
 
 sexp rational_mul(sexp x, sexp y)
 {
-    long g = gcd(den(x), den(y));
-    return rational_reduce(num(x) * num(y) / g, den(x) * den(y) / g);
+    Rat xrat, yrat;
+
+    if (isFixnum(x))
+        xrat = Rat(asFixnum(x));
+    else if (isBignum(x))
+        xrat = Rat(asBignum(x));
+    else if (isRational(x))
+        xrat = Rat(asRational(x));
+
+    if (isFixnum(y))
+        yrat = Rat(asFixnum(y));
+    else if (isBignum(y))
+        yrat = Rat(asBignum(y));
+    else if (isRational(y))
+        yrat = Rat(asRational(y));
+
+    Rat result = xrat * yrat;
+
+    result.reduce();
+
+    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
 }
 
 sexp rational_div(sexp x, sexp y)
 {
-    long g = gcd(den(x), den(y));
-    return rational_reduce(num(x) * den(y) / g, den(x) * num(y) / g);
+    Rat xrat, yrat;
+
+    if (isFixnum(x))
+        xrat = Rat(asFixnum(x));
+    else if (isBignum(x))
+        xrat = Rat(asBignum(x));
+    else if (isRational(x))
+        xrat = Rat(asRational(x));
+
+    if (isFixnum(y))
+        yrat = Rat(asFixnum(y));
+    else if (isBignum(y))
+        yrat = Rat(asBignum(y));
+    else if (isRational(y))
+        yrat = Rat(asRational(y));
+
+    Rat result = xrat / yrat;
+
+    result.reduce();
+
+    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
 }
 
-// exact?
-sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x)); }
+sexp rational_mod(sexp x, sexp y)
+{
+    Rat xrat, yrat;
 
-// inexact?
-sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
+    if (isFixnum(x))
+        xrat = Rat(asFixnum(x));
+    else if (isBignum(x))
+        xrat = Rat(asBignum(x));
+    else if (isRational(x))
+        xrat = Rat(asRational(x));
+
+    if (isFixnum(y))
+        yrat = Rat(asFixnum(y));
+    else if (isBignum(y))
+        yrat = Rat(asBignum(y));
+    else if (isRational(y))
+        yrat = Rat(asRational(y));
+
+    Num numerator   = Num::mod(xrat.num * yrat.den, yrat.num * xrat.den);
+    Num denominator = xrat.den * yrat.den;
+
+    Rat result(numerator, denominator);
+
+    result.reduce();
+
+    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
+}
 
 sexp complex_add(sexp z, sexp w)
 {
@@ -875,12 +1064,19 @@ sexp sum(sexp x, sexp y)
     if (isComplex(x)) {
         if (isComplex(y))
             return complex_add(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y))
+        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
             return lose(complex_add(x, save(make_complex(y, zero))));
     } else if (isRational(x)) {
         if (isComplex(y))
             return lose(complex_add(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y))
+        if (isRational(y) || isFixnum(y) || isBignum(y))
+            return rational_add(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) + asFlonum(y));
+    } else if (isBignum(x)) {
+        if (isComplex(y))
+            return lose(complex_add(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y) || isBignum(y))
             return rational_add(x, y);
         if (isFlonum(y))
             return newflonum(rat2real(x) + asFlonum(y));
@@ -889,14 +1085,18 @@ sexp sum(sexp x, sexp y)
             return lose(complex_add(y, save(make_complex(x, zero))));
         if (isRational(y))
             return lose(rational_add(save(make_rational(x, one)), y));
+        if (isBignum(y))
+            return lose(rational_add(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            return newfixnum(asFixnum(x) + asFixnum(y));
+            return newbignum(Num(asFixnum(x)) + Num(asFixnum(y)));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) + asFlonum(y));
     } else if (isFlonum(x)) {
         if (isComplex(y))
             return lose(complex_add(save(make_complex(x, zero)), y));
         if (isRational(y))
+            return newflonum(asFlonum(x) + rat2real(y));
+        if (isBignum(y))
             return newflonum(asFlonum(x) + rat2real(y));
         if (isFixnum(y))
             return newflonum(asFlonum(x) + (double)asFixnum(y));
@@ -925,7 +1125,10 @@ sexp uniadd(sexp l)
 sexp unineg(sexp x)
 {
     if (isRational(x))
-        return rational_reduce(-asFixnum(x->cdr->car), asFixnum(x->cdr->cdr->car));
+    {
+        Rat* ratp = ((Rational*)x)->ratp;
+        return newrational(- *ratp);
+    }
 
     if (isComplex(x))
     {
@@ -935,10 +1138,12 @@ sexp unineg(sexp x)
 
     switch (shortType(x))
     {
-    default:     error("neg: operand");
-    case FIXNUM: return newfixnum(-((Fixnum*)x)->fixnum);
-    case FLOAT:  return newflonum(-((Float*)x)->flonum);
-    case DOUBLE: return newflonum(-((Double*)x)->flonum);
+    default:       error("neg: operand");
+    case FIXNUM:   return newfixnum(-((Fixnum*)x)->fixnum);
+    case FLOAT:    return newflonum(-((Float*)x)->flonum);
+    case DOUBLE:   return newflonum(-((Double*)x)->flonum);
+    case BIGNUM:   return newbignum(- *((Bignum*)x)->nump);
+    case RATIONAL: return newrational(- *((Rational*)x)->ratp);
     }
 }
 
@@ -948,12 +1153,19 @@ sexp diff(sexp x, sexp y)
     if (isComplex(x)) {
         if (isComplex(y))
             return complex_sub(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y))
+        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
             return lose(complex_sub(x, save(make_complex(y, zero))));
     } else if (isRational(x)) {
         if (isComplex(y))
             return lose(complex_sub(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y))
+        if (isRational(y) || isFixnum(y) || isBignum(y))
+            return rational_sub(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) - asFlonum(y));
+    } else if (isBignum(x)) {
+        if (isComplex(y))
+            return lose(complex_sub(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y) || isBignum(y))
             return rational_sub(x, y);
         if (isFlonum(y))
             return newflonum(rat2real(x) - asFlonum(y));
@@ -962,14 +1174,18 @@ sexp diff(sexp x, sexp y)
             return lose(complex_sub(y, save(make_complex(x, zero))));
         if (isRational(y))
             return lose(rational_sub(save(make_rational(x, one)), y));
+        if (isBignum(y))
+            return lose(rational_sub(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            return newfixnum(asFixnum(x) - asFixnum(y));
+            return newbignum(Num(asFixnum(x)) - Num(asFixnum(y)));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) - asFlonum(y));
     } else if (isFlonum(x)) {
         if (isComplex(y))
             return lose(complex_sub(save(make_complex(x, zero)), y));
         if (isRational(y))
+            return newflonum(asFlonum(x) - rat2real(y));
+        if (isBignum(y))
             return newflonum(asFlonum(x) - rat2real(y));
         if (isFixnum(y))
             return newflonum(asFlonum(x) - (double)asFixnum(y));
@@ -999,12 +1215,19 @@ sexp product(sexp x, sexp y)
     if (isComplex(x)) {
         if (isComplex(y))
             return complex_mul(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y))
+        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
             return lose(complex_mul(x, save(make_complex(y, zero))));
     } else if (isRational(x)) {
         if (isComplex(y))
             return lose(complex_mul(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y))
+        if (isRational(y) || isFixnum(y) || isBignum(y))
+            return rational_mul(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) * asFlonum(y));
+    } else if (isBignum(x)) {
+        if (isComplex(y))
+            return lose(complex_mul(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y) || isBignum(y))
             return rational_mul(x, y);
         if (isFlonum(y))
             return newflonum(rat2real(x) * asFlonum(y));
@@ -1013,14 +1236,18 @@ sexp product(sexp x, sexp y)
             return lose(complex_mul(y, save(make_complex(x, zero))));
         if (isRational(y))
             return lose(rational_mul(save(make_rational(x, one)), y));
+        if (isBignum(y))
+            return lose(rational_mul(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            return newfixnum(asFixnum(x) * asFixnum(y));
+            return newbignum(Num(asFixnum(x)) * Num(asFixnum(y)));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) * asFlonum(y));
     } else if (isFlonum(x)) {
         if (isComplex(y))
             return lose(complex_mul(save(make_complex(x, zero)), y));
         if (isRational(y))
+            return newflonum(asFlonum(x) * rat2real(y));
+        if (isBignum(y))
             return newflonum(asFlonum(x) * rat2real(y));
         if (isFixnum(y))
             return newflonum(asFlonum(x) * (double)asFixnum(y));
@@ -1051,19 +1278,26 @@ sexp quotientf(sexp x, sexp y)
     if (isComplex(x)) {
         if (isComplex(y))
             return complex_div(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y))
+        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
             return lose(complex_div(x, save(make_complex(y, zero))));
     } else if (isRational(x)) {
         if (isComplex(y))
             return lose(complex_div(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y))
+        if (isRational(y) || isFixnum(y) || isBignum(y))
+            return rational_div(x, y);
+        if (isFlonum(y))
+            return newflonum(rat2real(x) / asFlonum(y));
+    } else if (isBignum(x)) {
+        if (isComplex(y))
+            return lose(complex_div(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y) || isBignum(y))
             return rational_div(x, y);
         if (isFlonum(y))
             return newflonum(rat2real(x) / asFlonum(y));
     } else if (isFixnum(x)) {
         if (isComplex(y))
             return lose(complex_div(y, save(make_complex(x, zero))));
-        if (isFixnum(y) || isRational(y))
+        if (isFixnum(y) || isRational(y) || isBignum(y))
             return lose(rational_div(save(make_rational(x, one)), y));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) / asFlonum(y));
@@ -1071,6 +1305,8 @@ sexp quotientf(sexp x, sexp y)
         if (isComplex(y))
             return lose(complex_div(save(make_complex(x, zero)), y));
         if (isRational(y))
+            return newflonum(asFlonum(x) / rat2real(y));
+        if (isBignum(y))
             return newflonum(asFlonum(x) / rat2real(y));
         if (isFixnum(y))
             return newflonum(asFlonum(x) / (double)asFixnum(y));
@@ -1127,22 +1363,6 @@ long mod(long x, long y)
     return r;
 }
 
-sexp rational_mod(sexp x, sexp y)
-{
-    long d = lcm(den(x), den(y));
-    long xn = num(x) * d / den(x);
-    long yn = num(y) * d / den(y);
-    return rational_reduce(mod(xn, yn), d);
-}
-
-sexp rational_rem(sexp x, sexp y)
-{
-    long d = lcm(den(x), den(y));
-    long xn = num(x) * d / den(x);
-    long yn = num(y) * d / den(y);
-    return rational_reduce(rem(xn, yn), d);
-}
-
 sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
 sexp moduloff(sexp x, sexp y)
@@ -1150,12 +1370,12 @@ sexp moduloff(sexp x, sexp y)
     if (isComplex(x)) {
         if (isComplex(y))
             return complex_mod(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y))
+        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
             return lose(complex_mod(x, save(make_complex(y, zero))));
     } else if (isRational(x)) {
         if (isComplex(y))
             return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y))
+        if (isRational(y) || isFixnum(y) || isBignum(y))
             return rational_mod(x, y);
         if (isFlonum(y))
             return newflonum(fmod(rat2real(x), asFlonum(y)));
@@ -1163,6 +1383,8 @@ sexp moduloff(sexp x, sexp y)
         if (isComplex(y))
             return lose(complex_mod(y, save(make_complex(x, zero))));
         if (isRational(y))
+            return lose(rational_mod(save(make_rational(x, one)), y));
+        if (isBignum(y))
             return lose(rational_mod(save(make_rational(x, one)), y));
         if (isFixnum(y))
             return newfixnum(mod(asFixnum(x), asFixnum(y)));
@@ -1172,6 +1394,8 @@ sexp moduloff(sexp x, sexp y)
         if (isComplex(y))
             return lose(complex_mod(save(make_complex(x, zero)), y));
         if (isRational(y))
+            return newflonum(fmod(asFlonum(x), rat2real(y)));
+        if (isBignum(y))
             return newflonum(fmod(asFlonum(x), rat2real(y)));
         if (isFixnum(y))
             return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
@@ -1188,12 +1412,19 @@ sexp remainderff(sexp x, sexp y)
     if (isComplex(x)) {
         if (isComplex(y))
             return complex_mod(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y))
+        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
             return lose(complex_mod(x, save(make_complex(y, zero))));
     } else if (isRational(x)) {
         if (isComplex(y))
             return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y))
+        if (isRational(y) || isFixnum(y) || isBignum(y))
+            return rational_mod(x, y);
+        if (isFlonum(y))
+            return newflonum(fmod(rat2real(x), asFlonum(y)));
+    } else if (isBignum(x)) {
+        if (isComplex(y))
+            return lose(complex_mod(y, save(make_complex(x, zero))));
+        if (isRational(y) || isFixnum(y) || isBignum(y))
             return rational_mod(x, y);
         if (isFlonum(y))
             return newflonum(fmod(rat2real(x), asFlonum(y)));
@@ -1201,6 +1432,8 @@ sexp remainderff(sexp x, sexp y)
         if (isComplex(y))
             return lose(complex_mod(y, save(make_complex(x, zero))));
         if (isRational(y))
+            return lose(rational_mod(save(make_rational(x, one)), y));
+        if (isBignum(y))
             return lose(rational_mod(save(make_rational(x, one)), y));
         if (isFixnum(y))
             return newfixnum(asFixnum(x) % asFixnum(y));
@@ -1210,6 +1443,8 @@ sexp remainderff(sexp x, sexp y)
         if (isComplex(y))
             return lose(complex_mod(save(make_complex(x, zero)), y));
         if (isRational(y))
+            return newflonum(fmod(asFlonum(x), rat2real(y)));
+        if (isBignum(y))
             return newflonum(fmod(asFlonum(x), rat2real(y)));
         if (isFixnum(y))
             return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
@@ -2211,9 +2446,7 @@ sexp eqnp(sexp x, sexp y)
 {
     if (isRational(x) && isRational(y))
     {
-        x = x->cdr; y = y->cdr;
-        return boolwrap(asFixnum(x->car) == asFixnum(y->car) &&
-                        asFixnum(x->cdr->car) == asFixnum(y->cdr->car));
+        return boolwrap(*((Rational*)x)->ratp == *((Rational*)y)->ratp);
     }
  
     if (isComplex(x) && isComplex(y))
@@ -2536,10 +2769,30 @@ void displayChar(Context& context, sexp exp)
     context.s << "#\\" << (char)((Char*)exp)->ch;
 }
 
+void displayBignum(Context& context, sexp exp)
+{
+    std::vector<char> cs;
+    Num* nump = ((Bignum*)exp)->nump;
+    nump->print(cs);
+    for (char c : cs)
+        if (c)
+            context.s.put(c);
+}
+
 void displayRational(Context& context, sexp exp)
 {
-    exp = exp->cdr;
-    context.s << asFixnum(exp->car) << '/' << asFixnum(exp->cdr->car);
+    Rat* ratp = ((Rational*)exp)->ratp;
+    std::vector<char> cs;
+    ratp->num.print(cs);
+    for (char c : cs)
+        if (c)
+            context.s.put(c);
+    context.s.put('/');
+    std::vector<char> ds;
+    ratp->den.print(ds);
+    for (char c : ds)
+        if (c)
+            context.s.put(c);
 }
 
 void mapCycles(Context& context, sexp exp)
@@ -2599,8 +2852,6 @@ void display(Context& context, sexp exp, int level)
             display(context, exp->cdr->car, level);
         else if (global == exp)
             context.s << "#<global environment>";
-        else if (isRational(exp))
-            displayRational(context, exp);
         else if (isClosure(exp))
             displayNamed(context, "closure", exp);
         else if (isPromise(exp))
@@ -2628,19 +2879,21 @@ void display(Context& context, sexp exp, int level)
 
     switch (((Stags*)exp)->stags)
     {
-    default:      error("display: unknown object");
+    default:       error("display: unknown object");
     case FLOAT: 
-    case DOUBLE:  displayFlonum(context, exp);             break;
-    case CHUNK:   context.s << "#<chunk>";                 break;
-    case FIXNUM:  context.s << asFixnum(exp);              break;
-    case STRING:  displayString(context, exp);             break;
-    case ATOM:    displayAtom(context, exp);               break;
-    case FUNCT:   displayNamed(context, "function", exp);  break;
-    case FORM:    displayNamed(context, "form", exp);      break;
-    case INPORT:  displayNamed(context, "input", exp);     break;
-    case OUTPORT: displayNamed(context, "output", exp);    break;
-    case CHAR:    displayChar(context, exp);               break;
-    case VECTOR:  displayVector(context, exp, level);
+    case DOUBLE:   displayFlonum(context, exp);             break;
+    case CHUNK:    context.s << "#<chunk>";                 break;
+    case FIXNUM:   context.s << asFixnum(exp);              break;
+    case STRING:   displayString(context, exp);             break;
+    case ATOM:     displayAtom(context, exp);               break;
+    case FUNCT:    displayNamed(context, "function", exp);  break;
+    case FORM:     displayNamed(context, "form", exp);      break;
+    case INPORT:   displayNamed(context, "input", exp);     break;
+    case OUTPORT:  displayNamed(context, "output", exp);    break;
+    case CHAR:     displayChar(context, exp);               break;
+    case BIGNUM:   displayBignum(context, exp);             break;
+    case RATIONAL: displayRational(context, exp);           break;
+    case VECTOR:   displayVector(context, exp, level);
     }
     return;
 }
@@ -2781,14 +3034,16 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 
     switch (shortType(x)) 
     {
-    case FLOAT : return ((Float*)x)->flonum  == ((Float*)y)->flonum;
-    case DOUBLE: return ((Double*)x)->flonum == ((Double*)y)->flonum;
-    case CHUNK : return 0 == scmp(x, y);
-    case STRING: return 0 == scmp(((String*)x)->chunks, ((String*)y)->chunks);
-    case FIXNUM: return ((Fixnum*)x)->fixnum == ((Fixnum*)y)->fixnum;
-    case VECTOR: return cmpv(seenx, seeny, x, y);
-    case CHAR:   return ((Char*)x)->ch == ((Char*)y)->ch;
-    default:     return 0;
+    case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
+    case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
+    case CHUNK :   return 0 == scmp(x, y);
+    case STRING:   return 0 == scmp(((String*)x)->chunks, ((String*)y)->chunks);
+    case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
+    case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
+    case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
+    case RATIONAL: return *((Rational*)x)->ratp == *((Rational*)y)->ratp;
+    case VECTOR:   return cmpv(seenx, seeny, x, y);
+    default:       return 0;
     }
 }
 
@@ -3379,7 +3634,7 @@ sexp promiseform(sexp exp, sexp env) { assertPromise(exp); return exp; }
 sexp eval(sexp p, sexp env)
 {
     sexp* mark = psp;
-    if (f != tracing && (isAtom(p) || isCons(p)))
+    if (f != tracing && p && (t != p) && (f != p) && (isAtom(p) || isCons(p)))
     {
         ++indent;
         Context context(0, true, false);
@@ -3496,7 +3751,7 @@ int whitespace(std::istream& fin, int c)
     return c;
 }
 
-enum NumStatus { NON_NUMERIC, FIXED, RATIONAL, FLOATING, COMPLEX };
+enum NumStatus { NON_NUMERIC, FIXED, RATIO, FLOATING, COMPLEX };
 
 int accept(std::stringstream& s, std::istream& f, int c)
 {
@@ -3539,7 +3794,7 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
         if ('-' == c)
             c = accept(s, fin, c);
         while (isdigit(c))
-            { status = RATIONAL; c = accept(s, fin, c); }
+            { status = RATIO; c = accept(s, fin, c); }
     }
 
     fin.unget();
@@ -3604,10 +3859,13 @@ sexp scans(std::istream& fin)
 
     NumStatus status, rstatus, istatus;
 
+    size_t split;
+
     c = scanNumber(s, fin, rstatus);
 
     if (NON_NUMERIC < rstatus && ('+' == c || '-' == c))
     {
+        split = s.tellp();
         s << (char)fin.get();
         c = scanNumber(s, fin, istatus);
         if ('i' == c)
@@ -3618,6 +3876,7 @@ sexp scans(std::istream& fin)
     }
     else if (NON_NUMERIC < status && '@' == c)
     {
+        split = s.tellp();
         s << (char)fin.get();
         c = scanNumber(s, fin, istatus);
         status = COMPLEX;
@@ -3626,27 +3885,26 @@ sexp scans(std::istream& fin)
 
     if (COMPLEX == status)
     {
+        std::string cdata = s.str();
+
         sexp real, imag;
 
-        if (RATIONAL == rstatus)
+        if (RATIO == rstatus)
         {
-            long rnum, rden;
-            s >> rnum;
-            s.get();    // /
-            s >> rden;
-            real = save(rational_reduce(rnum, rden));
+            std::string realdata = cdata.substr(0, split);
+            int realdiv = realdata.find_first_of('/');
+            real = save(newrational(Num(realdata.substr(0,realdiv).c_str()), Num(realdata.substr(realdiv+1).c_str())));
         } else
             { double re; s >> re; real = save(newflonum(re)); }
 
-        c = s.get();    // +,-,@
+        c = cdata.at(split);
 
-        if (RATIONAL == istatus)
+        if (RATIO == istatus)
         {
-            long inum, iden;
-            s >> inum;
-            s.get();    // /
-            s >> iden;
-            imag = save(rational_reduce(inum, iden));
+            std::string imagdata = cdata.substr(split+1);
+            imagdata = imagdata.substr(0, imagdata.length()-1);
+            int imagdiv = imagdata.find_first_of('/');
+            imag = save(newrational(Num(imagdata.substr(0,imagdiv).c_str()), Num(imagdata.substr(imagdiv+1).c_str())));
         } else
             { double im; s >> im; imag = save(newflonum(im)); }
 
@@ -3666,11 +3924,13 @@ sexp scans(std::istream& fin)
     switch (status)
     {
     case FIXED:
-        { long num; s >> num; return newfixnum(num); }
+        { std::string n; s >> n; Num num(n.c_str()); int r; return num.can_convert_to_int(&r) ? newfixnum(r) : newbignum(num); }
     case FLOATING:
         { double re; s >> re; return newflonum(re); }
-    case RATIONAL:
-        { long num, den; s >> num; s.get(); s >> den; return newrational(num, den); }
+    case RATIO:
+        { std::string ratio; s >> ratio;
+          int pos = ratio.find_first_of('/');
+          return newrational(Num(ratio.substr(0,pos).c_str()), Num(ratio.substr(pos+1).c_str())); }
     default:
         break;
     }

@@ -506,5 +506,3 @@
 
 ;; (display (map car (environment))) (newline)
 
- 
- 
