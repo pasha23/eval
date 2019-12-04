@@ -1058,6 +1058,23 @@ sexp complex_div(sexp z, sexp w)
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
+bool unsafe_add(long a, long x)
+{
+    return ((x > 0) && (a > LONG_MAX - x)) || ((x < 0) && (a < LONG_MIN - x));
+}
+
+bool unsafe_subtract(long a, long x)
+{
+    return ((x < 0) && (a > LONG_MAX + x)) || ((x > 0) && (a < LONG_MIN + x));
+}
+
+bool unsafe_multiply(long a, long x)
+{
+    return ((a == -1) && (x == LONG_MIN)) ||
+           ((x == -1) && (a == LONG_MIN)) ||
+           (a > LONG_MAX / x) || (a < LONG_MIN / x);
+}
+
 // x + y
 sexp sum(sexp x, sexp y)
 {
@@ -1088,7 +1105,10 @@ sexp sum(sexp x, sexp y)
         if (isBignum(y))
             return lose(rational_add(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            return newbignum(Num(asFixnum(x)) + Num(asFixnum(y)));
+            if (unsafe_add(asFixnum(x), asFixnum(y)))
+                return newbignum(Num(asFixnum(x)) + Num(asFixnum(y)));
+            else
+                return newfixnum(asFixnum(x) + asFixnum(y));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) + asFlonum(y));
     } else if (isFlonum(x)) {
@@ -1177,7 +1197,10 @@ sexp diff(sexp x, sexp y)
         if (isBignum(y))
             return lose(rational_sub(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            return newbignum(Num(asFixnum(x)) - Num(asFixnum(y)));
+            if (unsafe_subtract(asFixnum(x), asFixnum(y)))
+                return newbignum(Num(asFixnum(x)) - Num(asFixnum(y)));
+            else
+                return newfixnum(asFixnum(x) - asFixnum(y));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) - asFlonum(y));
     } else if (isFlonum(x)) {
@@ -1239,7 +1262,10 @@ sexp product(sexp x, sexp y)
         if (isBignum(y))
             return lose(rational_mul(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            return newbignum(Num(asFixnum(x)) * Num(asFixnum(y)));
+            if (unsafe_multiply(asFixnum(x), asFixnum(y)))
+                return newbignum(Num(asFixnum(x)) * Num(asFixnum(y)));
+            else
+                return newfixnum(asFixnum(x) * asFixnum(y));
         if (isFlonum(y))
             return newflonum((double)asFixnum(x) * asFlonum(y));
     } else if (isFlonum(x)) {
