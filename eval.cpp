@@ -181,7 +181,7 @@ struct StrPortStream : public PortStream
 void StrPortStream::put(int ch)
 { 
     std::stringstream* ss = (std::stringstream*)streamPointer;
-    if (ss->tellp() < limit)
+    if (0 == limit || ss->tellp() < limit)
         ((std::stringstream*)streamPointer)->put(ch);
 }
 
@@ -707,8 +707,7 @@ double imagpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->cdr->car); }
 // magnitude
 sexp magnitude(sexp z)
 {
-    assertComplex(z);
-    z = z->cdr;
+    assertComplex(z); z = z->cdr;
     return newflonum(sqrt(asFlonum(z->car)      * asFlonum(z->car) +
                           asFlonum(z->cdr->car) * asFlonum(z->cdr->car)));
 }
@@ -716,8 +715,7 @@ sexp magnitude(sexp z)
 // angle
 sexp angle(sexp z)
 {
-    assertComplex(z);
-    z = z->cdr;
+    assertComplex(z); z = z->cdr;
     return newflonum(atan2(asFlonum(z->cdr->car), asFlonum(z->car)));
 }
 
@@ -1532,7 +1530,7 @@ sexp newstring(const char* s)
     return lose(newcell(STRING, save(newchunk(s))));
 }
 
-// number->string (actually we will convert arbitrary s-expressions)
+// number->string
 sexp number_string(sexp exp)
 {
     Context context(0, true, false);
@@ -3127,7 +3125,7 @@ sexp scanff(sexp args) { sexp port = inport; if (args) assertInPort(port = args-
 /*
  * (if predicate consequent alternative)
  *
- * if the predicate evaluates non-null
+ * if the predicate evaluates not #f
  *    then evaluate the consequent
  *    else evaluate the alternative
  */
@@ -3364,8 +3362,6 @@ sexp apply(sexp fun, sexp args)
     }
 
     error("apply bad function");
-
-    return voida;
 }
 
 // (rational numerator denominator)

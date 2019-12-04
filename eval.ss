@@ -22,10 +22,10 @@
         (let ((p (scan)))
              (cond ((eof-object? p) p)
                    ((eq? lparen  p) (read-tail))
-                   ((eq? qchar   p) (cons 'quote (cons (read) #f)))
-                   ((eq? tick    p) (cons 'quasiquote (cons (read) #f)))
-                   ((eq? comma   p) (cons 'unquote (cons (read) #f)))
-                   ((eq? commaat p) (cons 'unquotesplicing (cons (read) #f)))
+                   ((eq? qchar   p) (cons 'quote (cons (read) '()))
+                   ((eq? tick    p) (cons 'quasiquote (cons (read) '()))
+                   ((eq? comma   p) (cons 'unquote (cons (read) '()))
+                   ((eq? commaat p) (cons 'unquotesplicing (cons (read) '()))
                    (else            p))))
 
 (define (evlis p env)
@@ -156,7 +156,7 @@
 ;; (promise forced value exp env)
 
 (define (delayform exp env)
-    (cons 'promise (cons #f (cons #f (cons exp (cons env '())))))
+    (list 'promise #f #f exp env))
 
 (define (force promise)
     (unless (cadr promise)
@@ -247,7 +247,7 @@
                                      (apply fun args)))))))
 
 (define (display s)
-    (cond ((null? s) (display-primitive s))
+    (cond ((null? s)    (display-primitive s))
           ((closure? s) (display-primitive s))
           ((pair? s)
            (begin (write-char #\()
@@ -265,7 +265,7 @@
 
 (define (repl)
         (let ((env (environment))
-              (exp #f))
+              (exp '())
              (while (not (eof-object? exp))
                     (set! exp (read))
                     (if (and (pair? exp) (eq? 'define (car exp)))
