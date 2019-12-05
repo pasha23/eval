@@ -474,10 +474,15 @@
     2305843009213694004, 4611686018427387905,
     9223372036854775811])
 
+;; (make-lfsr 31) seems to work with 32-bit fixnums
+
+(define (lfsr-shift r p)
+    (^ (>> r 1) (& (~ (- (& r 1))) p)))
+
 (define (make-lfsr n)
         (let ((r 0)
               (p (vector-ref polynomials (- n 1))))
-             (lambda () (set! r (^ (>> r 1) (& (~ (- (& r 1))) p))) (if (zero? (& r 1)) #f #t))))
+             (lambda (b) (set! b (if (zero? (& r 1)) #f #t)) (set! r (lfsr-shift r p)) b)))
 
 (define (bits lfsr) (while #t (write-char (if (lfsr) #\1 #\0))))
 
