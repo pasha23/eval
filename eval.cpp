@@ -1104,9 +1104,13 @@ bool unsafe_subtract(long a, long x)
 
 bool unsafe_multiply(long a, long x)
 {
+#if 1
+    return true;
+#else
     return ((a == -1) && (x == LONG_MIN)) ||
            ((x == -1) && (a == LONG_MIN)) ||
            (a > LONG_MAX / x) || (a < LONG_MIN / x);
+#endif
 }
 
 // x + y
