@@ -169,9 +169,9 @@ struct OfsPortStream : public PortStream
 
 struct StrPortStream : public PortStream
 {
-    long limit;
+    int limit;
 
-    StrPortStream(std::stringstream& stringstream, long limit) : PortStream(&stringstream), limit(limit) {}
+    StrPortStream(std::stringstream& stringstream, int limit) : PortStream(&stringstream), limit(limit) {}
     virtual int get(void) { return ((std::stringstream*)streamPointer)->get(); }
     virtual void unget(void) { ((std::stringstream*)streamPointer)->unget(); }
     virtual void put(int ch);
@@ -192,8 +192,8 @@ void StrPortStream::put(int ch)
 void StrPortStream::write(const char *s, int len)
 {
     std::stringstream* ss = (std::stringstream*)streamPointer;
-    if (limit && (long)ss->tellp() + len > limit)
-        len = limit - (long)ss->tellp() - 1;
+    if (limit && (int)ss->tellp() + len > limit)
+        len = limit - (int)ss->tellp() - 1;
     ss->write(s, len);
 }
 
@@ -206,7 +206,7 @@ struct Stags    { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
 struct Chunk    { char tags[2];            char        text[sizeof(Cons)-2]; };
 struct Atom     { char tags[sizeof(sexp)]; sexp                        body; };
 struct String   { char tags[sizeof(sexp)]; sexp                      chunks; };
-struct Fixnum   { char tags[sizeof(sexp)]; long                      fixnum; };
+struct Fixnum   { char tags[sizeof(sexp)]; int                       fixnum; };
 struct Float    { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
 struct Double   { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
 struct Funct    { char tags[sizeof(sexp)]; void*                      funcp; };
@@ -506,7 +506,7 @@ sexp newcell(short stags, sexp car)
     return (sexp)t;
 }
 
-sexp newfixnum(long number)
+sexp newfixnum(int number)
 {
     Fixnum* p = (Fixnum*)newcell(FIXNUM);
     p->fixnum = number;
@@ -644,7 +644,7 @@ sexp timeff(sexp args)
     return newflonum(ts.tv_sec + ts.tv_nsec / 1000000000.0);
 }
 
-static inline long asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
+static inline int asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
 Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
 
@@ -765,24 +765,24 @@ sexp newcomplex(double re, double im)
     return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
 }
 
-bool unsafe_add(long a, long x)
+bool unsafe_add(int a, int x)
 {
-    return ((x > 0) && (a > LONG_MAX - x)) || ((x < 0) && (a < LONG_MIN - x));
+    return ((x > 0) && (a > INT_MAX - x)) || ((x < 0) && (a < INT_MIN - x));
 }
 
-bool unsafe_sub(long a, long x)
+bool unsafe_sub(int a, int x)
 {
-    return ((x < 0) && (a > LONG_MAX + x)) || ((x > 0) && (a < LONG_MIN + x));
+    return ((x < 0) && (a > INT_MAX + x)) || ((x > 0) && (a < INT_MIN + x));
 }
 
-bool unsafe_mul(long a, long x)
+bool unsafe_mul(int a, int x)
 {
 #if 1
     return true;
 #else
-    return ((a == -1) && (x == LONG_MIN)) ||
-           ((x == -1) && (a == LONG_MIN)) ||
-           (a > LONG_MAX / x) || (a < LONG_MIN / x);
+    return ((a == -1) && (x == INT_MIN)) ||
+           ((x == -1) && (a == INT_MIN)) ||
+           (a > INT_MAX / x) || (a < INT_MIN / x);
 #endif
 }
 
@@ -801,7 +801,7 @@ sexp angle(sexp z)
     return newflonum(atan2(asFlonum(z->cdr->car), asFlonum(z->car)));
 }
 
-long gcd(long x, long y)
+int gcd(int x, int y)
 {
     if (x < 0) x = -x;
     if (y < 0) y = -y;
@@ -814,9 +814,9 @@ long gcd(long x, long y)
     }
 }
 
-long lcm(long x, long y)
+int lcm(int x, int y)
 {
-    long g = gcd(x, y);
+    int g = gcd(x, y);
     return (x / g) * (y / g);
 }
 
@@ -864,7 +864,7 @@ sexp lcmf(sexp x, sexp y)
 {
     if (isFixnum(x))
         if (isFixnum(y)) {
-            long g = gcd(asFixnum(x), asFixnum(y));
+            int g = gcd(asFixnum(x), asFixnum(y));
             return newfixnum((asFixnum(x) / g) * (asFixnum(y) / g));
         } else if (isBignum(y))
         {
@@ -903,6 +903,14 @@ double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
 // x + y
 sexp sum(sexp x, sexp y)
 {
+    if (isFixnum(x) && isFixnum(y))
+    {
+        if (unsafe_add(asFixnum(x), asFixnum(y)))
+            return newbignum(Num(asFixnum(x)) + Num(asFixnum(y)));
+        else
+            return newfixnum(asFixnum(x) + asFixnum(y));
+    }
+
     if (isComplex(x)) {
         if (isComplex(y))
             return make_complex(sum(real_part(x), real_part(y)), sum(imag_part(x), imag_part(y)));
@@ -978,16 +986,19 @@ sexp sum(sexp x, sexp y)
             result = asBignum(x) + asBignum(y);
         return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
     }
-
-    if (unsafe_add(asFixnum(x), asFixnum(y)))
-        return newbignum(Num(asFixnum(x)) + Num(asFixnum(y)));
-    else
-        return newfixnum(asFixnum(x) + asFixnum(y));
 }
 
 // x - y
 sexp diff(sexp x, sexp y)
 {
+    if (isFixnum(x) && isFixnum(y))
+    {
+        if (unsafe_sub(asFixnum(x), asFixnum(y)))
+            return newbignum(Num(asFixnum(x)) - Num(asFixnum(y)));
+        else
+            return newfixnum(asFixnum(x) - asFixnum(y));
+    }
+
     if (isComplex(x)) {
         if (isComplex(y))
             return make_complex(diff(real_part(x), real_part(y)), diff(imag_part(x), imag_part(y)));
@@ -1063,11 +1074,6 @@ sexp diff(sexp x, sexp y)
             result = asBignum(x) - asBignum(y);
         return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
     }
-
-    if (unsafe_sub(asFixnum(x), asFixnum(y)))
-        return newbignum(Num(asFixnum(x)) - Num(asFixnum(y)));
-    else
-        return newfixnum(asFixnum(x) - asFixnum(y));
 }
 
 // x * y
@@ -1284,9 +1290,9 @@ sexp quotientf(sexp x, sexp y)
     return make_rational(x, y);
 }
 
-long mod(long x, long y)
+int mod(int x, int y)
 {
-    long r = x % y;
+    int r = x % y;
     if (r * y < 0)
         r += y;
     return r;
@@ -1401,9 +1407,9 @@ sexp moduloff(sexp x, sexp y)
     return newfixnum(mod(asFixnum(x), asFixnum(y)));
 }
 
-long rem(long x, long y)
+int rem(int x, int y)
 {
-    long r = x % y;
+    int r = x % y;
     if (r > 0)
     {
         if (x < 0)
@@ -1687,7 +1693,7 @@ sexp flintstub(double (*f)(double), sexp x)
 {
     assertFlonum(x);
     double r = (*f)(asFlonum(x));
-    return (r == (long)r) ? newfixnum((long)r) : newflonum(r);
+    return (r == (int)r) ? newfixnum((int)r) : newflonum(r);
 }
 
 // functions on real numbers
@@ -1745,13 +1751,13 @@ sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(
 sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(atan2(asFlonum(x), asFlonum(y))); }
 
 // integer?
-sexp integerp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) && (long)asFlonum(x) == asFlonum(x)); }
+sexp integerp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) && (int)asFlonum(x) == asFlonum(x)); }
 
 // real?
 sexp realp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) || isRational(x)); }
 
 // inexact->exact
-sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((long)asFlonum(x)); }
+sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((int)asFlonum(x)); }
 
 // exact->inexact
 sexp exact_inexact(sexp x)
@@ -2679,7 +2685,7 @@ void assertAllFixnums(sexp args)
 sexp andf(sexp args)
 {
     assertAllFixnums(args);
-    long result = ~0;
+    int result = ~0;
     for (sexp p = args; p; p = p->cdr)
         result = result & asFixnum(p->car);
     return lose(newfixnum(result));
@@ -2689,7 +2695,7 @@ sexp andf(sexp args)
 sexp orf(sexp args)
 {
     assertAllFixnums(args);
-    long result = 0;
+    int result = 0;
     for (sexp p = args; p; p = p->cdr)
         result = result | asFixnum(p->car);
     return lose(newfixnum(result));
@@ -2699,7 +2705,7 @@ sexp orf(sexp args)
 sexp xorf(sexp args)
 {
     assertAllFixnums(args);
-    long result = 0;
+    int result = 0;
     for (sexp p = args; p; p = p->cdr)
         result = result ^ asFixnum(p->car);
     return lose(newfixnum(result));
@@ -4604,8 +4610,8 @@ int main(int argc, char **argv, char **envp)
     for (;;)
     {
         if (psp > protect)
-            if ((long)(psp-protect) > 1)
-                std::cout << (long)(psp-protect) << " items remain on protection stack" << std::endl;
+            if ((int)(psp-protect) > 1)
+                std::cout << (int)(psp-protect) << " items remain on protection stack" << std::endl;
             else
                 std::cout << "one item remains on protection stack" << std::endl;
 
