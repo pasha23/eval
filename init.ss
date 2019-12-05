@@ -475,7 +475,7 @@
 (define (make-lfsr n)
         (let ((r 0)
               (p (vector-ref polynomials (- n 1))))
-             (lambda (b) (set! b (if (odd? r) #t #f)) (set! r (lfsr-shift r p)) b)))
+             (lambda (b) (set! b (odd? r)) (set! r (lfsr-shift r p)) b)))
 
 (define (allbits n)
     (let ((r 0)
@@ -504,15 +504,6 @@
       p
       (merge f (sort f (alternate p))
                (sort f (alternate (cdr p))))))
-
-(define (numeric-sort p) (sort < p))
-
-(define (char-sort p) (sort char<? p))
-
-(define (string-sort p) (sort string<? p))
-
-(define (shuffle random s)
-        (sort (lambda (x y) (<= 0.5 (random))) s))
 
 ;; (display (map car (environment))) (newline)
 

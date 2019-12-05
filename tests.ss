@@ -38,11 +38,11 @@
 
 (test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
 
-(test '(eqv? '(1 2 4 5 7 8) (numeric-sort '(1 4 2 8 5 7))))
+(test '(eqv? '(1 2 4 5 7 8) (sort < '(1 4 2 8 5 7))))
 
-(test '(string=?  "aaaaabbcdrr" (list->string (char-sort (string->list "abracadabra")))))
+(test '(string=?  "aaaaabbcdrr" (list->string (sort char<? (string->list "abracadabra")))))
 
-(test '(eqv? (iota 50) (sort < (shuffle (make-random) (iota 50)))))
+(test '(eqv? (iota 50) (sort < (sort (make-lfsr 6) (iota 50)))))
 
 (test '(= 0 0))
 (test '(= (~ 0) -1))
