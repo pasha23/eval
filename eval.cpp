@@ -761,6 +761,31 @@ sexp newcomplex(double re, double im)
     return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
 }
 
+bool unsafe_add(long a, long x)
+{
+    return ((x > 0) && (a > LONG_MAX - x)) || ((x < 0) && (a < LONG_MIN - x));
+}
+
+bool unsafe_sub(long a, long x)
+{
+    return ((x < 0) && (a > LONG_MAX + x)) || ((x > 0) && (a < LONG_MIN + x));
+}
+
+bool unsafe_mul(long a, long x)
+{
+#if 1
+    return true;
+#else
+    return ((a == -1) && (x == LONG_MIN)) ||
+           ((x == -1) && (a == LONG_MIN)) ||
+           (a > LONG_MAX / x) || (a < LONG_MIN / x);
+#endif
+}
+
+sexp real_part(sexp x) { return x->cdr->car; }
+
+sexp imag_part(sexp x) { return x->cdr->cdr->car; }
+
 double realpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->car); }
 
 double imagpart(sexp x) { assertComplex(x); return asFlonum(x->cdr->cdr->car); }
@@ -780,6 +805,28 @@ sexp angle(sexp z)
     return newflonum(atan2(asFlonum(z->cdr->car), asFlonum(z->car)));
 }
 
+long rem(long x, long y)
+{
+    long r = x % y;
+    if (r > 0)
+    {
+        if (x < 0)
+            r -= abs(y);
+    } else if (r < 0) {
+        if (x > 0)
+            r += abs(y);
+    }
+    return r;
+}
+
+long mod(long x, long y)
+{
+    long r = x % y;
+    if (r * y < 0)
+        r += y;
+    return r;
+}
+
 long gcd(long x, long y)
 {
     if (x < 0) x = -x;
@@ -791,6 +838,26 @@ long gcd(long x, long y)
         if (0 == y) return x;
         x %= y;
     }
+}
+
+long lcm(long x, long y)
+{
+    long g = gcd(x, y);
+    return (x / g) * (y / g);
+}
+
+// integer square root
+uint32_t isqrt(uint64_t v)
+{
+    uint64_t t, r;
+
+    for (t=0x4000000000000000ULL, r=0; t; t >>= 2)
+      if (t + r <= v) {
+         v -= t + r;
+         r = (r >> 1) | t;
+      } else
+         r = r >> 1;
+   return (uint32_t)r;
 }
 
 // gcd
@@ -816,12 +883,6 @@ sexp gcdf(sexp x, sexp y)
             int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
         }
     error("gcd: operands");
-}
-
-long lcm(long x, long y)
-{
-    long g = gcd(x, y);
-    return (x / g) * (y / g);
 }
 
 // lcm
@@ -1092,26 +1153,7 @@ sexp complex_div(sexp z, sexp w)
     return 0.0 == im ? newflonum(re) : newcomplex(re, im);
 }
 
-bool unsafe_add(long a, long x)
-{
-    return ((x > 0) && (a > LONG_MAX - x)) || ((x < 0) && (a < LONG_MIN - x));
-}
-
-bool unsafe_subtract(long a, long x)
-{
-    return ((x < 0) && (a > LONG_MAX + x)) || ((x > 0) && (a < LONG_MIN + x));
-}
-
-bool unsafe_multiply(long a, long x)
-{
-#if 1
-    return true;
-#else
-    return ((a == -1) && (x == LONG_MIN)) ||
-           ((x == -1) && (a == LONG_MIN)) ||
-           (a > LONG_MAX / x) || (a < LONG_MIN / x);
-#endif
-}
+sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
 // x + y
 sexp sum(sexp x, sexp y)
@@ -1165,39 +1207,6 @@ sexp sum(sexp x, sexp y)
     error("sum: operand");
 }
 
-// x0 + x1 + x2 ...
-sexp uniadd(sexp l)
-{
-    sexp* mark = psp;
-    sexp result = zero;
-    save(l, result);
-    while (l)
-    {
-        result = replace(sum(result, l->car));
-        l = l->cdr;
-    }
-    return lose(mark, result);
-}
-
-// - x
-sexp unineg(sexp x)
-{
-    sexp* mark = psp;
-
-    if (isComplex(x))
-        return lose(mark, make_complex(save(unineg(x->cdr->car)), save(unineg(x->cdr->cdr->car))));
-
-    switch (shortType(x))
-    {
-    default:       error("neg: operand");
-    case FIXNUM:   return newfixnum(-   ((Fixnum*)x)->fixnum);
-    case FLOAT:    return newflonum(-   ((Float*)x)->flonum);
-    case DOUBLE:   return newflonum(-   ((Double*)x)->flonum);
-    case BIGNUM:   return newbignum(-   *((Bignum*)x)->nump);
-    case RATIONAL: return newrational(- *((Rational*)x)->ratp);
-    }
-}
-
 // x - y
 sexp diff(sexp x, sexp y)
 {
@@ -1228,7 +1237,7 @@ sexp diff(sexp x, sexp y)
         if (isBignum(y))
             return lose(rational_sub(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            if (unsafe_subtract(asFixnum(x), asFixnum(y)))
+            if (unsafe_sub(asFixnum(x), asFixnum(y)))
                 return newbignum(Num(asFixnum(x)) - Num(asFixnum(y)));
             else
                 return newfixnum(asFixnum(x) - asFixnum(y));
@@ -1248,19 +1257,6 @@ sexp diff(sexp x, sexp y)
     }
 
     error("diff: operand");
-}
-
-// - x0
-// x0 - x1
-// x0 - x1 - x2 - x3 ...
-sexp unisub(sexp l)
-{
-    if (!l)
-        return zero;
-    if (!l->cdr)
-        return unineg(l->car);
-    sexp* mark = psp;
-    return lose(diff(l->car, save(uniadd(l->cdr))));
 }
 
 // x * y
@@ -1293,7 +1289,7 @@ sexp product(sexp x, sexp y)
         if (isBignum(y))
             return lose(rational_mul(save(make_rational(x, one)), y));
         if (isFixnum(y))
-            if (unsafe_multiply(asFixnum(x), asFixnum(y)))
+            if (unsafe_mul(asFixnum(x), asFixnum(y)))
                 return newbignum(Num(asFixnum(x)) * Num(asFixnum(y)));
             else
                 return newfixnum(asFixnum(x) * asFixnum(y));
@@ -1313,20 +1309,6 @@ sexp product(sexp x, sexp y)
     }
 
     error("product: operand");
-}
-
-// x0 * x1 * x2 ...
-sexp unimul(sexp l)
-{
-    sexp* mark = psp;
-    sexp result = one;
-    save(l, result);
-    while (l)
-    {
-        result = replace(product(result, l->car));
-        l = l->cdr;
-    }
-    return lose(mark, result);
 }
 
 // x / y
@@ -1373,54 +1355,6 @@ sexp quotientf(sexp x, sexp y)
 
     error("quotient: operand");
 }
-
-// x0 / x1 / x2 ...
-sexp unidiv(sexp l)
-{
-    sexp* mark = psp;
-
-    sexp result;
-    if (l && l->cdr)
-    {
-        result = l->car;
-        l = l->cdr;
-    } else
-        result = one;
-
-    save(l, result);
-
-    while (l)
-    {
-        result = replace(quotientf(result, l->car));
-        l = l->cdr;
-    }
-
-    return lose(mark, result);
-}
-
-long rem(long x, long y)
-{
-    long r = x % y;
-    if (r > 0)
-    {
-        if (x < 0)
-            r -= abs(y);
-    } else if (r < 0) {
-        if (x > 0)
-            r += abs(y);
-    }
-    return r;
-}
-
-long mod(long x, long y)
-{
-    long r = x % y;
-    if (r * y < 0)
-        r += y;
-    return r;
-}
-
-sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
 sexp moduloff(sexp x, sexp y)
 {
@@ -1512,6 +1446,90 @@ sexp remainderff(sexp x, sexp y)
     error("remainder: operand");
 }
 
+// x0 + x1 + x2 ...
+sexp uniadd(sexp l)
+{
+    sexp* mark = psp;
+    sexp result = zero;
+    save(l, result);
+    while (l)
+    {
+        result = replace(sum(result, l->car));
+        l = l->cdr;
+    }
+    return lose(mark, result);
+}
+
+// - x
+sexp unineg(sexp x)
+{
+    sexp* mark = psp;
+
+    if (isComplex(x))
+        return lose(mark, make_complex(save(unineg(x->cdr->car)), save(unineg(x->cdr->cdr->car))));
+
+    switch (shortType(x))
+    {
+    default:       error("neg: operand");
+    case FIXNUM:   return newfixnum(-   ((Fixnum*)x)->fixnum);
+    case FLOAT:    return newflonum(-   ((Float*)x)->flonum);
+    case DOUBLE:   return newflonum(-   ((Double*)x)->flonum);
+    case BIGNUM:   return newbignum(-   *((Bignum*)x)->nump);
+    case RATIONAL: return newrational(- *((Rational*)x)->ratp);
+    }
+}
+
+// - x0
+// x0 - x1
+// x0 - x1 - x2 - x3 ...
+sexp unisub(sexp l)
+{
+    if (!l)
+        return zero;
+    if (!l->cdr)
+        return unineg(l->car);
+    sexp* mark = psp;
+    return lose(diff(l->car, save(uniadd(l->cdr))));
+}
+
+// x0 * x1 * x2 ...
+sexp unimul(sexp l)
+{
+    sexp* mark = psp;
+    sexp result = one;
+    save(l, result);
+    while (l)
+    {
+        result = replace(product(result, l->car));
+        l = l->cdr;
+    }
+    return lose(mark, result);
+}
+
+// x0 / x1 / x2 ...
+sexp unidiv(sexp l)
+{
+    sexp* mark = psp;
+
+    sexp result;
+    if (l && l->cdr)
+    {
+        result = l->car;
+        l = l->cdr;
+    } else
+        result = one;
+
+    save(l, result);
+
+    while (l)
+    {
+        result = replace(quotientf(result, l->car));
+        l = l->cdr;
+    }
+
+    return lose(mark, result);
+}
+
 // x0 % x1 % x2 ...
 sexp unimod(sexp l)
 {
@@ -1550,20 +1568,6 @@ sexp truncateff(sexp x) { return flintstub(truncate, x); } // truncate
 sexp ceilingff(sexp x)  { return flintstub(ceil,     x); } // ceil
 sexp floorff(sexp x)    { return flintstub(floor,    x); } // floor
 sexp roundff(sexp x)    { return flintstub(round,    x); } // round
-
-// integer square root
-uint32_t isqrt(uint64_t v)
-{
-    uint64_t t, r;
-
-    for (t=0x4000000000000000ULL, r=0; t; t >>= 2)
-      if (t + r <= v) {
-         v -= t + r;
-         r = (r >> 1) | t;
-      } else
-         r = r >> 1;
-   return (uint32_t)r;
-}
 
 sexp isqrtf(sexp x)
 {
