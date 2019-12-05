@@ -2681,6 +2681,16 @@ void assertAllFixnums(sexp args)
             error("bitwise ops require fixnum arguments");
 }
 
+// odd?
+sexp oddp(sexp x)
+{
+    if (isFixnum(x))
+        return boolwrap(asFixnum(x) & 1);
+    if (isBignum(x))
+        return boolwrap(asBignum(x).get_bit(0));
+    error("odd: not a fixnum or bignum");
+}
+
 // x0 & x1 & x2 ...
 sexp andf(sexp args)
 {
@@ -2709,6 +2719,20 @@ sexp xorf(sexp args)
     for (sexp p = args; p; p = p->cdr)
         result = result ^ asFixnum(p->car);
     return lose(newfixnum(result));
+}
+
+// (define (lfsr-shift r p) (if (zero? (& r 1)) (^ (>> r 1) p) (>> r 1)))
+sexp lfsr_shift(sexp r, sexp p)
+{
+    Num rb(isFixnum(r) ? asFixnum(r) : asBignum(r));
+    Num pb(isFixnum(p) ? asFixnum(p) : asBignum(p));
+
+    bool bit = rb.get_bit(0);
+    rb = rb >> 1;
+    if (!bit)
+        rb = rb ^ pb;
+    int ri;
+    return rb.can_convert_to_int(&ri) ? newfixnum(ri) : newbignum(rb);
 }
 
 // delay
@@ -4354,6 +4378,7 @@ struct FuncTable {
     { "integer->char",                     1, (void*)integer_char },
     { "isqrt",                             1, (void*)isqrtf },
     { "lcm",                               2, (void*)lcmf },
+    { "lfsr-shift",                        2, (void*)lfsr_shift },
     { "list?",                             1, (void*)listp },
     { "list->string",                      1, (void*)list_string },
     { "list->vector",                      1, (void*)list_vector },
@@ -4370,6 +4395,7 @@ struct FuncTable {
     { "null?",                             1, (void*)nullp },
     { "number?",                           1, (void*)numberp },
     { "number->string",                    1, (void*)number_string },
+    { "odd?",                              1, (void*)oddp },
     { "open-input-file",                   1, (void*)open_input_file },
     { "open-input-string",                 0, (void*)open_input_string },
     { "open-output-file",                  1, (void*)open_output_file },

@@ -226,6 +226,22 @@ public:
         return tmp + a_hi*b_hi;
     }
 
+    static Num& bitwise_and_overwrite(Num &a, const Num &b){
+        size_t i, na = a.size(), nb = b.size(), n = std::max(na, nb);
+        a.resize(n);
+        for (i = 0; i < nb; i++)
+            a[i] &= b[i];
+        return a.truncate();
+    }
+
+    static Num& bitwise_xor_overwrite(Num &a, const Num &b){
+        size_t i, na = a.size(), nb = b.size(), n = std::max(na, nb);
+        a.resize(n);
+        for (i = 0; i < nb; i++)
+            a[i] ^= b[i];
+        return a.truncate();
+    }
+
     static Num& add_unsigned_overwrite(Num &a, const Num &b){
         size_t i, na = a.size(), nb = b.size(), n = std::max(na, nb);
         a.resize(n);
@@ -413,6 +429,16 @@ public:
         Num quotient, remainder;
         div_mod(numerator, denominator, quotient, remainder);
         return remainder;
+    }
+
+    static Num bitwise_and(const Num &a, const Num &b){
+        Num result(a);
+        return bitwise_and_overwrite(result, b);
+    }
+
+    static Num bitwise_xor(const Num &a, const Num &b){
+        Num result(a);
+        return bitwise_xor_overwrite(result, b);
     }
 
     static Num add_unsigned(const Num &a, const Num &b){
@@ -660,6 +686,8 @@ public:
     Num operator * (const Num &b) const { return mul(*this, b); }
     Num operator / (const Num &b) const { return div(*this, b); }
     Num operator % (const Num &b) const { return mod(*this, b); }
+    Num operator ^ (const Num &b) const { return bitwise_xor(*this, b); }
+    Num operator & (const Num &b) const { return bitwise_and(*this, b); }
     Num operator - (            ) const { return Num(*this).set_neg(!neg); }
 
     Num operator >> (size_t n_bits) const { return Num(*this) >>= n_bits; }

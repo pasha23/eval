@@ -65,9 +65,7 @@
 (define (cddddar x) (cdr (cdr (cdr (cdr (car x))))))
 (define (cdddddr x) (cdr (cdr (cdr (cdr (cdr x))))))
 
-(define (even? x) (zero? (remainder x 2)))
-
-(define (odd? x) (not (zero? (remainder x 2))))
+(define (even? x) (not (odd? x)))
 
 (define (debug l s) (display l) (display ": ") (display s) (newline) s)
 
@@ -474,24 +472,19 @@
     2305843009213694004, 4611686018427387905,
     9223372036854775811])
 
-;; (make-lfsr 31) seems to work with 32-bit fixnums
-
-(define (lfsr-shift r p)
-    (^ (>> r 1) (& (~ (- (& r 1))) p)))
-
 (define (make-lfsr n)
         (let ((r 0)
               (p (vector-ref polynomials (- n 1))))
-             (lambda (b) (set! b (if (zero? (& r 1)) #f #t)) (set! r (lfsr-shift r p)) b)))
-
-(define (bits lfsr) (while #t (write-char (if (lfsr) #\1 #\0))))
+             (lambda (b) (set! b (if (odd? r) #t #f)) (set! r (lfsr-shift r p)) b)))
 
 (define (allbits n)
-    (let ((length (- (<< 1 n) 1))
-          (lfsr (make-lfsr n)))
-         (while (> length 0)
-                (write-char (if (lfsr) #\1 #\0))
-                (set! length (- length 1)))
+    (let ((r 0)
+          (p (vector-ref polynomials (- n 1)))
+          (busy #t))
+         (while busy
+                (write-char (if (odd? r) #\1 #\0))
+                (set! r (lfsr-shift r p))
+                (set! busy (not (zero? r))))
          (newline)))
 
 (define (merge f p q)
