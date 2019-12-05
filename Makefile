@@ -1,10 +1,13 @@
 
-all: .tested
+all: polynomials .tested
 
 .tested: eval32 eval init.ss tests.ss
 	./eval32 tests.ss
 	./eval tests.ss
 	touch .tested
+
+polynomials: polynomials.cpp
+	g++ -O1 -o polynomials polynomials.cpp
 
 eval32.list: eval32
 	objdump -C -S eval32 > eval32.list

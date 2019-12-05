@@ -298,6 +298,11 @@
                       (begin (write (definition (car x))) (newline) (newline))))
                   (reverse (environment))))
 
+(define (random-char) 
+  (call-with-input-file "/dev/random" 
+    (lambda (port)
+     (read-char port))))
+
 (define (ttytest)
         (while (not (char=? #\newline (peek-char)))
                (write (read-char))
@@ -449,10 +454,8 @@
                 (set! f (cons (+ (car f) (cadr f)) f)))
          (cdr f)))
 
-;; 32-bit and longer polynomials will not work on 32-bit machines
-
 (define polynomials
-    [1, 3, 5, 9, 18, 33, 65, 142, 264, 516, 1026,
+    [0, 1, 3, 5, 9, 18, 33, 65, 142, 264, 516, 1026,
     2089, 4109, 8213, 16385, 32790, 65540, 131091,
     262163, 524292, 1048578, 2097153, 4194320,
     8388621, 16777220, 33554467, 67108883,
@@ -469,17 +472,16 @@
     36028797018964042, 72057594037927958,
     144115188075855921, 288230376151711805,
     576460752303423489, 1152921504606846995,
-    2305843009213694004, 4611686018427387905,
-    9223372036854775811])
+    2305843009213694004, 4611686018427387905])
 
 (define (make-lfsr n)
         (let ((r 0)
-              (p (vector-ref polynomials (- n 1))))
+              (p (vector-ref polynomials n)))
              (lambda (b) (set! b (odd? r)) (set! r (lfsr-shift r p)) b)))
 
 (define (allbits n)
     (let ((r 0)
-          (p (vector-ref polynomials (- n 1)))
+          (p (vector-ref polynomials n))
           (busy #t))
          (while busy
                 (write-char (if (odd? r) #\1 #\0))
