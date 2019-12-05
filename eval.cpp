@@ -45,7 +45,7 @@
 #endif
 
 /*
- * storage is managed as a freelist of cells, each potentially containing two pointers
+ * memory is managed as a freelist of cells, each potentially containing two pointers
  *
  * if bit 0 is 0 it's a Cons
  * otherwise the type is in the second byte
@@ -88,7 +88,7 @@ int gcstate;           	    // handling break during gc
 int indent;                 // handling eval trace indent
 sexp expr;              	// the expression read
 sexp valu;              	// the value of it
-sexp cell;         	    	// all the storage starts here
+sexp cell;         	    	// all the memory starts here
 sexp atoms;         		// all atoms are linked in a list
 sexp global;        		// this is the global symbol table (a list)
 sexp cinport;               // the port associated with std::cin
@@ -315,10 +315,7 @@ sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
 // protection stack management
 
-void psoverflow(void)
-{
-    error("protection stack overflow");
-}
+void psoverflow(void) { error("protection stack overflow"); }
 
 static inline sexp save(sexp p)
 {
@@ -414,7 +411,7 @@ static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 /*
  * mark all reachable cells
  *
- * sweep all storage, putting unmarked cells on the freelist
+ * sweep all memory, putting unmarked cells on the freelist
  */
 sexp gc(void)
 {
@@ -455,7 +452,10 @@ sexp gc(void)
     }
 
     if (!freelist)
-        error("gc: storage exhausted");
+    {
+        gcstate = 0;
+        error("gc: out of memory");
+    }
 
     if (gcstate > 1)
     {
@@ -463,6 +463,7 @@ sexp gc(void)
         gcstate = 0;
         error("SIGINT");
     }
+
     gcstate = 0;
     return voida;
 }
