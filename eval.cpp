@@ -801,28 +801,6 @@ sexp angle(sexp z)
     return newflonum(atan2(asFlonum(z->cdr->car), asFlonum(z->car)));
 }
 
-long rem(long x, long y)
-{
-    long r = x % y;
-    if (r > 0)
-    {
-        if (x < 0)
-            r -= abs(y);
-    } else if (r < 0) {
-        if (x > 0)
-            r += abs(y);
-    }
-    return r;
-}
-
-long mod(long x, long y)
-{
-    long r = x % y;
-    if (r * y < 0)
-        r += y;
-    return r;
-}
-
 long gcd(long x, long y)
 {
     if (x < 0) x = -x;
@@ -907,253 +885,9 @@ sexp lcmf(sexp x, sexp y)
     error("gcd: operands");
 }
 
-sexp rational_add(sexp x, sexp y)
-{
-    Rat xrat, yrat;
-
-    if (isFixnum(x))
-        xrat = Rat(asFixnum(x));
-    else if (isBignum(x))
-        xrat = Rat(asBignum(x));
-    else if (isRational(x))
-        xrat = Rat(asRational(x));
-
-    if (isFixnum(y))
-        yrat = Rat(asFixnum(y));
-    else if (isBignum(y))
-        yrat = Rat(asBignum(y));
-    else if (isRational(y))
-        yrat = Rat(asRational(y));
-
-    Rat result = xrat + yrat;
-
-    result.reduce();
-
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
-
-    return newrational(result);
-}
-
-sexp rational_sub(sexp x, sexp y)
-{
-    Rat xrat, yrat;
-
-    if (isFixnum(x))
-        xrat = Rat(asFixnum(x));
-    else if (isBignum(x))
-        xrat = Rat(asBignum(x));
-    else if (isRational(x))
-        xrat = Rat(asRational(x));
-
-    if (isFixnum(y))
-        yrat = Rat(asFixnum(y));
-    else if (isBignum(y))
-        yrat = Rat(asBignum(y));
-    else if (isRational(y))
-        yrat = Rat(asRational(y));
-
-    Rat result = xrat - yrat;
-
-    result.reduce();
-
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
-
-    return newrational(result);
-}
-
-sexp rational_mul(sexp x, sexp y)
-{
-    Rat xrat, yrat;
-
-    if (isFixnum(x))
-        xrat = Rat(asFixnum(x));
-    else if (isBignum(x))
-        xrat = Rat(asBignum(x));
-    else if (isRational(x))
-        xrat = Rat(asRational(x));
-
-    if (isFixnum(y))
-        yrat = Rat(asFixnum(y));
-    else if (isBignum(y))
-        yrat = Rat(asBignum(y));
-    else if (isRational(y))
-        yrat = Rat(asRational(y));
-
-    Rat result = xrat * yrat;
-
-    result.reduce();
-
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
-
-    return newrational(result);
-}
-
-sexp rational_div(sexp x, sexp y)
-{
-    Rat xrat, yrat;
-
-    if (isFixnum(x))
-        xrat = Rat(asFixnum(x));
-    else if (isBignum(x))
-        xrat = Rat(asBignum(x));
-    else if (isRational(x))
-        xrat = Rat(asRational(x));
-
-    if (isFixnum(y))
-        yrat = Rat(asFixnum(y));
-    else if (isBignum(y))
-        yrat = Rat(asBignum(y));
-    else if (isRational(y))
-        yrat = Rat(asRational(y));
-
-    Rat result = xrat / yrat;
-
-    result.reduce();
-
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
-
-    return newrational(result);
-}
-
-sexp rational_mod(sexp x, sexp y)
-{
-    Rat xrat, yrat;
-
-    if (isFixnum(x))
-        xrat = Rat(asFixnum(x));
-    else if (isBignum(x))
-        xrat = Rat(asBignum(x));
-    else if (isRational(x))
-        xrat = Rat(asRational(x));
-
-    if (isFixnum(y))
-        yrat = Rat(asFixnum(y));
-    else if (isBignum(y))
-        yrat = Rat(asBignum(y));
-    else if (isRational(y))
-        yrat = Rat(asRational(y));
-
-    Rat result(Num::mod(xrat.num * yrat.den,
-                        yrat.num * xrat.den),
-               xrat.den * yrat.den);
-
-    result.reduce();
-
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
-
-    return newrational(result);
-}
-
 double realpart(sexp x) { return asFlonum(x->cdr->car); }
 
 double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
-
-sexp complex_add(sexp z, sexp w)
-{
-    sexp* mark = psp;
-    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
-        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
-    {
-        sexp real = save(rational_add(z->cdr->car, w->cdr->car));
-        sexp imag = save(rational_add(z->cdr->cdr->car, w->cdr->cdr->car));
-        return lose(mark, make_complex(real, imag));
-    }
-    double re = realpart(z)+realpart(w);
-    double im = imagpart(z)+imagpart(w);
-    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
-}
-
-sexp complex_sub(sexp z, sexp w)
-{
-    sexp* mark = psp;
-    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
-        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
-    {
-        sexp real = save(rational_sub(z->cdr->car, w->cdr->car));
-        sexp imag = save(rational_sub(z->cdr->cdr->car, w->cdr->cdr->car));
-        return lose(mark, make_complex(real, imag));
-    }
-    double re = realpart(z)-realpart(w);
-    double im = imagpart(z)-imagpart(w);
-    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
-}
-
-sexp complex_mul(sexp z, sexp w)
-{
-    sexp* mark = psp;
-    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
-        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
-    {
-        sexp x = z->cdr->car;
-        sexp y = z->cdr->cdr->car;
-        sexp u = w->cdr->car;
-        sexp v = w->cdr->cdr->car;
-        sexp real = save(rational_sub(save(rational_mul(x, u)), save(rational_mul(y, v))));
-        sexp imag = save(rational_add(save(rational_mul(x, v)), save(rational_mul(y, u))));
-        return lose(mark, make_complex(real, imag));
-    }
-    double x = realpart(z);
-    double y = imagpart(z);
-    double u = realpart(w);
-    double v = imagpart(w);
-    double re = x*u - y*v;
-    double im = x*v + y*u;
-    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
-}
-
-sexp complex_div(sexp z, sexp w)
-{
-    sexp* mark = psp;
-    if (exactp(z->cdr->car) && exactp(z->cdr->cdr->car) &&
-        exactp(w->cdr->car) && exactp(z->cdr->cdr->car))
-    {
-        sexp x = z->cdr->car;
-        sexp y = z->cdr->cdr->car;
-        sexp u = w->cdr->car;
-        sexp v = w->cdr->cdr->car;
-        sexp d = save(rational_add(save(rational_mul(u, u)), save(rational_mul(v, v))));
-        sexp real = save(rational_div(save(rational_add(save(rational_mul(x, u)),
-                                                        save(rational_mul(y, v)))), d));
-        sexp imag = save(rational_div(save(rational_sub(save(rational_mul(y, u)),
-                                                        save(rational_mul(x, v)))), d));
-        return lose(mark, make_complex(real, imag));
-    }
-    double x = realpart(z);
-    double y = imagpart(z);
-    double u = realpart(w);
-    double v = imagpart(w);
-    double d = u*u + v*v;
-    double re = (x*u + y*v) / d;
-    double im = (y*u - x*v) / d;
-    return 0.0 == im ? newflonum(re) : newcomplex(re, im);
-}
-
-sexp complex_mod(sexp x, sexp y) { error("complex_mod: not implemented"); }
 
 /*
  * complex > rational > bignum > fixnum
@@ -1550,94 +1284,304 @@ sexp quotientf(sexp x, sexp y)
     return make_rational(x, y);
 }
 
+long mod(long x, long y)
+{
+    long r = x % y;
+    if (r * y < 0)
+        r += y;
+    return r;
+}
+
+// (modulo x y)
 sexp moduloff(sexp x, sexp y)
 {
-    if (isComplex(x)) {
-        if (isComplex(y))
-            return complex_mod(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
-            return lose(complex_mod(x, save(make_complex(y, zero))));
-    } else if (isRational(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y) || isBignum(y))
-            return rational_mod(x, y);
-        if (isFlonum(y))
-            return newflonum(fmod(rat2real(x), asFlonum(y)));
-    } else if (isFixnum(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y))
-            return lose(rational_mod(save(make_rational(x, one)), y));
-        if (isBignum(y))
-            return lose(rational_mod(save(make_rational(x, one)), y));
-        if (isFixnum(y))
-            return newfixnum(mod(asFixnum(x), asFixnum(y)));
-        if (isFlonum(y))
-            return newflonum(fmod((double)asFixnum(x), asFlonum(y)));
-    } else if (isFlonum(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(save(make_complex(x, zero)), y));
-        if (isRational(y))
-            return newflonum(fmod(asFlonum(x), rat2real(y)));
-        if (isBignum(y))
-            return newflonum(fmod(asFlonum(x), asBignum(y).to_double()));
-        if (isFixnum(y))
-            return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
-        if (isFlonum(y))
-            return newflonum(fmod(asFlonum(x), asFlonum(y)));
+    bool cpx = false;
+
+    sexp xr, xi, yr, yi;
+
+    if (isComplex(x))
+    {
+        cpx = true;
+        xr = real_part(x);
+        xi = imag_part(x);
+    } else {
+        xr = x;
+        xi = zero;
     }
 
-    error("modulo: operand");
+    if (isComplex(y))
+    {
+        cpx = true;
+        yr = real_part(y);
+        yi = imag_part(y);
+    } else {
+        yr = y;
+        yi = zero;
+    }
+
+    if (cpx)
+    {
+        error("complex modulo not implemented");
+    }
+
+    if (isFlonum(x))
+    {
+        double xd = asFlonum(x), yd;
+        if (isFlonum(y))
+            yd = asFlonum(y);
+        else if (isRational(y))
+            yd = rat2real(y);
+        else if (isBignum(y))
+            yd = asBignum(y).to_double();
+        else if (isFixnum(y))
+            yd = (double)asFixnum(y);
+        return newflonum(fmod(xd, yd));
+    }
+
+    if (isFlonum(y))
+    {
+        double xd, yd = asFlonum(y);
+        if (isRational(x))
+            xd = rat2real(x);
+        else if (isBignum(x))
+            xd = asBignum(x).to_double();
+        else if (isFixnum(x))
+            xd = (double)asFixnum(x);
+        return newflonum(fmod(xd, yd));
+    }
+
+    if (isRational(x) || isRational(y))
+    {
+        Rat xrat, yrat;
+
+        if (!isRational(x)) {
+            if (isBignum(x))
+                xrat = Rat(asBignum(x));
+            else
+                xrat = Rat(Num(asFixnum(x)));
+        } else if (!isRational(y)) {
+            if (isBignum(y))
+                yrat = Rat(asBignum(y));
+            else
+                yrat = Rat(Num(asFixnum(y)));
+        } else {
+            xrat = asRational(x);
+            yrat = asRational(y);
+        }
+
+        Rat result(Num::mod(xrat.num * yrat.den,
+                            yrat.num * xrat.den),
+                   xrat.den * yrat.den);
+
+        result.reduce();
+
+        if (Num(1) == result.den)
+        {
+            int r;
+            return result.num.can_convert_to_int(&r) ?
+                                        newfixnum(r) : newbignum(result.num);
+        }
+
+        return newrational(result);
+    }
+
+    if (isBignum(x) || isBignum(y))
+    {
+        int r;
+        Num result;
+        if (!isBignum(x))
+            result = Num::mod(Num(asFixnum(x)), asBignum(y));
+        else if (!isBignum(y))
+            result = Num::mod(asBignum(x), Num(asFixnum(y)));
+        else
+            result = Num::mod(asBignum(x), asBignum(y));
+        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+    }
+
+    return newfixnum(mod(asFixnum(x), asFixnum(y)));
+}
+
+long rem(long x, long y)
+{
+    long r = x % y;
+    if (r > 0)
+    {
+        if (x < 0)
+            r -= abs(y);
+    } else if (r < 0) {
+        if (x > 0)
+            r += abs(y);
+    }
+    return r;
+}
+
+double dmod(double xd, double yd)
+{
+    double rd = fmod(xd, yd);
+    if (rd > 0)
+    {
+        if (xd < 0)
+            rd -= abs(yd);
+    } else if (rd < 0) {
+        if (xd > 0)
+            rd += abs(yd);
+    }
+    return rd;
 }
 
 // x % y
 sexp remainderff(sexp x, sexp y)
 {
-    if (isComplex(x)) {
-        if (isComplex(y))
-            return complex_mod(x, y);
-        if (isRational(y) || isFixnum(y) || isFlonum(y) || isBignum(y))
-            return lose(complex_mod(x, save(make_complex(y, zero))));
-    } else if (isRational(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y) || isBignum(y))
-            return rational_mod(x, y);
-        if (isFlonum(y))
-            return newflonum(fmod(rat2real(x), asFlonum(y)));
-    } else if (isBignum(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y) || isFixnum(y) || isBignum(y))
-            return rational_mod(x, y);
-        if (isFlonum(y))
-            return newflonum(fmod(rat2real(x), asFlonum(y)));
-    } else if (isFixnum(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(y, save(make_complex(x, zero))));
-        if (isRational(y))
-            return lose(rational_mod(save(make_rational(x, one)), y));
-        if (isBignum(y))
-            return lose(rational_mod(save(make_rational(x, one)), y));
-        if (isFixnum(y))
-            return newfixnum(asFixnum(x) % asFixnum(y));
-        if (isFlonum(y))
-            return newflonum(fmod((double)asFixnum(x), asFlonum(y)));
-    } else if (isFlonum(x)) {
-        if (isComplex(y))
-            return lose(complex_mod(save(make_complex(x, zero)), y));
-        if (isRational(y))
-            return newflonum(fmod(asFlonum(x), rat2real(y)));
-        if (isBignum(y))
-            return newflonum(fmod(asFlonum(x), asBignum(y).to_double()));
-        if (isFixnum(y))
-            return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
-        if (isFlonum(y))
-            return newflonum(fmod(asFlonum(x), asFlonum(y)));
+    bool cpx = false;
+
+    sexp xr, xi, yr, yi;
+
+    if (isComplex(x))
+    {
+        cpx = true;
+        xr = real_part(x);
+        xi = imag_part(x);
+    } else {
+        xr = x;
+        xi = zero;
     }
 
-    error("remainder: operand");
+    if (isComplex(y))
+    {
+        cpx = true;
+        yr = real_part(y);
+        yi = imag_part(y);
+    } else {
+        yr = y;
+        yi = zero;
+    }
+
+    if (cpx)
+    {
+        error("complex remainder not implemented");
+    }
+
+    if (isFlonum(x))
+    {
+        double xd = asFlonum(x), yd;
+        if (isFlonum(y))
+            yd = asFlonum(y);
+        else if (isRational(y))
+            yd = rat2real(y);
+        else if (isBignum(y))
+            yd = asBignum(y).to_double();
+        else if (isFixnum(y))
+            yd = (double)asFixnum(y);
+
+        return newflonum(dmod(xd, yd));
+    }
+
+    if (isFlonum(y))
+    {
+        double xd, yd = asFlonum(y);
+        if (isRational(x))
+            xd = rat2real(x);
+        else if (isBignum(x))
+            xd = asBignum(x).to_double();
+        else if (isFixnum(x))
+            xd = (double)asFixnum(x);
+
+        return newflonum(dmod(xd, yd));
+    }
+
+    if (isRational(x) || isRational(y))
+    {
+        Rat xrat, yrat;
+
+        if (!isRational(x)) {
+            if (isBignum(x))
+                xrat = Rat(asBignum(x));
+            else
+                xrat = Rat(Num(asFixnum(x)));
+        } else if (!isRational(y)) {
+            if (isBignum(y))
+                yrat = Rat(asBignum(y));
+            else
+                yrat = Rat(Num(asFixnum(y)));
+        } else {
+            xrat = asRational(x);
+            yrat = asRational(y);
+        }
+
+        Rat result(Num::mod(xrat.num * yrat.den,
+                            yrat.num * xrat.den),
+                   xrat.den * yrat.den);
+
+        if (result > 0)
+        {
+            if (xrat < 0)
+            {
+                if (yrat < 0)
+                    result += yrat;
+                else
+                    result -= yrat;
+            }
+        } else if (result < 0) {
+            if (xrat > 0)
+            {
+                if (yrat < 0)
+                    result -= yrat;
+                else
+                    result += yrat;
+            }
+        }
+
+        result.reduce();
+
+        if (Num(1) == result.den)
+        {
+            int r;
+            return result.num.can_convert_to_int(&r) ?
+                                        newfixnum(r) : newbignum(result.num);
+        }
+
+        return newrational(result);
+    }
+
+    if (isBignum(x) || isBignum(y))
+    {
+        int r;
+        Num xbig, ybig;
+
+        if (!isBignum(x))
+            xbig = Num(asFixnum(x));
+        else if (!isBignum(y))
+            ybig = Num(asFixnum(y));
+        else {
+            xbig = asBignum(x);
+            ybig = asBignum(y);
+        }
+
+        Num result(Num::mod(xbig, ybig));
+
+        if (result > 0)
+        {
+            if (xbig < 0)
+            {
+                if (ybig < 0)
+                    result += ybig;
+                else
+                    result -= ybig;
+            }
+        } else if (result < 0) {
+            if (xbig > 0)
+            {
+                if (ybig < 0)
+                    result -= ybig;
+                else
+                    result += ybig;
+            }
+        }
+
+        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+    }
+
+    return newfixnum(rem(asFixnum(x), asFixnum(y)));
 }
 
 // x0 + x1 + x2 ...
