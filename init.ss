@@ -439,6 +439,18 @@
           (lambda () (set! seed (remainder (+ (* seed a) c) m)) 
                      (abs (/ (exact->inexact seed) m)))))
  
+(define (epsilon)
+    (let ((e 1.0))
+        (while (not (= 1.0 (+ 1.0 e)))
+               (set! e (/ e 2)))
+        (+ e e)))
+
+(define (fibs)
+    (let ((f (list 1 1)))
+         (while (positive? (car f))
+                (set! f (cons (+ (car f) (cadr f)) f)))
+         (cdr f)))
+
 ;; 32-bit and longer polynomials will not work on 32-bit machines
 
 (define polynomials

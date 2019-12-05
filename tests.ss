@@ -13,12 +13,6 @@
 (define tail
     (lambda (stream) (cdr (force stream))))
 
-(define (fibs)
-    (let ((f '(1 1)))
-         (while (positive? (car f))
-                (set! f (cons (+ (car f) (cadr f)) f)))
-         (cdr f)))
-
 (define (foo x)
         (define (bar x)
                 (define (baz x)
@@ -27,12 +21,6 @@
            (baz x)))
     (product 7
        (bar x)))
-
-(define (epsilon)
-    (let ((e 1.0))
-        (while (not (= 1.0 (+ 1.0 e)))
-               (set! e (/ e 2)))
-        (+ e e)))
 
 (define (s n k)
     (cond ((= k 1) 1)
