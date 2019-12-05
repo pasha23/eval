@@ -872,7 +872,14 @@ sexp rational_add(sexp x, sexp y)
 
     result.reduce();
 
-    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
 }
 
 sexp rational_sub(sexp x, sexp y)
@@ -897,7 +904,14 @@ sexp rational_sub(sexp x, sexp y)
 
     result.reduce();
 
-    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
 }
 
 sexp rational_mul(sexp x, sexp y)
@@ -922,7 +936,14 @@ sexp rational_mul(sexp x, sexp y)
 
     result.reduce();
 
-    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
 }
 
 sexp rational_div(sexp x, sexp y)
@@ -947,7 +968,14 @@ sexp rational_div(sexp x, sexp y)
 
     result.reduce();
 
-    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
 }
 
 sexp rational_mod(sexp x, sexp y)
@@ -968,14 +996,20 @@ sexp rational_mod(sexp x, sexp y)
     else if (isRational(y))
         yrat = Rat(asRational(y));
 
-    Num numerator   = Num::mod(xrat.num * yrat.den, yrat.num * xrat.den);
-    Num denominator = xrat.den * yrat.den;
-
-    Rat result(numerator, denominator);
+    Rat result(Num::mod(xrat.num * yrat.den,
+                        yrat.num * xrat.den),
+               xrat.den * yrat.den);
 
     result.reduce();
 
-    return Num(1) == result.den ? newbignum(result.num) : newrational(result);
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
 }
 
 sexp complex_add(sexp z, sexp w)
@@ -1117,7 +1151,7 @@ sexp sum(sexp x, sexp y)
         if (isRational(y))
             return newflonum(asFlonum(x) + rat2real(y));
         if (isBignum(y))
-            return newflonum(asFlonum(x) + rat2real(y));
+            return newflonum(asFlonum(x) + asBignum(y).to_double());
         if (isFixnum(y))
             return newflonum(asFlonum(x) + (double)asFixnum(y));
         if (isFlonum(y))
@@ -1144,25 +1178,18 @@ sexp uniadd(sexp l)
 // - x
 sexp unineg(sexp x)
 {
-    if (isRational(x))
-    {
-        Rat* ratp = ((Rational*)x)->ratp;
-        return newrational(- *ratp);
-    }
+    sexp* mark = psp;
 
     if (isComplex(x))
-    {
-        sexp* mark = psp;
         return lose(mark, make_complex(save(unineg(x->cdr->car)), save(unineg(x->cdr->cdr->car))));
-    }
 
     switch (shortType(x))
     {
     default:       error("neg: operand");
-    case FIXNUM:   return newfixnum(-((Fixnum*)x)->fixnum);
-    case FLOAT:    return newflonum(-((Float*)x)->flonum);
-    case DOUBLE:   return newflonum(-((Double*)x)->flonum);
-    case BIGNUM:   return newbignum(- *((Bignum*)x)->nump);
+    case FIXNUM:   return newfixnum(-   ((Fixnum*)x)->fixnum);
+    case FLOAT:    return newflonum(-   ((Float*)x)->flonum);
+    case DOUBLE:   return newflonum(-   ((Double*)x)->flonum);
+    case BIGNUM:   return newbignum(-   *((Bignum*)x)->nump);
     case RATIONAL: return newrational(- *((Rational*)x)->ratp);
     }
 }
@@ -1209,7 +1236,7 @@ sexp diff(sexp x, sexp y)
         if (isRational(y))
             return newflonum(asFlonum(x) - rat2real(y));
         if (isBignum(y))
-            return newflonum(asFlonum(x) - rat2real(y));
+            return newflonum(asFlonum(x) - asBignum(y).to_double());
         if (isFixnum(y))
             return newflonum(asFlonum(x) - (double)asFixnum(y));
         if (isFlonum(y))
@@ -1274,7 +1301,7 @@ sexp product(sexp x, sexp y)
         if (isRational(y))
             return newflonum(asFlonum(x) * rat2real(y));
         if (isBignum(y))
-            return newflonum(asFlonum(x) * rat2real(y));
+            return newflonum(asFlonum(x) * asBignum(y).to_double());
         if (isFixnum(y))
             return newflonum(asFlonum(x) * (double)asFixnum(y));
         if (isFlonum(y))
@@ -1333,7 +1360,7 @@ sexp quotientf(sexp x, sexp y)
         if (isRational(y))
             return newflonum(asFlonum(x) / rat2real(y));
         if (isBignum(y))
-            return newflonum(asFlonum(x) / rat2real(y));
+            return newflonum(asFlonum(x) / asBignum(y).to_double());
         if (isFixnum(y))
             return newflonum(asFlonum(x) / (double)asFixnum(y));
         if (isFlonum(y))
@@ -1422,7 +1449,7 @@ sexp moduloff(sexp x, sexp y)
         if (isRational(y))
             return newflonum(fmod(asFlonum(x), rat2real(y)));
         if (isBignum(y))
-            return newflonum(fmod(asFlonum(x), rat2real(y)));
+            return newflonum(fmod(asFlonum(x), asBignum(y).to_double()));
         if (isFixnum(y))
             return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
         if (isFlonum(y))
@@ -1471,7 +1498,7 @@ sexp remainderff(sexp x, sexp y)
         if (isRational(y))
             return newflonum(fmod(asFlonum(x), rat2real(y)));
         if (isBignum(y))
-            return newflonum(fmod(asFlonum(x), rat2real(y)));
+            return newflonum(fmod(asFlonum(x), asBignum(y).to_double()));
         if (isFixnum(y))
             return newflonum(fmod(asFlonum(x), (double)asFixnum(y)));
         if (isFlonum(y))
@@ -3885,13 +3912,11 @@ sexp scans(std::istream& fin)
 
     NumStatus status, rstatus, istatus;
 
-    size_t split;
-
     c = scanNumber(s, fin, rstatus);
 
-    if (NON_NUMERIC < rstatus && ('+' == c || '-' == c))
-    {
-        split = s.tellp();
+    size_t split = s.tellp();
+
+    if (NON_NUMERIC < rstatus && ('+' == c || '-' == c)) {
         s << (char)fin.get();
         c = scanNumber(s, fin, istatus);
         if ('i' == c)
@@ -3899,10 +3924,7 @@ sexp scans(std::istream& fin)
             s << (char)fin.get();
             status = COMPLEX;
         }
-    }
-    else if (NON_NUMERIC < status && '@' == c)
-    {
-        split = s.tellp();
+    } else if (NON_NUMERIC < status && '@' == c) {
         s << (char)fin.get();
         c = scanNumber(s, fin, istatus);
         status = COMPLEX;
@@ -3954,8 +3976,7 @@ sexp scans(std::istream& fin)
     case FLOATING:
         { double re; s >> re; return newflonum(re); }
     case RATIO:
-        { std::string ratio; s >> ratio;
-          int pos = ratio.find_first_of('/');
+        { std::string ratio; s >> ratio; int pos = ratio.find_first_of('/');
           return newrational(Num(ratio.substr(0,pos).c_str()), Num(ratio.substr(pos+1).c_str())); }
     default:
         break;

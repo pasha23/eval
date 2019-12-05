@@ -506,3 +506,5 @@
 
 ;; (display (map car (environment))) (newline)
 
+;; (trace #t)
+
