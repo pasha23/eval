@@ -236,7 +236,7 @@
 (test '(inexact? 3.0))
 (test '(inexact? 3.1))
 (test '(integer? 3))
-;; (test '(let ((b 'b)) (let ((a (list b b b b b))) (set-cdr! (cddddr a) a) (cyclic? a))))
+(test '(let ((b 'b)) (let ((a (list b b b b b))) (set-cdr! (cddddr a) a) (cyclic? a))))
 ;; (test '(let ((f (fibs))) (= (+ 0.0 (/ (car f) (cadr f))) (/ (+ 1 (sqrt 5)) 2))))
 (test '(list? '(1 2 3)))
 (test '(negative? -3))
