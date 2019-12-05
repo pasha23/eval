@@ -290,7 +290,13 @@ sexp promisep(sexp s) { return boolwrap(isPromise(s)); }
 // rational?
 sexp rationalp(sexp s) { return boolwrap(isRational(s)); }
 
-bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p) || isRational(p); }
+bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p); }
+
+// exact?
+sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x) || isBignum(x)); }
+
+// inexact?
+sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
 
 bool isComplex(sexp p)
 {
@@ -843,12 +849,6 @@ sexp lcmf(sexp x, sexp y)
         }
     error("gcd: operands");
 }
-
-// exact?
-sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x) || isBignum(x)); }
-
-// inexact?
-sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
 
 sexp rational_add(sexp x, sexp y)
 {
