@@ -2666,6 +2666,16 @@ sexp xorf(sexp args)
 // (define (lfsr-shift r p) (if (zero? (& r 1)) (^ (>> r 1) p) (>> r 1)))
 sexp lfsr_shift(sexp r, sexp p)
 {
+    if (isFixnum(r) && isFixnum(p))
+    {
+        int rf = asFixnum(r);
+        bool bit = 1 & rf;
+        rf >>= 1;
+        if (!bit)
+            rf ^= asFixnum(p);
+        return newfixnum(rf);
+    }
+
     Num rb(isFixnum(r) ? asFixnum(r) : asBignum(r));
     Num pb(isFixnum(p) ? asFixnum(p) : asBignum(p));
 
@@ -2673,6 +2683,7 @@ sexp lfsr_shift(sexp r, sexp p)
     rb = rb >> 1;
     if (!bit)
         rb = rb ^ pb;
+
     int ri;
     return rb.can_convert_to_int(&ri) ? newfixnum(ri) : newbignum(rb);
 }
