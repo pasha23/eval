@@ -799,26 +799,20 @@ uint32_t isqrt(uint64_t v)
 // gcd
 sexp gcdf(sexp x, sexp y)
 {
-    if (isFixnum(x))
-        if (isFixnum(y))
-            return newfixnum(gcd(asFixnum(x), asFixnum(y)));
-        else if (isBignum(y))
-        {
-            Num g = Num::gcd(Num(asFixnum(x)), Num(asBignum(y)));
-            int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
-        }
-    else if (isBignum(x))
-        if (isFixnum(y))
-        {
-            Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
-            int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
-        }
-        else if (isBignum(y))
-        {
-            Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
-            int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
-        }
-    error("gcd: operands");
+    if (isFixnum(x) && isFixnum(y))
+        return newfixnum(gcd(asFixnum(x), asFixnum(y)));
+
+    Num g;
+    if (isFixnum(x) && isBignum(y))
+        g = Num::gcd(Num(asFixnum(x)), asBignum(y));
+    else if (isBignum(x) && isFixnum(y))
+        g = Num::gcd(asBignum(x), Num(asFixnum(y)));
+    else if (isBignum(x) && isBignum(y))
+        g = Num::gcd(asBignum(x), asBignum(y));
+    else
+        error("gcd: operands");
+
+    int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
 }
 
 // lcm
@@ -860,6 +854,26 @@ sexp lcmf(sexp x, sexp y)
 double realpart(sexp x) { return asFlonum(x->cdr->car); }
 
 double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
+
+sexp rationalResult(Rat result)
+{
+    result.reduce();
+
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
+}
+
+sexp bignumResult(Num result)
+{
+    int r;
+    return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+}
 
 /*
  * complex > rational > bignum > fixnum
@@ -935,16 +949,7 @@ sexp sum(sexp x, sexp y)
         } else
             result = asRational(x) + asRational(y);
 
-        result.reduce();
-
-        if (Num(1) == result.den)
-        {
-            int r;
-            return result.num.can_convert_to_int(&r) ?
-                                        newfixnum(r) : newbignum(result.num);
-        }
-
-        return newrational(result);
+        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
@@ -957,7 +962,8 @@ sexp sum(sexp x, sexp y)
             result = asBignum(x) + Num(asFixnum(y));
         else
             result = asBignum(x) + asBignum(y);
-        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+
+        return bignumResult(result);
     }
 }
 
@@ -1024,16 +1030,7 @@ sexp diff(sexp x, sexp y)
         } else
             result = asRational(x) - asRational(y);
 
-        result.reduce();
-
-        if (Num(1) == result.den)
-        {
-            int r;
-            return result.num.can_convert_to_int(&r) ?
-                                        newfixnum(r) : newbignum(result.num);
-        }
-
-        return newrational(result);
+        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
@@ -1046,7 +1043,8 @@ sexp diff(sexp x, sexp y)
             result = asBignum(x) - Num(asFixnum(y));
         else
             result = asBignum(x) - asBignum(y);
-        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+
+        return bignumResult(result);
     }
 }
 
@@ -1127,16 +1125,7 @@ sexp product(sexp x, sexp y)
         } else
             result = asRational(x) * asRational(y);
 
-        result.reduce();
-
-        if (Num(1) == result.den)
-        {
-            int r;
-            return result.num.can_convert_to_int(&r) ?
-                                        newfixnum(r) : newbignum(result.num);
-        }
-
-        return newrational(result);
+        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
@@ -1149,11 +1138,12 @@ sexp product(sexp x, sexp y)
             result = asBignum(x) * Num(asFixnum(y));
         else
             result = asBignum(x) * asBignum(y);
-        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+
+        return bignumResult(result);
     }
 
     if (unsafe_mul(asFixnum(x), asFixnum(y)))
-        return newbignum(Num(asFixnum(x)) * Num(asFixnum(y)));
+        return bignumResult(Num(asFixnum(x)) * Num(asFixnum(y)));
     else
         return newfixnum(asFixnum(x) * asFixnum(y));
 }
@@ -1236,16 +1226,7 @@ sexp quotientf(sexp x, sexp y)
         } else
             result = asRational(x) / asRational(y);
 
-        result.reduce();
-
-        if (Num(1) == result.den)
-        {
-            int r;
-            return result.num.can_convert_to_int(&r) ?
-                                        newfixnum(r) : newbignum(result.num);
-        }
-
-        return newrational(result);
+        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
@@ -1258,21 +1239,13 @@ sexp quotientf(sexp x, sexp y)
             result = asBignum(x) / Num(asFixnum(y));
         else
             result = asBignum(x) / asBignum(y);
-        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+
+        return bignumResult(result);
     }
 
     Rat result(Num(asFixnum(x)), Num(asFixnum(y)));
 
-    result.reduce();
-
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
-
-    return newrational(result);
+    return rationalResult(result);
 }
 
 int mod(int x, int y)
@@ -1364,16 +1337,7 @@ sexp moduloff(sexp x, sexp y)
                             yrat.num * xrat.den),
                    xrat.den * yrat.den);
 
-        result.reduce();
-
-        if (Num(1) == result.den)
-        {
-            int r;
-            return result.num.can_convert_to_int(&r) ?
-                                        newfixnum(r) : newbignum(result.num);
-        }
-
-        return newrational(result);
+        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
@@ -1386,7 +1350,8 @@ sexp moduloff(sexp x, sexp y)
             result = Num::mod(asBignum(x), Num(asFixnum(y)));
         else
             result = Num::mod(asBignum(x), asBignum(y));
-        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+
+        return bignumResult(result);
     }
 
     return newfixnum(mod(asFixnum(x), asFixnum(y)));
@@ -1522,16 +1487,7 @@ sexp remainderff(sexp x, sexp y)
             }
         }
 
-        result.reduce();
-
-        if (Num(1) == result.den)
-        {
-            int r;
-            return result.num.can_convert_to_int(&r) ?
-                                        newfixnum(r) : newbignum(result.num);
-        }
-
-        return newrational(result);
+        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
@@ -1569,7 +1525,7 @@ sexp remainderff(sexp x, sexp y)
             }
         }
 
-        return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
+        return bignumResult(result);
     }
 
     return newfixnum(rem(asFixnum(x), asFixnum(y)));
