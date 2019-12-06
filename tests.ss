@@ -31,6 +31,11 @@
 (define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
 (set-cdr! (cddddr aaaaa) aaaaa)
 
+(define (bits n)
+        (for-each (lambda (x) (write x) (space) (allbits x) (newline)) (iota n)))
+
+;; (bits 11)
+
 (define (test s)
         (unless (eq? #t (eval s (environment)))
                 (begin (display 'fail) (space) (display s)))

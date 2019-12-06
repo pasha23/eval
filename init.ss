@@ -428,6 +428,8 @@
         (thunk)
         (- (time) start)))
 
+(define (tmt) (timer (lambda () (fib 30))))
+
 (define (make-random)
     (let ((a 69069)
           (c 1)

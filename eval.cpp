@@ -6,7 +6,7 @@
  */
 #define PSIZE   32768
 #define CELLS   262144
-#undef  BROKEN
+#define BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -3255,28 +3255,31 @@ static char errorBuffer[128];   // used by get and set
 void lookup_error(const char* msg, sexp p)
 {
     strcpy(errorBuffer, msg);
-    int len = 0;
-    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+    if (isAtom(p))
     {
-        int i = 0;
-        Chunk* t = (Chunk*)(q->car);
-        while (i < sizeof(t->text) && t->text[i])
-            ++i;
-        len += i;
+        int len = 0;
+        for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+        {
+            int i = 0;
+            Chunk* t = (Chunk*)(q->car);
+            while (i < sizeof(t->text) && t->text[i])
+                ++i;
+            len += i;
+        }
+        if (len > sizeof(errorBuffer)-strlen(msg))
+            len = sizeof(errorBuffer)-strlen(msg);
+        char *r = errorBuffer+strlen(msg);
+        *r++ = '"';
+        for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
+        {
+            if (r >= errorBuffer+sizeof(errorBuffer)-1)
+                break;
+            Chunk* t = (Chunk*)(q->car);
+            for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
+        }
+        *r++ = '"';
+        *r++ = 0;
     }
-    if (len > sizeof(errorBuffer)-strlen(msg))
-        len = sizeof(errorBuffer)-strlen(msg);
-    char *r = errorBuffer+strlen(msg);
-    *r++ = '"';
-    for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-    {
-        if (r >= errorBuffer+sizeof(errorBuffer)-1)
-            break;
-        Chunk* t = (Chunk*)(q->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
-    }
-    *r++ = '"';
-    *r++ = 0;
     error(errorBuffer);
 }
 
@@ -3494,6 +3497,8 @@ sexp nesteddefine(sexp p, sexp env)
     {
         // (define (foo ...)
         sexp k = p->car->car;
+        if (!isAtom(k))
+            error("define: variable must be a symbol");
         value_put(k, 0);
         sexp v = replace(cons(lambda, save(cons(p->car->cdr, p->cdr))));
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
@@ -3509,6 +3514,8 @@ sexp nesteddefine(sexp p, sexp env)
         return lose(mark, v->cdr->cdr->car = cons(save(cons(p->car->car, save(v))), env));
     } else {
         sexp k = p->car;
+        if (!isAtom(k))
+            error("define: variable must be a symbol");
         value_put(k, 0);
         for (sexp q = env; q; q = q->cdr)
             if (k == q->car->car)
@@ -3635,6 +3642,8 @@ sexp caseform(sexp exp, sexp env)
 sexp setform(sexp exp, sexp env)
 {
     exp = exp->cdr;
+    if (!isAtom(exp->car))
+        error("set!: variable must be a symbol");
     if (!exp || !exp->cdr)
         error("set!: missing operands");
     return lose(set(exp->car, save(eval(exp->cdr->car, env)), env));
