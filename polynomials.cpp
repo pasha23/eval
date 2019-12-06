@@ -195,10 +195,10 @@ void sift(unsigned n)
 
 int main(int argc, char **argv, char **envp)
 {
-    cout << "(define polynomials [ 0";
+    cout << "(define polynomials [0";
     for (unsigned n = 1; n <= word_size; ++n)
         sift(n);
-    cout << " ])\n";
+    cout << "])\n";
     return 0;
 }
 
