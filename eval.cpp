@@ -82,7 +82,7 @@ typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
 jmp_buf the_jmpbuf;
 
-const bool cache = true;    // cache global environment in value cells
+const bool cache = false;   // cache global environment in value cells
 int killed = 1;             // we might not make it through initialization
 int gcstate;           	    // handling break during gc
 int indent;                 // handling eval trace indent
@@ -260,7 +260,13 @@ static inline bool isVector(const sexp p)   { return p &&         VECTOR   == sh
 static inline bool isBignum(const sexp p)   { return p &&         BIGNUM   == shortType(p); }
 static inline bool isRational(const sexp p) { return p &&         RATIONAL == shortType(p); }
 
-static inline sexp boolwrap(bool x) { return x ? t : f; }
+static inline int asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
+
+static inline Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
+
+static inline Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
+
+bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p); }
 
 bool isClosure(sexp p)
 {
@@ -270,9 +276,6 @@ bool isClosure(sexp p)
            isCons(p = p->cdr) && p->car &&              //  env)
            !p->cdr;
 }
-
-// closure?
-sexp closurep(sexp s) { return boolwrap(isClosure(s)); }
 
 bool isPromise(sexp p)
 {
@@ -284,20 +287,6 @@ bool isPromise(sexp p)
            !p->cdr;
 }
 
-// promise?
-sexp promisep(sexp s) { return boolwrap(isPromise(s)); }
-
-// rational?
-sexp rationalp(sexp s) { return boolwrap(isRational(s)); }
-
-bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p); }
-
-// exact?
-sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x) || isBignum(x)); }
-
-// inexact?
-sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
-
 bool isComplex(sexp p)
 {
     return isCons(p) && complex == p->car &&            // (complex
@@ -306,12 +295,38 @@ bool isComplex(sexp p)
            !p->cdr;                                     // )
 }
 
-// complex?
-sexp complexp(sexp s) { return boolwrap(isComplex(s)); }
-
 sexp real_part(sexp x) { return x->cdr->car; }
 
 sexp imag_part(sexp x) { return x->cdr->cdr->car; }
+
+static inline sexp boolwrap(bool x) { return x ? t : f; }
+
+// boolean?
+sexp booleanp(sexp x) { return boolwrap(t == x || f == x); }
+
+// form?
+sexp formp(sexp p) { return boolwrap(isForm(p)); }
+
+// function?
+sexp functionp(sexp p) { return boolwrap(isFunct(p)); }
+
+// closure?
+sexp closurep(sexp s) { return boolwrap(isClosure(s)); }
+
+// promise?
+sexp promisep(sexp s) { return boolwrap(isPromise(s)); }
+
+// rational?
+sexp rationalp(sexp s) { return boolwrap(isRational(s)); }
+
+// exact?
+sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x) || isBignum(x)); }
+
+// inexact?
+sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
+
+// complex?
+sexp complexp(sexp s) { return boolwrap(isComplex(s)); }
 
 // protection stack management
 
@@ -645,12 +660,6 @@ sexp timeff(sexp args)
     return newflonum(ts.tv_sec + ts.tv_nsec / 1000000000.0);
 }
 
-static inline int asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
-
-Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
-
-Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
-
 // supports labeling of cyclic structures
 bool Context::labelCycles(sexp exp, bool last)
 {
@@ -705,9 +714,6 @@ sexp positivep(sexp x)
 
     return boolwrap(isBignum(x) ? *((Bignum*)x)->nump > 0 : asFlonum(x) > 0);
 }
-
-// boolean?
-sexp booleanp(sexp x) { return boolwrap(t == x || f == x); }
 
 // <
 sexp ltp(sexp x, sexp y) { return boolwrap(asFlonum(x) < asFlonum(y)); }
@@ -3283,36 +3289,29 @@ void lookup_error(const char* msg, sexp p)
     error(errorBuffer);
 }
 
-// an Atom has a value cell used as an environment cache
+// bound?
+sexp boundp(sexp p, sexp env)
+{
+    for (sexp q = env; q; q = q->cdr)
+        if (p->cdr->car == q->car->car)
+            return t;
+    return f;
+}
+
 static inline sexp value_put(sexp p, sexp v)
 {
     return ((Atom*)p)->body->car = v;
 }
 
-// lookups in the global environment use the value cell
-sexp get_value(sexp p, sexp env)
+static inline sexp value_get(sexp p)
 {
-    sexp v = ((Atom*)p)->body->car;
-    if (v)
-        return v;
-    for (sexp q = env; q; q = q->cdr)
-        if (q->car && p == q->car->car)
-            return value_put(p, q->car->cdr);
-
-    lookup_error("unbound: get value ", p);
+    return ((Atom*)p)->body->car;
 }
 
-// lookups in the global environment use the value cell
-sexp set_value(sexp p, sexp r, sexp env)
+void purge_values(void)
 {
-    for (sexp q = env; q; q = q->cdr)
-        if (p == q->car->car)
-        {
-            q->car->cdr = value_put(p, r);
-            return voida;
-        }
-
-    lookup_error("unbound: set value ", p);
+    for (sexp q = atoms; q; q = q->cdr)
+        value_put(q->car, 0);
 }
 
 // define
@@ -3321,17 +3320,17 @@ sexp define(sexp p, sexp r)
     for (sexp q = global; q; q = q->cdr)
         if (p == q->car->car)
         {
-            q->car->cdr = value_put(p, r);
+            q->car->cdr = r;
             return voida;
         }
     global = cons(save(cons(p, r)), global);
-    value_put(p, r);
     return lose(voida);
 }
 
 // undefine
 sexp undefine(sexp p)
 {
+    purge_values();
     if (p == global->car->car)
         global = global->cdr;
     else
@@ -3341,60 +3340,31 @@ sexp undefine(sexp p)
                 q->cdr = q->cdr->cdr;
                 break;
             }
-    value_put(p, 0);
     return voida;
-}
-
-// form?
-sexp formp(sexp p)
-{
-    return boolwrap(isForm(p));
-}
-
-// function?
-sexp functionp(sexp p)
-{
-    return boolwrap(isFunct(p));
-}
-
-// bound?
-sexp boundp(sexp p, sexp env)
-{
-    for (sexp q = env; q; q = q->cdr)
-        if (q->car && p->cdr->car == q->car->car)
-            return t;
-    return f;
-}
-
-// retrieve the value of a variable in an environment
-sexp get(sexp p, sexp env)
-{
-    assertAtom(p);
-    for (sexp q = env; q; q = q->cdr)
-        if (cache && global == q)
-            // global bindings are cached in the Atom's value cell
-            return get_value(p, global);
-        else if (q->car && p == q->car->car)
-            return q->car->cdr;
-
-    lookup_error("unbound: get ", p);
 }
 
 // set!
 sexp set(sexp p, sexp r, sexp env)
 {
-    assertAtom(p);
+    value_put(p, 0);
     for (sexp q = env; q; q = q->cdr)
-        if (cache && global == q)
-            // global bindings are cached in the Atom's value cell
-            return set_value(p, r, global);
-        else if (p == q->car->car)
+        if (p == q->car->car)
         {
             q->car->cdr = r;
             return voida;
         }
 
     lookup_error("unbound: set ", p);
+}
+
+// retrieve the value of a variable in an environment
+sexp get(sexp p, sexp env)
+{
+    for (sexp q = env; q; q = q->cdr)
+        if (p == q->car->car)
+            return q->car->cdr;
+
+    lookup_error("unbound: get ", p);
 }
 
 // evaluate a list of arguments in an environment
@@ -3499,7 +3469,6 @@ sexp nesteddefine(sexp p, sexp env)
         sexp k = p->car->car;
         if (!isAtom(k))
             error("define: variable must be a symbol");
-        value_put(k, 0);
         sexp v = replace(cons(lambda, save(cons(p->car->cdr, p->cdr))));
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
         v = save(lambdaform(v, env));
@@ -3516,7 +3485,6 @@ sexp nesteddefine(sexp p, sexp env)
         sexp k = p->car;
         if (!isAtom(k))
             error("define: variable must be a symbol");
-        value_put(k, 0);
         for (sexp q = env; q; q = q->cdr)
             if (k == q->car->car)
             {
@@ -3532,7 +3500,10 @@ sexp defineform(sexp p, sexp env)
 {
     sexp e = nesteddefine(p, env);
     if (global == env)
+    {
+        purge_values();
         global = e;
+    }
     return voida;
 }
 
