@@ -82,7 +82,6 @@ typedef sexp (*Threeargp)(sexp, sexp, sexp);
 
 jmp_buf the_jmpbuf;
 
-const bool cache = false;   // cache global environment in value cells
 int killed = 1;             // we might not make it through initialization
 int gcstate;           	    // handling break during gc
 int indent;                 // handling eval trace indent
@@ -91,6 +90,7 @@ sexp valu;              	// the value of it
 sexp cell;         	    	// all the memory starts here
 sexp atoms;         		// all atoms are linked in a list
 sexp global;        		// this is the global symbol table (a list)
+sexp replenv;        		// this is the repl environment
 sexp cinport;               // the port associated with std::cin
 sexp inport;        		// the current input port
 sexp coutport;              // the port associated with std::cout
@@ -438,6 +438,7 @@ sexp gc(void)
     mark(valu);
     mark(atoms);
     mark(global);
+    mark(replenv);
     mark(inport);
     mark(errport);
     mark(outport);
@@ -2754,7 +2755,7 @@ sexp load(sexp x)
                 break;
             if (f != tracing)
                 debug("load", input);
-            eval(input, global);
+            eval(input, replenv);
         }
         return t;
     }
@@ -2881,7 +2882,7 @@ void displayList(Context& context, sexp exp, int level)
         display(context, p->car, level+context.tabs);
         p = p->cdr;
         if (p) {
-            if (isCons(p) && !isClosure(p) && !isPromise(p) && global != p) {
+            if (isCons(p) && !isClosure(p) && !isPromise(p) && replenv != p && global != p) {
                 context.wrap(level+context.tabs, displayLength(p->car));
             } else {
                 context.s << " . ";
@@ -2936,7 +2937,7 @@ void displayString(Context& context, sexp exp)
 void displayNamed(Context& context, const char *kind, sexp exp)
 {
     context.s << "#<" << kind << '@';
-    for (sexp p = global; p; p = p->cdr)
+    for (sexp p = replenv; p; p = p->cdr)
         if (exp == p->car->cdr)
         {
             displayAtom(context, p->car->car);
@@ -3038,6 +3039,8 @@ void display(Context& context, sexp exp, int level)
         }
         if (quoted)
             display(context, exp->cdr->car, level);
+        else if (replenv == exp)
+            context.s << "#<repl environment>";
         else if (global == exp)
             context.s << "#<global environment>";
         else if (isClosure(exp))
@@ -3086,14 +3089,13 @@ void display(Context& context, sexp exp, int level)
     return;
 }
 
-void display(sexp exp)
+void debug(sexp exp)
 {
     Context context(0, true, true);
     mapCycles(context, exp);
     display(context, exp, 0);
 }
 
-// usual way to see what is happening
 void debug(const char *what, sexp exp)
 {
     Context context(0, true, true);
@@ -3317,13 +3319,13 @@ void purge_values(void)
 // define
 sexp define(sexp p, sexp r)
 {
-    for (sexp q = global; q; q = q->cdr)
+    for (sexp q = replenv; q; q = q->cdr)
         if (p == q->car->car)
         {
             q->car->cdr = r;
             return voida;
         }
-    global = cons(save(cons(p, r)), global);
+    replenv = cons(save(cons(p, r)), replenv);
     return lose(voida);
 }
 
@@ -3331,10 +3333,10 @@ sexp define(sexp p, sexp r)
 sexp undefine(sexp p)
 {
     purge_values();
-    if (p == global->car->car)
-        global = global->cdr;
+    if (p == replenv->car->car)
+        replenv = replenv->cdr;
     else
-        for (sexp q = global; q; q = q->cdr)
+        for (sexp q = replenv; q; q = q->cdr)
             if (q->cdr && p == q->cdr->car)
             {
                 q->cdr = q->cdr->cdr;
@@ -3360,9 +3362,32 @@ sexp set(sexp p, sexp r, sexp env)
 // retrieve the value of a variable in an environment
 sexp get(sexp p, sexp env)
 {
-    for (sexp q = env; q; q = q->cdr)
-        if (p == q->car->car)
-            return q->car->cdr;
+    sexp g = global;
+    sexp v = value_get(p);
+    if (v)
+    {
+        // the variable is cached
+        for (sexp q = env; q; q = q->cdr)
+            if (p == q->car->car)
+                // but hidden by a local
+                return q->car->cdr;
+            else if (g == q)
+                // we can use the cached value
+                return v;
+    } else {
+        // the variable is not cached
+        for (sexp q = env; q; q = q->cdr)
+            if (g == q) {
+                // but it can be cached
+                for ( ; q; q = q->cdr)
+                    if (p == q->car->car)
+                        // so set the value cell
+                        return value_put(p, q->car->cdr);
+                break;
+            } else if (p == q->car->car)
+                // it's a local variable
+                return q->car->cdr;
+    }
 
     lookup_error("unbound: get ", p);
 }
@@ -3390,7 +3415,7 @@ sexp assoc(sexp formals, sexp actuals, sexp env)
 }
 
 // environment
-sexp environment(sexp exp, sexp env) { return global; }
+sexp environment(sexp exp, sexp env) { return replenv; }
 
 // evaluate a list of forms, returning the last value
 sexp tailforms(sexp exp, sexp env)
@@ -3495,14 +3520,14 @@ sexp nesteddefine(sexp p, sexp env)
     }
 }
 
-// top level define sets global
+// top level define sets replenv
 sexp defineform(sexp p, sexp env)
 {
     sexp e = nesteddefine(p, env);
-    if (global == env)
+    if (replenv == env)
     {
         purge_values();
-        global = e;
+        replenv = e;
     }
     return voida;
 }
@@ -4542,6 +4567,8 @@ int main(int argc, char **argv, char **envp)
 
     load(newstring("init.ss"));
 
+    global = replenv;
+
     fixenvs(global);
 
     if (argc > 1)
@@ -4575,7 +4602,7 @@ int main(int argc, char **argv, char **envp)
         if (eof == expr)
             break;
         killed = 0;
-        valu = eval(expr, global);
+        valu = eval(expr, replenv);
         {
             Context context(0, false, true);
             mapCycles(context, valu);
