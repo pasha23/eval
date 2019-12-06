@@ -688,19 +688,10 @@ sexp negativep(sexp x)
     if (isRational(x))
     {
         Rat* ratp = ((Rational*)x)->ratp;
-        if (ratp->num < 0)
-            return boolwrap(ratp->den >= 0);
-        else
-            return boolwrap(ratp->den <  0);
+        return boolwrap(ratp->num < 0 ? ratp->den >= 0 : ratp->den < 0);
     }
 
-    if (isBignum(x))
-    {
-        Num* nump = ((Bignum*)x)->nump;
-        return boolwrap(*nump < 0);
-    }
-
-    return boolwrap(asFlonum(x) < 0);
+    return boolwrap(isBignum(x) ? *((Bignum*)x)->nump < 0 : asFlonum(x) < 0);
 }
 
 // positive?
@@ -709,19 +700,10 @@ sexp positivep(sexp x)
     if (isRational(x))
     {
         Rat* ratp = ((Rational*)x)->ratp;
-        if (ratp->num < 0)
-            return boolwrap(ratp->den <  0);
-        else
-            return boolwrap(ratp->den >= 0);
+        return boolwrap(ratp->num > 0 ? ratp->den > 0 : ratp->den < 0);
     }
 
-    if (isBignum(x))
-    {
-        Num* nump = ((Bignum*)x)->nump;
-        return boolwrap(*nump > 0);
-    }
-
-    return boolwrap(asFlonum(x) > 0);
+    return boolwrap(isBignum(x) ? *((Bignum*)x)->nump > 0 : asFlonum(x) > 0);
 }
 
 // boolean?
@@ -739,31 +721,10 @@ sexp gep(sexp x, sexp y) { return boolwrap(asFlonum(x) >= asFlonum(y)); }
 // >
 sexp gtp(sexp x, sexp y) { return boolwrap(asFlonum(x) > asFlonum(y)); }
 
-sexp make_rational(sexp num, sexp den)
-{
-    if (isFixnum(num))
-        if (isFixnum(den))
-            return newrational(Num(asFixnum(num)), Num(asFixnum(den)));
-        else if (isBignum(den))
-            return newrational(Num(asFixnum(num)), asBignum(den));
-    else if (isBignum(num))
-        if (isFixnum(den))
-            return newrational(asBignum(num), Num(asFixnum(den)));
-        else if (isBignum(den))
-            return newrational(asBignum(num), asBignum(den));
-    error("make_rational: operands");
-}
-
 sexp make_complex(sexp re, sexp im)
 {
     sexp* mark = psp;
     return lose(mark, cons(complex, replace(cons(save(re), replace(cons(save(im), 0))))));
-}
-
-sexp newcomplex(double re, double im)
-{
-    sexp* mark = psp;
-    return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
 }
 
 bool unsafe_add(int a, int x)
@@ -912,13 +873,14 @@ sexp sum(sexp x, sexp y)
             return newfixnum(asFixnum(x) + asFixnum(y));
     }
 
+    sexp* mark = psp;
     if (isComplex(x)) {
         if (isComplex(y))
-            return make_complex(sum(real_part(x), real_part(y)), sum(imag_part(x), imag_part(y)));
+            return lose(mark, make_complex(save(sum(real_part(x), real_part(y))), save(sum(imag_part(x), imag_part(y)))));
         else
-            return make_complex(sum(real_part(x), y), imag_part(x));
+            return lose(mark, make_complex(save(sum(real_part(x), y)), imag_part(x)));
     } else if (isComplex(y))
-        return make_complex(sum(x, real_part(y)), imag_part(y));
+        return lose(mark, make_complex(save(sum(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
     {
@@ -1000,13 +962,14 @@ sexp diff(sexp x, sexp y)
             return newfixnum(asFixnum(x) - asFixnum(y));
     }
 
+    sexp* mark = psp;
     if (isComplex(x)) {
         if (isComplex(y))
-            return make_complex(diff(real_part(x), real_part(y)), diff(imag_part(x), imag_part(y)));
+            return lose(mark, make_complex(save(diff(real_part(x), real_part(y))), save(diff(imag_part(x), imag_part(y)))));
         else
-            return make_complex(diff(real_part(x), y), imag_part(x));
+            return lose(mark, make_complex(save(diff(real_part(x), y)), imag_part(x)));
     } else if (isComplex(y))
-        return make_complex(diff(x, real_part(y)), imag_part(y));
+        return lose(mark, make_complex(save(diff(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
     {
@@ -1288,7 +1251,18 @@ sexp quotientf(sexp x, sexp y)
         return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
     }
 
-    return make_rational(x, y);
+    Rat result(Num(asFixnum(x)), Num(asFixnum(y)));
+
+    result.reduce();
+
+    if (Num(1) == result.den)
+    {
+        int r;
+        return result.num.can_convert_to_int(&r) ?
+                                    newfixnum(r) : newbignum(result.num);
+    }
+
+    return newrational(result);
 }
 
 int mod(int x, int y)
@@ -1742,7 +1716,8 @@ sexp sqrtff(sexp x)
     double theta = atan2(im, re);
     re = sqrt(r) * cos(0.5 * theta);
     im = sqrt(r) * sin(0.5 * theta);
-    return newcomplex(re, im);
+    sexp* mark = psp;
+    return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
 }
 
 // pow
