@@ -553,14 +553,14 @@ sexp newbignum(const Num& num)
 {
     Bignum* bignum = (Bignum*)newcell(BIGNUM);
     bignum->nump = new Num(num);
-    int r; return bignum->nump->can_convert_to_int(&r) ? newfixnum(r) : (sexp)bignum;
+    return (sexp)bignum;
 }
 
 sexp newbignum(const char *s)
 {
     Bignum* bignum = (Bignum*)newcell(BIGNUM);
     bignum->nump = new Num(s);
-    int r; return bignum->nump->can_convert_to_int(&r) ? newfixnum(r) : (sexp)bignum;
+    return (sexp)bignum;
 }
 
 sexp newrational(const Rat& rat)
@@ -568,7 +568,7 @@ sexp newrational(const Rat& rat)
     Rational* rational = (Rational*)newcell(RATIONAL);
     rational->ratp = new Rat(rat);
     rational->ratp->reduce();
-    return Num(1) == rational->ratp->den ? newbignum(rational->ratp->num) : (sexp)rational;
+    return (sexp)rational;
 }
 
 sexp newrational(const Num& num, const Num& den)
@@ -576,7 +576,7 @@ sexp newrational(const Num& num, const Num& den)
     Rational* rational = (Rational*)newcell(RATIONAL);
     rational->ratp = new Rat(num, den);
     rational->ratp->reduce();
-    return Num(1) == rational->ratp->den ? newbignum(rational->ratp->num) : (sexp)rational;
+    return (sexp)rational;
 }
 
 // cons inlined
@@ -827,24 +827,34 @@ sexp lcmf(sexp x, sexp y)
     if (isFixnum(x))
         if (isFixnum(y)) {
             int g = gcd(asFixnum(x), asFixnum(y));
-            return newfixnum((asFixnum(x) / g) * (asFixnum(y) / g));
+            Num l((asFixnum(x) / g) * (asFixnum(y) / g));
+            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
         } else if (isBignum(y))
         {
             Num g = Num::gcd(Num(asFixnum(x)), Num(asBignum(y)));
-            return newbignum((Num(asFixnum(x)) / g) * (Num(asBignum(y) / g)));
+            Num xb(Num(asFixnum(x)) / g);
+            Num yb(asBignum(y) / g);
+            Num l(xb * yb);
+            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
         }
     else if (isBignum(x))
         if (isFixnum(y))
         {
             Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
-            return newbignum((Num(asBignum(x)) / g) * (Num(asFixnum(y)) / g));
+            Num xb(asBignum(x) / g);
+            Num yb(Num(asFixnum(y)) / g);
+            Num l(xb * yb);
+            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
         }
         else if (isBignum(y))
         {
             Num g = Num::gcd(Num(asBignum(x)), Num(asBignum(y)));
-            return newbignum((Num(asBignum(x)) / g) * (Num(asBignum(y) / g)));
+            Num xb(asBignum(x) / g);
+            Num yb(asBignum(y) / g);
+            Num l(xb * yb);
+            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
         }
-    error("gcd: operands");
+    error("lcm: operands");
 }
 
 double realpart(sexp x) { return asFlonum(x->cdr->car); }
