@@ -69,13 +69,7 @@
 
 (define (debug l s) (display l) (display ": ") (display s) (newline) s)
 
-(define (make-rational n d) (cons 'rational (cons n (cons d '()))))
- 
-(define (numerator x) (if (rational? x) (cadr x) x))
-
-(define (denominator x) (if (rational? x) (caddr x) 1))
-
-(define (rational->real x) (/ (exact->inexact (cadr x)) (exact->inexact (caddr x))))
+(define rational->real exact->inexact)
 
 ;; adapted from stklos
 (define (rationalize x e)

@@ -105,7 +105,7 @@ sexp *protect;      		// protection stack
 
 sexp closure, comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
 sexp lbracket, lparen, minus, one, promise, qchar, quasiquote, quote;
-sexp rational, rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
+sexp rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
@@ -3834,9 +3834,6 @@ sexp apply(sexp fun, sexp args)
     error("apply bad function");
 }
 
-// (rational numerator denominator)
-sexp rationalform(sexp exp, sexp env) { assertRational(exp); return exp; }
-
 // (complex real imaginary)
 sexp complexform(sexp exp, sexp env) { assertComplex(exp); return exp; }
 
@@ -4481,7 +4478,6 @@ struct FormTable {
     { "promise",     promiseform },
     { "quasiquote",  quasiquoteform },
     { "quote",       quoteform },
-    { "rational",    rationalform },
     { "set!",        setform },
     { "unless",      unlessform },
     { "when",        whenform },
@@ -4536,7 +4532,6 @@ int main(int argc, char **argv, char **envp)
     qchar           = atomize("'");
     quasiquote      = atomize("quasiquote");
     quote           = atomize("quote");
-    rational        = atomize("rational");
     rbracket        = atomize("]");
     rparen          = atomize(")");
     t               = atomize("#t");
