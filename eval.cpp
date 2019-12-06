@@ -6,7 +6,7 @@
  */
 #define PSIZE   32768
 #define CELLS   262144
-#define BROKEN
+#undef  BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -231,7 +231,8 @@ struct Context
     std::streampos limit;
     std::stringstream s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(int limit, bool write, bool pretty) : limit(limit), label(0), write(write), pretty(pretty) { setp(); pos = s.tellp(); }
+    Context(int limit, bool write, bool pretty) :
+        limit(limit), label(0), write(write), pretty(pretty) { setp(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
     void wrap(int level, int length) { if (pretty && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
@@ -862,6 +863,20 @@ double realpart(sexp x) { return asFlonum(x->cdr->car); }
 
 double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
 
+double toDouble(sexp x)
+{
+    double xd;
+    if (isFlonum(x))
+        xd = asFlonum(x);
+    else if (isRational(x))
+        xd = rat2real(x);
+    else if (isBignum(x))
+        xd = asBignum(x).to_double();
+    else if (isFixnum(x))
+        xd = (double)asFixnum(x);
+    return xd;
+}
+
 sexp rationalResult(Rat result)
 {
     result.reduce();
@@ -914,30 +929,10 @@ sexp sum(sexp x, sexp y)
         return lose(mark, make_complex(save(sum(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
-    {
-        double xd = asFlonum(x), yd;
-        if (isFlonum(y))
-            yd = asFlonum(y);
-        else if (isRational(y))
-            yd = rat2real(y);
-        else if (isBignum(y))
-            yd = asBignum(y).to_double();
-        else if (isFixnum(y))
-            yd = (double)asFixnum(y);
-        return newflonum(xd + yd);
-    }
+        return newflonum(asFlonum(x) + toDouble(y));
 
     if (isFlonum(y))
-    {
-        double xd, yd = asFlonum(y);
-        if (isRational(x))
-            xd = rat2real(x);
-        else if (isBignum(x))
-            xd = asBignum(x).to_double();
-        else if (isFixnum(x))
-            xd = (double)asFixnum(x);
-        return newflonum(xd + yd);
-    }
+        return newflonum(toDouble(x) + asFlonum(y));
 
     if (isRational(x) || isRational(y))
     {
@@ -995,30 +990,10 @@ sexp diff(sexp x, sexp y)
         return lose(mark, make_complex(save(diff(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
-    {
-        double xd = asFlonum(x), yd;
-        if (isFlonum(y))
-            yd = asFlonum(y);
-        else if (isRational(y))
-            yd = rat2real(y);
-        else if (isBignum(y))
-            yd = asBignum(y).to_double();
-        else if (isFixnum(y))
-            yd = (double)asFixnum(y);
-        return newflonum(xd - yd);
-    }
+        return newflonum(asFlonum(x) - toDouble(y));
 
     if (isFlonum(y))
-    {
-        double xd, yd = asFlonum(y);
-        if (isRational(x))
-            xd = rat2real(x);
-        else if (isBignum(x))
-            xd = asBignum(x).to_double();
-        else if (isFixnum(x))
-            xd = (double)asFixnum(x);
-        return newflonum(xd - yd);
-    }
+        return newflonum(toDouble(x) - asFlonum(y));
 
     if (isRational(x) || isRational(y))
     {
@@ -1090,30 +1065,10 @@ sexp product(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-    {
-        double xd = asFlonum(x), yd;
-        if (isFlonum(y))
-            yd = asFlonum(y);
-        else if (isRational(y))
-            yd = rat2real(y);
-        else if (isBignum(y))
-            yd = asBignum(y).to_double();
-        else if (isFixnum(y))
-            yd = (double)asFixnum(y);
-        return newflonum(xd * yd);
-    }
+        return newflonum(asFlonum(x) * toDouble(y));
 
     if (isFlonum(y))
-    {
-        double xd, yd = asFlonum(y);
-        if (isRational(x))
-            xd = rat2real(x);
-        else if (isBignum(x))
-            xd = asBignum(x).to_double();
-        else if (isFixnum(x))
-            xd = (double)asFixnum(x);
-        return newflonum(xd * yd);
-    }
+        return newflonum(toDouble(x) * asFlonum(y));
 
     if (isRational(x) || isRational(y))
     {
@@ -1191,30 +1146,10 @@ sexp quotientf(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-    {
-        double xd = asFlonum(x), yd;
-        if (isFlonum(y))
-            yd = asFlonum(y);
-        else if (isRational(y))
-            yd = rat2real(y);
-        else if (isBignum(y))
-            yd = asBignum(y).to_double();
-        else if (isFixnum(y))
-            yd = (double)asFixnum(y);
-        return newflonum(xd / yd);
-    }
+        return newflonum(asFlonum(x) / toDouble(y));
 
     if (isFlonum(y))
-    {
-        double xd, yd = asFlonum(y);
-        if (isRational(x))
-            xd = rat2real(x);
-        else if (isBignum(x))
-            xd = asBignum(x).to_double();
-        else if (isFixnum(x))
-            xd = (double)asFixnum(x);
-        return newflonum(xd / yd);
-    }
+        return newflonum(toDouble(x) / asFlonum(y));
 
     if (isRational(x) || isRational(y))
     {
@@ -1296,30 +1231,10 @@ sexp moduloff(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-    {
-        double xd = asFlonum(x), yd;
-        if (isFlonum(y))
-            yd = asFlonum(y);
-        else if (isRational(y))
-            yd = rat2real(y);
-        else if (isBignum(y))
-            yd = asBignum(y).to_double();
-        else if (isFixnum(y))
-            yd = (double)asFixnum(y);
-        return newflonum(fmod(xd, yd));
-    }
+        return newflonum(fmod(asFlonum(x), toDouble(y)));
 
     if (isFlonum(y))
-    {
-        double xd, yd = asFlonum(y);
-        if (isRational(x))
-            xd = rat2real(x);
-        else if (isBignum(x))
-            xd = asBignum(x).to_double();
-        else if (isFixnum(x))
-            xd = (double)asFixnum(x);
-        return newflonum(fmod(xd, yd));
-    }
+        return newflonum(fmod(toDouble(x), asFlonum(y)));
 
     if (isRational(x) || isRational(y))
     {
@@ -1425,32 +1340,10 @@ sexp remainderff(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-    {
-        double xd = asFlonum(x), yd;
-        if (isFlonum(y))
-            yd = asFlonum(y);
-        else if (isRational(y))
-            yd = rat2real(y);
-        else if (isBignum(y))
-            yd = asBignum(y).to_double();
-        else if (isFixnum(y))
-            yd = (double)asFixnum(y);
-
-        return newflonum(dmod(xd, yd));
-    }
+        return newflonum(dmod(asFlonum(x), toDouble(y)));
 
     if (isFlonum(y))
-    {
-        double xd, yd = asFlonum(y);
-        if (isRational(x))
-            xd = rat2real(x);
-        else if (isBignum(x))
-            xd = asBignum(x).to_double();
-        else if (isFixnum(x))
-            xd = (double)asFixnum(x);
-
-        return newflonum(dmod(xd, yd));
-    }
+        return newflonum(dmod(toDouble(x), asFlonum(y)));
 
     if (isRational(x) || isRational(y))
     {
@@ -3300,16 +3193,19 @@ sexp boundp(sexp p, sexp env)
     return f;
 }
 
+// fetch cached value of an atom
 static inline sexp value_put(sexp p, sexp v)
 {
     return ((Atom*)p)->body->car = v;
 }
 
+// cache value of an atom
 static inline sexp value_get(sexp p)
 {
     return ((Atom*)p)->body->car;
 }
 
+// invalidate the cache
 void purge_values(void)
 {
     for (sexp q = atoms; q; q = q->cdr)
