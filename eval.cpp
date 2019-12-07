@@ -804,61 +804,6 @@ uint32_t isqrt(uint64_t v)
    return (uint32_t)r;
 }
 
-// gcd
-sexp gcdf(sexp x, sexp y)
-{
-    if (isFixnum(x) && isFixnum(y))
-        return newfixnum(gcd(asFixnum(x), asFixnum(y)));
-
-    Num g;
-    if (isFixnum(x) && isBignum(y))
-        g = Num::gcd(Num(asFixnum(x)), asBignum(y));
-    else if (isBignum(x) && isFixnum(y))
-        g = Num::gcd(asBignum(x), Num(asFixnum(y)));
-    else if (isBignum(x) && isBignum(y))
-        g = Num::gcd(asBignum(x), asBignum(y));
-    else
-        error("gcd: operands");
-
-    int r; return g.can_convert_to_int(&r) ? newfixnum(r) : newbignum(g);
-}
-
-// lcm
-sexp lcmf(sexp x, sexp y)
-{
-    if (isFixnum(x))
-        if (isFixnum(y)) {
-            int g = gcd(asFixnum(x), asFixnum(y));
-            Num l((asFixnum(x) / g) * (asFixnum(y) / g));
-            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
-        } else if (isBignum(y))
-        {
-            Num g = Num::gcd(Num(asFixnum(x)), Num(asBignum(y)));
-            Num xb(Num(asFixnum(x)) / g);
-            Num yb(asBignum(y) / g);
-            Num l(xb * yb);
-            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
-        }
-    else if (isBignum(x))
-        if (isFixnum(y))
-        {
-            Num g = Num::gcd(Num(asBignum(x)), Num(asFixnum(y)));
-            Num xb(asBignum(x) / g);
-            Num yb(Num(asFixnum(y)) / g);
-            Num l(xb * yb);
-            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
-        }
-        else if (isBignum(y))
-        {
-            Num g = Num::gcd(Num(asBignum(x)), Num(asBignum(y)));
-            Num xb(asBignum(x) / g);
-            Num yb(asBignum(y) / g);
-            Num l(xb * yb);
-            int r; return l.can_convert_to_int(&r) ? newfixnum(r) : newbignum(l);
-        }
-    error("lcm: operands");
-}
-
 double realpart(sexp x) { return asFlonum(x->cdr->car); }
 
 double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
@@ -897,6 +842,62 @@ sexp bignumResult(Num result)
     return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
 }
 
+// gcd
+sexp gcdf(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return newfixnum(gcd(asFixnum(x), asFixnum(y)));
+
+    Num g;
+    if (isFixnum(x) && isBignum(y))
+        g = Num::gcd(Num(asFixnum(x)), asBignum(y));
+    else if (isBignum(x) && isFixnum(y))
+        g = Num::gcd(asBignum(x), Num(asFixnum(y)));
+    else if (isBignum(x) && isBignum(y))
+        g = Num::gcd(asBignum(x), asBignum(y));
+    else
+        error("gcd: operands");
+
+    return bignumResult(g);
+}
+
+// lcm
+sexp lcmf(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+    {
+        int g = gcd(asFixnum(x), asFixnum(y));
+        Num l((asFixnum(x) / g) * (asFixnum(y) / g));
+        return bignumResult(l);
+    }
+
+    bool notOK = false;
+
+    Num xb;
+    if (isFixnum(x))
+        xb = Num(asFixnum(x));
+    else if (isBignum(x))
+        xb = asBignum(x);
+    else
+        notOK = true;
+
+    Num yb;
+    if (isFixnum(y))
+        yb = Num(asFixnum(y));
+    else if (isBignum(y))
+        yb = asBignum(y);
+    else
+        notOK = true;
+
+    if (notOK)
+        error("lcm: operands");
+
+    Num g = Num::gcd(xb, yb);
+    Num l = (xb / g) * (yb / g);
+
+    return bignumResult(l);
+}
+
 /*
  * complex > rational > bignum > fixnum
  * 
@@ -920,6 +921,7 @@ sexp sum(sexp x, sexp y)
     }
 
     sexp* mark = psp;
+
     if (isComplex(x)) {
         if (isComplex(y))
             return lose(mark, make_complex(save(sum(real_part(x), real_part(y))), save(sum(imag_part(x), imag_part(y)))));
@@ -981,6 +983,7 @@ sexp diff(sexp x, sexp y)
     }
 
     sexp* mark = psp;
+
     if (isComplex(x)) {
         if (isComplex(y))
             return lose(mark, make_complex(save(diff(real_part(x), real_part(y))), save(diff(imag_part(x), imag_part(y)))));
@@ -1293,7 +1296,7 @@ int rem(int x, int y)
     return r;
 }
 
-double dmod(double xd, double yd)
+double drem(double xd, double yd)
 {
     double rd = fmod(xd, yd);
     if (rd > 0)
@@ -1340,10 +1343,10 @@ sexp remainderff(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-        return newflonum(dmod(asFlonum(x), toDouble(y)));
+        return newflonum(drem(asFlonum(x), toDouble(y)));
 
     if (isFlonum(y))
-        return newflonum(dmod(toDouble(x), asFlonum(y)));
+        return newflonum(drem(toDouble(x), asFlonum(y)));
 
     if (isRational(x) || isRational(y))
     {
@@ -2492,9 +2495,7 @@ sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
 sexp eqnp(sexp x, sexp y)
 {
     if (isRational(x) && isRational(y))
-    {
         return boolwrap(*((Rational*)x)->ratp == *((Rational*)y)->ratp);
-    }
  
     if (isComplex(x) && isComplex(y))
     {
@@ -2584,8 +2585,7 @@ sexp lfsr_shift(sexp r, sexp p)
     if (!bit)
         rb = rb ^ pb;
 
-    int ri;
-    return rb.can_convert_to_int(&ri) ? newfixnum(ri) : newbignum(rb);
+    return bignumResult(rb);
 }
 
 // delay
@@ -2897,7 +2897,7 @@ void mapCycles(Context& context, sexp exp)
     }
 }
 
-// ensure there is some way of distinguishing a fixnum from a flonum
+// ensure there is some way of distinguishing a flonum
 void displayFlonum(Context& context, sexp exp)
 {
     std::streampos pos = context.s.tellp();
@@ -2982,21 +2982,20 @@ void display(Context& context, sexp exp, int level)
     return;
 }
 
-void debug(sexp exp)
-{
-    Context context(0, true, true);
-    mapCycles(context, exp);
-    display(context, exp, 0);
-}
-
 void debug(const char *what, sexp exp)
 {
     Context context(0, true, true);
     mapCycles(context, exp);
-    context.s << what << ": ";
+    if (what)
+        context.s << what << ": ";
     display(context, exp, 0);
     context.s << std::endl;
     std::cout.write(context.s.str().c_str(), context.s.str().length());
+}
+
+void debug(sexp exp)
+{
+    debug(0, exp);
 }
 
 // string->symbol
@@ -3229,15 +3228,14 @@ sexp define(sexp p, sexp r)
 sexp undefine(sexp p)
 {
     purge_values();
+    if (p == global->car->car)
+        global = global->cdr;
     if (p == replenv->car->car)
         replenv = replenv->cdr;
     else
         for (sexp q = replenv; q; q = q->cdr)
             if (q->cdr && p == q->cdr->car)
-            {
                 q->cdr = q->cdr->cdr;
-                break;
-            }
     return voida;
 }
 
@@ -3260,8 +3258,7 @@ sexp get(sexp p, sexp env)
 {
     sexp g = global;
     sexp v = value_get(p);
-    if (v)
-    {
+    if (v) {
         // the variable is cached
         for (sexp q = env; q; q = q->cdr)
             if (p == q->car->car)
@@ -3274,14 +3271,14 @@ sexp get(sexp p, sexp env)
         // the variable is not cached
         for (sexp q = env; q; q = q->cdr)
             if (g == q) {
-                // but it can be cached
+                // but it is global
                 for ( ; q; q = q->cdr)
                     if (p == q->car->car)
                         // so set the value cell
                         return value_put(p, q->car->cdr);
                 break;
             } else if (p == q->car->car)
-                // it's a local variable
+                // the variable is local
                 return q->car->cdr;
     }
 
@@ -3999,7 +3996,7 @@ sexp scans(std::istream& fin)
     switch (status)
     {
     case FIXED:
-        { std::string n; s >> n; Num num(n.c_str()); int r; return num.can_convert_to_int(&r) ? newfixnum(r) : newbignum(num); }
+        { std::string n; s >> n; Num num(n.c_str()); return bignumResult(num); }
     case FLOATING:
         { double re; s >> re; return newflonum(re); }
     case RATIO:
