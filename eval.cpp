@@ -243,23 +243,23 @@ struct Context
 void mapCycles(Context& context, sexp exp);
 void display(Context& context, sexp p, int level);
 
-static inline int  shortType(const sexp p)  { return       (~MARK &    ((Stags*)p)->stags); }
-static inline int  arity(const sexp p)      { return                  ((Funct*)p)->tags[2]; }
-static inline bool isMarked(const sexp p)   { return       ( MARK &   ((Tags*)p)->tags[0]); }
-static inline bool isCons(const sexp p)     { return p && !(OTHER &   ((Tags*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)     { return p &&         ATOM     == shortType(p); }
-static inline bool isString(const sexp p)   { return p &&         STRING   == shortType(p); }
-static inline bool isFunct(const sexp p)    { return p &&         FUNCT    == shortType(p); }
-static inline bool isForm(const sexp p)     { return p &&         FORM     == shortType(p); }
-static inline bool isFixnum(const sexp p)   { return p &&         FIXNUM   == shortType(p); }
-static inline bool isFloat(const sexp p)    { return p &&         FLOAT    == shortType(p); }
-static inline bool isDouble(const sexp p)   { return p &&         DOUBLE   == shortType(p); }
-static inline bool isChar(const sexp p)     { return p &&         CHAR     == shortType(p); }
-static inline bool isInPort(const sexp p)   { return p &&         INPORT   == shortType(p); }
-static inline bool isOutPort(const sexp p)  { return p &&         OUTPORT  == shortType(p); }
-static inline bool isVector(const sexp p)   { return p &&         VECTOR   == shortType(p); }
-static inline bool isBignum(const sexp p)   { return p &&         BIGNUM   == shortType(p); }
-static inline bool isRational(const sexp p) { return p &&         RATIONAL == shortType(p); }
+static inline int  shortType(const sexp p)  { return       (~MARK &  ((Stags*)p)->stags); }
+static inline int  arity(const sexp p)      { return                ((Funct*)p)->tags[2]; }
+static inline bool isMarked(const sexp p)   { return       ( MARK & ((Tags*)p)->tags[0]); }
+static inline bool isCons(const sexp p)     { return p && !(OTHER & ((Tags*)p)->tags[0]); }
+static inline bool isAtom(const sexp p)     { return p &&       ATOM     == shortType(p); }
+static inline bool isString(const sexp p)   { return p &&       STRING   == shortType(p); }
+static inline bool isFunct(const sexp p)    { return p &&       FUNCT    == shortType(p); }
+static inline bool isForm(const sexp p)     { return p &&       FORM     == shortType(p); }
+static inline bool isFixnum(const sexp p)   { return p &&       FIXNUM   == shortType(p); }
+static inline bool isFloat(const sexp p)    { return p &&       FLOAT    == shortType(p); }
+static inline bool isDouble(const sexp p)   { return p &&       DOUBLE   == shortType(p); }
+static inline bool isChar(const sexp p)     { return p &&       CHAR     == shortType(p); }
+static inline bool isInPort(const sexp p)   { return p &&       INPORT   == shortType(p); }
+static inline bool isOutPort(const sexp p)  { return p &&       OUTPORT  == shortType(p); }
+static inline bool isVector(const sexp p)   { return p &&       VECTOR   == shortType(p); }
+static inline bool isBignum(const sexp p)   { return p &&       BIGNUM   == shortType(p); }
+static inline bool isRational(const sexp p) { return p &&       RATIONAL == shortType(p); }
 
 static inline int asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
 
@@ -485,17 +485,17 @@ sexp gc(void)
     return voida;
 }
 
-void assertAtom(sexp s)        { if (!isAtom(s))        error("not symbol"); }
-void assertChar(sexp s)        { if (!isChar(s))        error("not a character"); }
-void assertFixnum(sexp s)      { if (!isFixnum(s))      error("not an integer"); }
-void assertString(sexp s)      { if (!isString(s))      error("not a string"); }
-void assertInPort(sexp s)      { if (!isInPort(s))      error("not an input port"); }
-void assertOutPort(sexp s)     { if (!isOutPort(s))     error("not an output port"); }
-void assertComplex(sexp s)     { if (!isComplex(s))     error("not complex"); }
-void assertRational(sexp s)    { if (!isRational(s))    error("not rational"); }
-void assertPromise(sexp s)     { if (!isPromise(s))     error("not a promise"); }
+void assertAtom(sexp s)     { if (!isAtom(s))     error("not symbol"); }
+void assertChar(sexp s)     { if (!isChar(s))     error("not a character"); }
+void assertFixnum(sexp s)   { if (!isFixnum(s))   error("not an integer"); }
+void assertString(sexp s)   { if (!isString(s))   error("not a string"); }
+void assertInPort(sexp s)   { if (!isInPort(s))   error("not an input port"); }
+void assertOutPort(sexp s)  { if (!isOutPort(s))  error("not an output port"); }
+void assertComplex(sexp s)  { if (!isComplex(s))  error("not complex"); }
+void assertRational(sexp s) { if (!isRational(s)) error("not rational"); }
+void assertPromise(sexp s)  { if (!isPromise(s))  error("not a promise"); }
 
-void assertFlonum(sexp s) { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) error("not a real number"); }
+void assertFlonum(sexp s)   { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) error("not a real number"); }
 
 /*
  * allocate a cell from the freelist
@@ -678,8 +678,6 @@ bool Context::labelCycles(sexp exp, bool last)
     return false;
 }
 
-double rat2real(sexp x) { return ((Rational*)x)->ratp->to_double(); }
-
 double asFlonum(sexp p)
 {
     switch (shortType(p))
@@ -696,25 +694,21 @@ double asFlonum(sexp p)
 // negative?
 sexp negativep(sexp x)
 {
-    if (isRational(x))
-    {
-        Rat* ratp = ((Rational*)x)->ratp;
-        return boolwrap(ratp->num < 0 ? ratp->den >= 0 : ratp->den < 0);
-    }
-
-    return boolwrap(isBignum(x) ? *((Bignum*)x)->nump < 0 : asFlonum(x) < 0);
+    return boolwrap(isRational(x) ? (asRational(x).num < 0 ?
+                                     asRational(x).den >= 0 :
+                                     asRational(x).den < 0) :
+                    isBignum(x)   ?  asBignum(x) < 0 :
+                                     asFlonum(x) < 0);
 }
 
 // positive?
 sexp positivep(sexp x)
 {
-    if (isRational(x))
-    {
-        Rat* ratp = ((Rational*)x)->ratp;
-        return boolwrap(ratp->num > 0 ? ratp->den > 0 : ratp->den < 0);
-    }
-
-    return boolwrap(isBignum(x) ? *((Bignum*)x)->nump > 0 : asFlonum(x) > 0);
+    return boolwrap(isRational(x) ? (asRational(x).den >= 0 ?
+                                     asRational(x).num >  0 :
+                                     asRational(x).num <  0) :
+                    isBignum(x)   ?  asBignum(x) > 0 :
+                                     asFlonum(x) > 0);
 }
 
 // <
@@ -814,12 +808,40 @@ double toDouble(sexp x)
     if (isFlonum(x))
         xd = asFlonum(x);
     else if (isRational(x))
-        xd = rat2real(x);
+        xd = asRational(x).to_double();
     else if (isBignum(x))
         xd = asBignum(x).to_double();
     else if (isFixnum(x))
         xd = (double)asFixnum(x);
+    else
+        error("not a number");
     return xd;
+}
+
+Rat toRational(sexp x)
+{
+    Rat xr;
+    if (isRational(x))
+        xr = asRational(x);
+    else if (isBignum(x))
+        xr = Rat(asBignum(x));
+    else if (isFixnum(x))
+        xr = Rat(asFixnum(x));
+    else
+        error("not a number");
+    return xr;
+}
+
+Num toBignum(sexp x)
+{
+    Num xb;
+    if (isBignum(x))
+        xb = asBignum(x);
+    else if (isFixnum(x))
+        xb = Num(asFixnum(x));
+    else
+        error("not an integer");
+    return xb;
 }
 
 sexp rationalResult(Rat result)
@@ -848,17 +870,7 @@ sexp gcdf(sexp x, sexp y)
     if (isFixnum(x) && isFixnum(y))
         return newfixnum(gcd(asFixnum(x), asFixnum(y)));
 
-    Num g;
-    if (isFixnum(x) && isBignum(y))
-        g = Num::gcd(Num(asFixnum(x)), asBignum(y));
-    else if (isBignum(x) && isFixnum(y))
-        g = Num::gcd(asBignum(x), Num(asFixnum(y)));
-    else if (isBignum(x) && isBignum(y))
-        g = Num::gcd(asBignum(x), asBignum(y));
-    else
-        error("gcd: operands");
-
-    return bignumResult(g);
+    return bignumResult(Num::gcd(toBignum(x), toBignum(y)));
 }
 
 // lcm
@@ -871,26 +883,8 @@ sexp lcmf(sexp x, sexp y)
         return bignumResult(l);
     }
 
-    bool notOK = false;
-
-    Num xb;
-    if (isFixnum(x))
-        xb = Num(asFixnum(x));
-    else if (isBignum(x))
-        xb = asBignum(x);
-    else
-        notOK = true;
-
-    Num yb;
-    if (isFixnum(y))
-        yb = Num(asFixnum(y));
-    else if (isBignum(y))
-        yb = asBignum(y);
-    else
-        notOK = true;
-
-    if (notOK)
-        error("lcm: operands");
+    Num xb = toBignum(x);
+    Num yb = toBignum(y);
 
     Num g = Num::gcd(xb, yb);
     Num l = (xb / g) * (yb / g);
@@ -937,38 +931,10 @@ sexp sum(sexp x, sexp y)
         return newflonum(toDouble(x) + asFlonum(y));
 
     if (isRational(x) || isRational(y))
-    {
-        Rat result;
-
-        if (!isRational(x)) {
-            if (isBignum(x))
-                result = Rat(asBignum(x)) + asRational(y);
-            else
-                result = Rat(asFixnum(x)) + asRational(y);
-        } else if (!isRational(y)) {
-            if (isBignum(y))
-                result = asRational(x) + Rat(asBignum(y));
-            else
-                result = asRational(x) + Rat(asFixnum(y));
-        } else
-            result = asRational(x) + asRational(y);
-
-        return rationalResult(result);
-    }
+        return rationalResult(toRational(x) + toRational(y));
 
     if (isBignum(x) || isBignum(y))
-    {
-        int r;
-        Num result;
-        if (!isBignum(x))
-            result = Num(asFixnum(x)) + asBignum(y);
-        else if (!isBignum(y))
-            result = asBignum(x) + Num(asFixnum(y));
-        else
-            result = asBignum(x) + asBignum(y);
-
-        return bignumResult(result);
-    }
+        return bignumResult(toBignum(x) + toBignum(y));
 }
 
 // x - y
@@ -999,38 +965,10 @@ sexp diff(sexp x, sexp y)
         return newflonum(toDouble(x) - asFlonum(y));
 
     if (isRational(x) || isRational(y))
-    {
-        Rat result;
-
-        if (!isRational(x)) {
-            if (isBignum(x))
-                result = Rat(asBignum(x)) - asRational(y);
-            else
-                result = Rat(asFixnum(x)) - asRational(y);
-        } else if (!isRational(y)) {
-            if (isBignum(y))
-                result = asRational(x) - Rat(asBignum(y));
-            else
-                result = asRational(x) - Rat(asFixnum(y));
-        } else
-            result = asRational(x) - asRational(y);
-
-        return rationalResult(result);
-    }
+        return rationalResult(toRational(x) - toRational(y));
 
     if (isBignum(x) || isBignum(y))
-    {
-        int r;
-        Num result;
-        if (!isBignum(x))
-            result = Num(asFixnum(x)) - asBignum(y);
-        else if (!isBignum(y))
-            result = asBignum(x) - Num(asFixnum(y));
-        else
-            result = asBignum(x) - asBignum(y);
-
-        return bignumResult(result);
-    }
+        return bignumResult(toBignum(x) - toBignum(y));
 }
 
 // x * y
@@ -1074,38 +1012,10 @@ sexp product(sexp x, sexp y)
         return newflonum(toDouble(x) * asFlonum(y));
 
     if (isRational(x) || isRational(y))
-    {
-        Rat result;
-
-        if (!isRational(x)) {
-            if (isBignum(x))
-                result = Rat(asBignum(x)) * asRational(y);
-            else
-                result = Rat(asFixnum(x)) * asRational(y);
-        } else if (!isRational(y)) {
-            if (isBignum(y))
-                result = asRational(x) * Rat(asBignum(y));
-            else
-                result = asRational(x) * Rat(asFixnum(y));
-        } else
-            result = asRational(x) * asRational(y);
-
-        return rationalResult(result);
-    }
+        return rationalResult(toRational(x) * toRational(y));
 
     if (isBignum(x) || isBignum(y))
-    {
-        int r;
-        Num result;
-        if (!isBignum(x))
-            result = Num(asFixnum(x)) * asBignum(y);
-        else if (!isBignum(y))
-            result = asBignum(x) * Num(asFixnum(y));
-        else
-            result = asBignum(x) * asBignum(y);
-
-        return bignumResult(result);
-    }
+        return bignumResult(toBignum(x) * toBignum(y));
 
     if (unsafe_mul(asFixnum(x), asFixnum(y)))
         return bignumResult(Num(asFixnum(x)) * Num(asFixnum(y)));
@@ -1155,38 +1065,10 @@ sexp quotientf(sexp x, sexp y)
         return newflonum(toDouble(x) / asFlonum(y));
 
     if (isRational(x) || isRational(y))
-    {
-        Rat result;
-
-        if (!isRational(x)) {
-            if (isBignum(x))
-                result = Rat(asBignum(x)) / asRational(y);
-            else
-                result = Rat(asFixnum(x)) / asRational(y);
-        } else if (!isRational(y)) {
-            if (isBignum(y))
-                result = asRational(x) / Rat(asBignum(y));
-            else
-                result = asRational(x) / Rat(asFixnum(y));
-        } else
-            result = asRational(x) / asRational(y);
-
-        return rationalResult(result);
-    }
+        return rationalResult(toRational(x) / toRational(y));
 
     if (isBignum(x) || isBignum(y))
-    {
-        int r;
-        Num result;
-        if (!isBignum(x))
-            result = Num(asFixnum(x)) / asBignum(y);
-        else if (!isBignum(y))
-            result = asBignum(x) / Num(asFixnum(y));
-        else
-            result = asBignum(x) / asBignum(y);
-
-        return bignumResult(result);
-    }
+        return bignumResult(toBignum(x) / toBignum(y));
 
     Rat result(Num(asFixnum(x)), Num(asFixnum(y)));
 
@@ -1241,43 +1123,15 @@ sexp moduloff(sexp x, sexp y)
 
     if (isRational(x) || isRational(y))
     {
-        Rat xrat, yrat;
-
-        if (!isRational(x)) {
-            if (isBignum(x))
-                xrat = Rat(asBignum(x));
-            else
-                xrat = Rat(Num(asFixnum(x)));
-        } else if (!isRational(y)) {
-            if (isBignum(y))
-                yrat = Rat(asBignum(y));
-            else
-                yrat = Rat(Num(asFixnum(y)));
-        } else {
-            xrat = asRational(x);
-            yrat = asRational(y);
-        }
-
+        Rat xrat = toRational(x);
+        Rat yrat = toRational(y);
         Rat result(Num::mod(xrat.num * yrat.den,
                             yrat.num * xrat.den),
                    xrat.den * yrat.den);
-
-        return rationalResult(result);
     }
 
     if (isBignum(x) || isBignum(y))
-    {
-        int r;
-        Num result;
-        if (!isBignum(x))
-            result = Num::mod(Num(asFixnum(x)), asBignum(y));
-        else if (!isBignum(y))
-            result = Num::mod(asBignum(x), Num(asFixnum(y)));
-        else
-            result = Num::mod(asBignum(x), asBignum(y));
-
-        return bignumResult(result);
-    }
+        return bignumResult(Num::mod(toBignum(x), toBignum(y)));
 
     return newfixnum(mod(asFixnum(x), asFixnum(y)));
 }
@@ -1350,23 +1204,8 @@ sexp remainderff(sexp x, sexp y)
 
     if (isRational(x) || isRational(y))
     {
-        Rat xrat, yrat;
-
-        if (!isRational(x)) {
-            if (isBignum(x))
-                xrat = Rat(asBignum(x));
-            else
-                xrat = Rat(Num(asFixnum(x)));
-        } else if (!isRational(y)) {
-            if (isBignum(y))
-                yrat = Rat(asBignum(y));
-            else
-                yrat = Rat(Num(asFixnum(y)));
-        } else {
-            xrat = asRational(x);
-            yrat = asRational(y);
-        }
-
+        Rat xrat = toRational(x);
+        Rat yrat = toRational(y);
         Rat result(Num::mod(xrat.num * yrat.den,
                             yrat.num * xrat.den),
                    xrat.den * yrat.den);
@@ -1395,36 +1234,27 @@ sexp remainderff(sexp x, sexp y)
 
     if (isBignum(x) || isBignum(y))
     {
-        int r;
-        Num xbig, ybig;
+        Num xb = toBignum(x);
+        Num yb = toBignum(y);
 
-        if (!isBignum(x))
-            xbig = Num(asFixnum(x));
-        else if (!isBignum(y))
-            ybig = Num(asFixnum(y));
-        else {
-            xbig = asBignum(x);
-            ybig = asBignum(y);
-        }
-
-        Num result(Num::mod(xbig, ybig));
+        Num result(Num::mod(xb, yb));
 
         if (result > 0)
         {
-            if (xbig < 0)
+            if (xb < 0)
             {
-                if (ybig < 0)
-                    result += ybig;
+                if (yb < 0)
+                    result += yb;
                 else
-                    result -= ybig;
+                    result -= yb;
             }
         } else if (result < 0) {
-            if (xbig > 0)
+            if (xb > 0)
             {
-                if (ybig < 0)
-                    result -= ybig;
+                if (yb < 0)
+                    result -= yb;
                 else
-                    result += ybig;
+                    result += yb;
             }
         }
 
@@ -3987,8 +3817,8 @@ sexp scans(std::istream& fin)
         case '-':
             return lose(mark, make_complex(real, save(unineg(imag))));
         case '@':
-            double r = isRational(real) ? rat2real(real) : asFlonum(real);
-            double theta = isRational(imag) ? rat2real(imag) : asFlonum(imag);
+            double r = isRational(real) ? asRational(real).to_double() : asFlonum(real);
+            double theta = isRational(imag) ? asRational(imag).to_double() : asFlonum(imag);
             return lose(mark, make_complex(save(newflonum(r * cos(theta))), save(newflonum(r * sin(theta)))));
         }
     }
