@@ -47,7 +47,7 @@
 
 (test '(string=?  "aaaaabbcdrr" (list->string (sort char<? (string->list "abracadabra")))))
 
-(test '(eqv? (iota 50) (sort < (sort (make-lfsr 6) (iota 50)))))
+(test '(eqv? (iota 5) (sort < (sort (make-lfsr 6) (iota 5)))))
 
 (test '(= 0 0))
 (test '(= (~ 0) -1))

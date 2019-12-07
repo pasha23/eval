@@ -221,7 +221,7 @@ struct Rational { char tags[sizeof(sexp)]; Rat*                        ratp; };
 // supports uglyprinting
 struct Context
 {
-    static const int eol  = 50;
+    static const int eol  = 70;
     static const int tabs =  4;
 
     bool write;
@@ -260,12 +260,6 @@ static inline bool isOutPort(const sexp p)  { return p &&       OUTPORT  == shor
 static inline bool isVector(const sexp p)   { return p &&       VECTOR   == shortType(p); }
 static inline bool isBignum(const sexp p)   { return p &&       BIGNUM   == shortType(p); }
 static inline bool isRational(const sexp p) { return p &&       RATIONAL == shortType(p); }
-
-static inline int asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
-
-static inline Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
-
-static inline Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
 
 bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p); }
 
@@ -662,6 +656,25 @@ sexp timeff(sexp args)
     return newflonum(ts.tv_sec + ts.tv_nsec / 1000000000.0);
 }
 
+static inline int asFixnum(sexp p) { return ((Fixnum*)p)->fixnum; }
+
+static inline Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
+
+static inline Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
+
+double asFlonum(sexp p)
+{
+    switch (shortType(p))
+    {
+    default:       error("asFlonum: not a flonum");
+    case FLOAT:    return ((Float*)p)->flonum;
+    case DOUBLE:   return ((Double*)p)->flonum;
+    case FIXNUM:   return (double) asFixnum(p);
+    case BIGNUM:   return ((Bignum*)p)->nump->to_double();
+    case RATIONAL: return ((Rational*)p)->ratp->to_double();
+    }
+}
+
 // supports labeling of cyclic structures
 bool Context::labelCycles(sexp exp, bool last)
 {
@@ -676,19 +689,6 @@ bool Context::labelCycles(sexp exp, bool last)
         seenMap[exp] = newfixnum(label++);
     }
     return false;
-}
-
-double asFlonum(sexp p)
-{
-    switch (shortType(p))
-    {
-    default:       error("asFlonum: not a flonum");
-    case FLOAT:    return ((Float*)p)->flonum;
-    case DOUBLE:   return ((Double*)p)->flonum;
-    case FIXNUM:   return (double) asFixnum(p);
-    case BIGNUM:   return ((Bignum*)p)->nump->to_double();
-    case RATIONAL: return ((Rational*)p)->ratp->to_double();
-    }
 }
 
 // negative?
@@ -763,25 +763,6 @@ sexp angle(sexp z)
 {
     assertComplex(z); z = z->cdr;
     return newflonum(atan2(asFlonum(z->cdr->car), asFlonum(z->car)));
-}
-
-int gcd(int x, int y)
-{
-    if (x < 0) x = -x;
-    if (y < 0) y = -y;
-    for (;;)
-    {
-        if (0 == x) return y;
-        y %= x;
-        if (0 == y) return x;
-        x %= y;
-    }
-}
-
-int lcm(int x, int y)
-{
-    int g = gcd(x, y);
-    return (x / g) * (y / g);
 }
 
 // integer square root
@@ -864,21 +845,34 @@ sexp bignumResult(Num result)
     return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
 }
 
+int igcd(int x, int y)
+{
+    if (x < 0) x = -x;
+    if (y < 0) y = -y;
+    for (;;)
+    {
+        if (0 == x) return y;
+        y %= x;
+        if (0 == y) return x;
+        x %= y;
+    }
+}
+
 // gcd
-sexp gcdf(sexp x, sexp y)
+sexp gcd(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
-        return newfixnum(gcd(asFixnum(x), asFixnum(y)));
+        return newfixnum(igcd(asFixnum(x), asFixnum(y)));
 
     return bignumResult(Num::gcd(toBignum(x), toBignum(y)));
 }
 
 // lcm
-sexp lcmf(sexp x, sexp y)
+sexp lcm(sexp x, sexp y)
 {
     if (isFixnum(x) && isFixnum(y))
     {
-        int g = gcd(asFixnum(x), asFixnum(y));
+        int g = igcd(asFixnum(x), asFixnum(y));
         Num l((asFixnum(x) / g) * (asFixnum(y) / g));
         return bignumResult(l);
     }
@@ -979,24 +973,14 @@ sexp product(sexp x, sexp y)
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
-    {
-        cpx = true;
-        xr = real_part(x);
-        xi = imag_part(x);
-    } else {
-        xr = x;
-        xi = zero;
-    }
+        { cpx = true; xr = real_part(x); xi = imag_part(x); }
+    else
+        { xr = x; xi = zero; }
 
     if (isComplex(y))
-    {
-        cpx = true;
-        yr = real_part(y);
-        yi = imag_part(y);
-    } else {
-        yr = y;
-        yi = zero;
-    }
+        { cpx = true; yr = real_part(y); yi = imag_part(y); }
+    else
+        { yr = y; yi = zero; }
 
     if (cpx)
     {
@@ -1031,24 +1015,14 @@ sexp quotientf(sexp x, sexp y)
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
-    {
-        cpx = true;
-        xr = real_part(x);
-        xi = imag_part(x);
-    } else {
-        xr = x;
-        xi = zero;
-    }
+        { cpx = true; xr = real_part(x); xi = imag_part(x); }
+    else
+        { xr = x; xi = zero; }
 
     if (isComplex(y))
-    {
-        cpx = true;
-        yr = real_part(y);
-        yi = imag_part(y);
-    } else {
-        yr = y;
-        yi = zero;
-    }
+        { cpx = true; yr = real_part(y); yi = imag_part(y); }
+    else
+        { yr = y; yi = zero; }
 
     if (cpx)
     {
@@ -1091,29 +1065,17 @@ sexp moduloff(sexp x, sexp y)
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
-    {
-        cpx = true;
-        xr = real_part(x);
-        xi = imag_part(x);
-    } else {
-        xr = x;
-        xi = zero;
-    }
+        { cpx = true; xr = real_part(x); xi = imag_part(x); }
+    else
+        { xr = x; xi = zero; }
 
     if (isComplex(y))
-    {
-        cpx = true;
-        yr = real_part(y);
-        yi = imag_part(y);
-    } else {
-        yr = y;
-        yi = zero;
-    }
+        { cpx = true; yr = real_part(y); yi = imag_part(y); }
+    else
+        { yr = y; yi = zero; }
 
     if (cpx)
-    {
         error("complex modulo not implemented");
-    }
 
     if (isFlonum(x))
         return newflonum(fmod(asFlonum(x), toDouble(y)));
@@ -1172,29 +1134,17 @@ sexp remainderff(sexp x, sexp y)
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
-    {
-        cpx = true;
-        xr = real_part(x);
-        xi = imag_part(x);
-    } else {
-        xr = x;
-        xi = zero;
-    }
+        { cpx = true; xr = real_part(x); xi = imag_part(x); }
+    else
+        { xr = x; xi = zero; }
 
     if (isComplex(y))
-    {
-        cpx = true;
-        yr = real_part(y);
-        yi = imag_part(y);
-    } else {
-        yr = y;
-        yi = zero;
-    }
+        { cpx = true; yr = real_part(y); yi = imag_part(y); }
+    else
+        { yr = y; yi = zero; }
 
     if (cpx)
-    {
         error("complex remainder not implemented");
-    }
 
     if (isFlonum(x))
         return newflonum(drem(asFlonum(x), toDouble(y)));
@@ -2343,6 +2293,16 @@ sexp zerop(sexp x)
     return eqnp(zero, x);
 }
 
+// odd?
+sexp oddp(sexp x)
+{
+    if (isFixnum(x))
+        return boolwrap(asFixnum(x) & 1);
+    if (isBignum(x))
+        return boolwrap(asBignum(x).get_bit(0));
+    error("odd?: not an integer");
+}
+
 // ~ x
 sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : f; }
 
@@ -2352,16 +2312,6 @@ void assertAllFixnums(sexp args)
     for (sexp p = args; p; p = p->cdr)
         if (!isFixnum(p->car))
             error("bitwise ops require fixnum arguments");
-}
-
-// odd?
-sexp oddp(sexp x)
-{
-    if (isFixnum(x))
-        return boolwrap(asFixnum(x) & 1);
-    if (isBignum(x))
-        return boolwrap(asBignum(x).get_bit(0));
-    error("odd: not a fixnum or bignum");
 }
 
 // x0 & x1 & x2 ...
@@ -2400,20 +2350,16 @@ sexp lfsr_shift(sexp r, sexp p)
     if (isFixnum(r) && isFixnum(p))
     {
         int rf = asFixnum(r);
-        bool bit = 1 & rf;
-        rf >>= 1;
-        if (!bit)
-            rf ^= asFixnum(p);
+
+        rf = (1 & rf) ? (rf >> 1) : (rf >> 1) ^ asFixnum(p);
+
         return newfixnum(rf);
     }
 
     Num rb(isFixnum(r) ? asFixnum(r) : asBignum(r));
     Num pb(isFixnum(p) ? asFixnum(p) : asBignum(p));
 
-    bool bit = rb.get_bit(0);
-    rb = rb >> 1;
-    if (!bit)
-        rb = rb ^ pb;
+    rb = rb.get_bit(0) ? (rb >> 1) : (rb >> 1) ^ pb;
 
     return bignumResult(rb);
 }
@@ -2598,18 +2544,20 @@ void displayList(Context& context, sexp exp, int level)
         return;
     context.s << '(';
     sexp p = exp;
+    int len = displayLength(p->car) + 2;
+    level += len;
     while (p)
     {
         if (first && context.labelCycles(p, true))
             break;
-        display(context, p->car, level+context.tabs);
+        display(context, p->car, level);
         p = p->cdr;
         if (p) {
             if (isCons(p) && !isClosure(p) && !isPromise(p) && replenv != p && global != p) {
-                context.wrap(level+context.tabs, displayLength(p->car));
+                context.wrap(level, displayLength(p->car));
             } else {
                 context.s << " . ";
-                display(context, p, level+context.tabs);
+                display(context, p, level);
                 p = 0;
             }
         }
@@ -3057,7 +3005,7 @@ sexp define(sexp p, sexp r)
 // undefine
 sexp undefine(sexp p)
 {
-    purge_values();
+    value_put(p, 0);
     if (p == global->car->car)
         global = global->cdr;
     if (p == replenv->car->car)
@@ -3217,6 +3165,7 @@ sexp nesteddefine(sexp p, sexp env)
         sexp k = p->car->car;
         if (!isAtom(k))
             error("define: variable must be a symbol");
+        value_put(k, 0);
         sexp v = replace(cons(lambda, save(cons(p->car->cdr, p->cdr))));
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
         v = save(lambdaform(v, env));
@@ -3233,6 +3182,7 @@ sexp nesteddefine(sexp p, sexp env)
         sexp k = p->car;
         if (!isAtom(k))
             error("define: variable must be a symbol");
+        value_put(k, 0);
         for (sexp q = env; q; q = q->cdr)
             if (k == q->car->car)
             {
@@ -3248,10 +3198,7 @@ sexp defineform(sexp p, sexp env)
 {
     sexp e = nesteddefine(p, env);
     if (replenv == env)
-    {
-        purge_values();
         replenv = e;
-    }
     return voida;
 }
 
@@ -4047,7 +3994,7 @@ struct FuncTable {
     { "form?",                             1, (void*)formp },
     { "function?",                         1, (void*)functionp },
     { "gc",                                0, (void*)gc },
-    { "gcd",                               2, (void*)gcdf },
+    { "gcd",                               2, (void*)gcd },
     { "get-output-string",                 1, (void*)get_output_string },
     { "inexact?",                          1, (void*)inexactp },
     { "inexact->exact",                    1, (void*)inexact_exact },
@@ -4055,7 +4002,7 @@ struct FuncTable {
     { "integer?",                          1, (void*)integerp },
     { "integer->char",                     1, (void*)integer_char },
     { "isqrt",                             1, (void*)isqrtf },
-    { "lcm",                               2, (void*)lcmf },
+    { "lcm",                               2, (void*)lcm },
     { "lfsr-shift",                        2, (void*)lfsr_shift },
     { "list?",                             1, (void*)listp },
     { "list->string",                      1, (void*)list_string },
