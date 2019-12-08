@@ -172,11 +172,12 @@
             z))
 
 (define (expt x n)
-        (cond
-              ((positive? n)
-               (if (odd? n) (* x (expt x (- n 1)))
-                            (let ((y (expt x (/ n 2)))) (* y y))))
-              ((negative? n) (/ (expt x (neg n)))) (else 1)))
+        (cond ((positive? n)
+               (if (odd? n)
+                   (* x (expt x (- n 1)))
+                   (let ((y (expt x (/ n 2)))) (* y y))))
+              ((negative? n) (/ (expt x (neg n))))
+              (else 1)))
 
 (define (length s) (if (null? s) 0 (+ 1 (length (cdr s)))))
 
@@ -315,8 +316,10 @@
                               (lambda (port) (read-char port))))
 
 (define (ttytest)
-        (while (not (char=? #\newline (peek-char))) (write (read-char))
-               (newline)) (read-char))
+        (while (not (char=? #\newline (peek-char)))
+               (write (read-char))
+               (newline))
+        (read-char))
 
 (define (edit s) (define paste-buffer '())
 
@@ -346,8 +349,7 @@
                         (cons (cursor-cdr (car s)) (cursor-cdr (cdr s))))))
 
         (define (cursor-car s)
-                (if
-                    (and (pair? s) (pair? (cdr s))
+                (if (and (pair? s) (pair? (cdr s))
                          (eq? 'cursor (cadr s)))
                     (cons 'cursor (cons (car s) (cddr s)))
                     (if (pair? s)

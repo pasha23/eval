@@ -479,6 +479,7 @@ sexp gc(void)
     return voida;
 }
 
+void assertCons(sexp s)     { if (!isCons(s))     error("not pair"); }
 void assertAtom(sexp s)     { if (!isAtom(s))     error("not symbol"); }
 void assertChar(sexp s)     { if (!isChar(s))     error("not a character"); }
 void assertFixnum(sexp s)   { if (!isFixnum(s))   error("not an integer"); }
@@ -590,7 +591,7 @@ sexp newrational(const Num& num, const Num& den)
     return (sexp)rational;
 }
 
-// cons inlined
+// cons
 sexp cons(sexp car, sexp cdr)
 {
     sexp* r = psp;
@@ -741,13 +742,10 @@ bool unsafe_sub(int a, int x)
 
 bool unsafe_mul(int a, int x)
 {
-#if 1
-    return true;
-#else
-    return ((a == -1) && (x == INT_MIN)) ||
+    return true ||
+           ((a == -1) && (x == INT_MIN)) ||
            ((x == -1) && (a == INT_MIN)) ||
            (a > INT_MAX / x) || (a < INT_MIN / x);
-#endif
 }
 
 // magnitude
@@ -879,10 +877,8 @@ sexp lcm(sexp x, sexp y)
 
     Num xb = toBignum(x);
     Num yb = toBignum(y);
-
     Num g = Num::gcd(xb, yb);
     Num l = (xb / g) * (yb / g);
-
     return bignumResult(l);
 }
 
@@ -969,7 +965,6 @@ sexp diff(sexp x, sexp y)
 sexp product(sexp x, sexp y)
 {
     bool cpx = false;
-
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
@@ -1011,7 +1006,6 @@ sexp product(sexp x, sexp y)
 sexp quotientf(sexp x, sexp y)
 {
     bool cpx = false;
-
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
@@ -1061,7 +1055,6 @@ int mod(int x, int y)
 sexp moduloff(sexp x, sexp y)
 {
     bool cpx = false;
-
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
@@ -1130,7 +1123,6 @@ double drem(double xd, double yd)
 sexp remainderff(sexp x, sexp y)
 {
     bool cpx = false;
-
     sexp xr, xi, yr, yi;
 
     if (isComplex(x))
@@ -2545,7 +2537,7 @@ void displayList(Context& context, sexp exp, int level)
     context.s << '(';
     sexp p = exp;
     int len = displayLength(p->car) + 2;
-    level += len;
+    level += displayLength(p->car) + 2;
     while (p)
     {
         if (first && context.labelCycles(p, true))
@@ -2681,7 +2673,10 @@ void displayFlonum(Context& context, sexp exp)
     std::streampos pos = context.s.tellp();
     context.s << asFlonum(exp);
     std::string sstr = context.s.str().substr(pos);
-    if (std::string::npos == sstr.find('e') && std::string::npos == sstr.find('.'))
+    if (std::string::npos == sstr.find("nan") &&
+        std::string::npos == sstr.find("inf") &&
+        std::string::npos == sstr.find('e') &&
+        std::string::npos == sstr.find('.'))
         context.s << ".0";
 }
 
@@ -3445,10 +3440,10 @@ sexp apply(sexp fun, sexp args)
         sexp arg0 = save(args ? args->car : voida);
         if (1 == a)
             return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
-        sexp arg1 = save((args = args->cdr) ? args->car : voida);
+        sexp arg1 = save(args && (args = args->cdr) ? args->car : voida);
         if (2 == a)
             return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
-        sexp arg2 = save((args = args->cdr) ? args->car : voida);
+        sexp arg2 = save(args && (args = args->cdr) ? args->car : voida);
         if (3 == a)
             return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
         error("apply: unsupported arity");
@@ -3536,10 +3531,10 @@ sexp eval(sexp p, sexp env)
             sexp arg0 = save((p = p->cdr) ? eval(p->car, env) : voida);
             if (1 == a)
                 return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
-            sexp arg1 = save((p = p->cdr) ? eval(p->car, env) : voida);
+            sexp arg1 = save(p && (p = p->cdr) ? eval(p->car, env) : voida);
             if (2 == a)
                 return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
-            sexp arg2 = save((p = p->cdr) ? eval(p->car, env) : voida);
+            sexp arg2 = save(p && (p = p->cdr) ? eval(p->car, env) : voida);
             if (3 == a)
                 return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
             error("eval: unsupported arity");
@@ -3547,6 +3542,13 @@ sexp eval(sexp p, sexp env)
 
         return lose(mark, apply(fun, save(evlis(p->cdr, env))));
     }
+}
+
+sexp xeval(sexp p, sexp env)
+{
+    if (!(p && isCons(env) && isCons(env->car)))
+        error("eval: bad environment");
+    return eval(p, env);
 }
 
 /*
@@ -3985,7 +3987,7 @@ struct FuncTable {
     { "eq?",                               2, (void*)eqp },
     { "equal?",                            2, (void*)equalp },
     { "eqv?",                              2, (void*)eqvp },
-    { "eval",                              2, (void*)eval },
+    { "eval",                              2, (void*)xeval },
     { "exact?",                            1, (void*)exactp },
     { "exact->inexact",                    1, (void*)exact_inexact },
     { "exp",                               1, (void*)expff },
