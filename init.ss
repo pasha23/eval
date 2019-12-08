@@ -256,9 +256,9 @@
         (define (maxi x y) (if (< x y) y x))
 
         (define (maxx l)
-                (cond ((null? (cdr l)) (car l))
-                      ((null? (cddr l)) (maxi (car l) (cadr l)))
-                      (else (maxi (car l) (maxx (cdr l))))))
+                (if (null? (cdr l))
+                    (car l)
+                    (maxi (car l) (maxx (cdr l)))))
         (maxx l))
 
 (define (min . l)
@@ -266,9 +266,9 @@
         (define (mini x y) (if (< x y) x y))
 
         (define (minx l)
-                (cond ((null? (cdr l)) (car l))
-                      ((null? (cddr l)) (mini (car l) (cadr l)))
-                      (else (mini (car l) (minx (cdr l))))))
+                (if (null? (cdr l))
+                    (car l)
+                    (mini (car l) (minx (cdr l)))))
         (minx l))
 
 (define (list-tail s i)
@@ -490,6 +490,17 @@
                     (write-char (if (odd? r) #\1 #\0))
                     (set! r (lfsr-shift r p))
                     (set! busy (not (zero? r)))) (newline)))
+
+(define (bitstring n)
+        (let ((r 0)
+              (p (vector-ref polynomials n))
+              (o '())
+              (busy #t))
+             (while busy
+                    (set! o (cons (if (odd? r) #\1 #\0) o))
+                    (set! r (lfsr-shift r p))
+                    (set! busy (not (zero? r))))
+             (list->string o)))
 
 (define (merge f p q)
         (cond ((null? p) q)
