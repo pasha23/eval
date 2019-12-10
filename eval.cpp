@@ -205,7 +205,7 @@ struct Tags     { char                                   tags[sizeof(Cons)]; };
 struct Stags    { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
 struct Chunk    { char tags[2];            char        text[sizeof(Cons)-2]; };
 struct Atom     { char tags[sizeof(sexp)]; sexp                        body; };
-struct String   { char tags[sizeof(sexp)]; sexp                      chunks; };
+struct String   { char tags[sizeof(sexp)]; char*                       text; };
 struct Fixnum   { char tags[sizeof(sexp)]; int                       fixnum; };
 struct Float    { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
 struct Double   { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
@@ -387,7 +387,6 @@ void mark(sexp p)
     switch (((Stags*)p)->stags)
     {
     case ATOM:   mark(((Atom*)p)->body);     break;
-    case STRING: mark(((String*)p)->chunks); break;
     case VECTOR:
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
@@ -417,6 +416,8 @@ static void deletevector(sexp v) { delete ((Vector*)v)->e; }
 static void deletebignum(sexp n) { delete ((Bignum*)n)->nump; }
 
 static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
+
+static void deletestring(sexp s) { if (((String*)s)->tags[1]) delete ((String*)s)->text; }
 
 /*
  * mark all reachable cells
@@ -1417,11 +1418,11 @@ sexp symbolp(sexp x) { return boolwrap(isAtom(x)); }
 // procedure?
 sexp procedurep(sexp p) { return boolwrap(isFunct(p) || isClosure(p)); }
 
-// length of String
+// length of Atom
 int slen(sexp s)
 {
     int length = 0;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    for (sexp p = ((Atom*)s)->body->cdr; p; p = p->cdr)
     {
         int i = 0;
         Chunk* t = (Chunk*)(p->car);
@@ -1433,20 +1434,14 @@ int slen(sexp s)
 }
 
 // string-length
-sexp string_length(sexp s) { assertString(s); return newfixnum(slen(s)); }
+sexp string_length(sexp s) { assertString(s); return newfixnum(strlen(((String*)s)->text)); }
 
 // index a character in a string
 char* sref(sexp s, int i)
 {
-    int j = 0;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        if (j <= i && i < j+sizeof(t->text))
-            return t->text + (i - j);
-        j += sizeof(t->text);
-    }
-
+    char* text = ((String*)s)->text;
+    if (0 <= i && i < strlen(text))
+        return text + i;
     return 0;
 }
 
@@ -1581,10 +1576,21 @@ sexp newatom(const char* s, sexp value)
     return lose(intern(replace(newcell(ATOM, replace(cons(value, save(newchunk(s))))))));
 }
 
-// create a string
-sexp newstring(const char* s)
+// create a string (s needs to be deleted)
+sexp dynstring(const char* s)
 {
-    return lose(newcell(STRING, save(newchunk(s))));
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)s;
+    string->tags[1] = 1;
+    return (sexp) string;
+}
+
+// create a string (s does not need to be deleted)
+sexp stastring(const char* s)
+{
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)s;
+    return (sexp) string;
 }
 
 // number->string
@@ -1593,7 +1599,8 @@ sexp number_string(sexp exp)
     Context context(0, true, false);
     mapCycles(context, exp);
     display(context, exp, 0);
-    return newstring(context.s.str().c_str());
+    const char* text = context.s.str().c_str();
+    return dynstring(strcpy(new char[strlen(text)+1], text));
 }
 
 // make-string
@@ -1603,22 +1610,21 @@ sexp make_string(sexp args)
         error("make-string: args expected");
 
     int l = asFixnum(args->car);
-    char *b = (char*) alloca(l+1);
+    char *b = new char[l+1];
     char *q = b;
     int c = args->cdr && isChar(args->cdr->car) ?
                   ((Char*)(args->cdr->car))->ch : ' ';
-    // utf8
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
-    return newstring(b);
+    return dynstring(b);
 }
 
-// copy characters from a String
+// copy characters from an Atom
 char* sstr(char* b, int len, sexp s)
 {
     char *q = b;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
+    for (sexp p = ((Atom*)s)->body->cdr; p; p = p->cdr)
     {
         if (q >= b+len-1)
             break;
@@ -1633,8 +1639,8 @@ char* sstr(char* b, int len, sexp s)
 sexp string_copy(sexp s)
 {
     assertString(s);
-    int len = slen(s)+1;
-    return newstring(sstr((char*)alloca(len), len, s));
+    char* text = ((String*)s)->text;
+    return dynstring(strcpy(new char[strlen(text)+1], text));
 }
 
 // string-append
@@ -1642,12 +1648,12 @@ sexp string_append(sexp p, sexp q)
 {
     assertString(p);
     assertString(q);
-    int pl = slen(p);
-    int ql = slen(q);
-    char *b = (char*) alloca(pl+ql+1);
-    sstr(b,    pl+1, p);
-    sstr(b+pl, ql+1, q);
-    return newstring(b);
+    int pl = strlen(((String*)p)->text);
+    int ql = strlen(((String*)q)->text);
+    char *b = new char[pl+ql+1];
+    strcpy(b,    ((String*)p)->text);
+    strcpy(b+pl, ((String*)q)->text);
+    return dynstring(b);
 }
 
 // string-fill
@@ -1657,12 +1663,9 @@ sexp string_fill(sexp s, sexp c)
     assertString(s);
 
     int k = ((Char*)c)->ch;
-    // utf8
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; t->text[i++] = k) {}
-    }
+    int l = strlen(((String*)s)->text);
+    for (int i = 0; i < l; ++i)
+        ((String*)s)->text[i] = k;
     return s;
 }
 
@@ -1685,20 +1688,14 @@ sexp input_portp(sexp p) { return boolwrap(isInPort(p)); }
 sexp open_input_file(sexp p)
 {
     assertString(p);
-    int len = slen(p)+1;
-    char* b = (char*) alloca(len);
-    sstr(b, len, p);
-    return newinport(b);
+    return newinport(((String*)p)->text);
 }
 
 // open-output-file
 sexp open_output_file(sexp p)
 {
     assertString(p);
-    int len = slen(p)+1;
-    char* b = (char*) alloca(slen(p)+1);
-    sstr(b, len, p);
-    return newoutport(b);
+    return newoutport(((String*)p)->text);
 }
 
 // output-port?
@@ -1761,7 +1758,8 @@ sexp open_input_string(sexp args)
         i = asFixnum(args->car);
     }
 
-    int j = slen(s);
+    char* text = ((String*)s)->text;
+    int j = strlen(text);
     if (args = args->cdr)
     {
         assertFixnum(args->car);
@@ -1772,28 +1770,12 @@ sexp open_input_string(sexp args)
         error("open-input-string: bad arguments");
 
     std::stringstream* ss = new std::stringstream();
+    for (int k = i; k < j; ++k)
+        ss->put(text[k]);
     InPort* port = (InPort*)save(newcell(INPORT));
     port->avail = 0;
     port->peek = 0;
     port->s = new StrPortStream(*ss, 0);
-
-    int k = 0;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        if (k <= i && i < k+sizeof(t->text))
-        {
-            for (int m = 0; m < sizeof(t->text); ++m)
-            {
-                int n = k+m;
-                if (n == j)
-                    return lose((sexp)port);
-                if (i <= n && n < j)
-                    ss->put(t->text[m]);
-            }
-        }
-        k += sizeof(t->text);
-    }
     return lose((sexp)port);
 }
 
@@ -1803,7 +1785,8 @@ sexp get_output_string(sexp port)
     assertOutPort(port);
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    return newstring(ss->str().c_str());
+    const char* text = ss->str().c_str();
+    return dynstring(strcpy(new char[strlen(text)+1], text));
 }
 
 // open-output-string
@@ -1852,7 +1835,8 @@ sexp write_to_string(sexp args)
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
-    return newstring(context.s.str().substr(0, limit).c_str());
+    const char* text = context.s.str().substr(0, limit).c_str();
+    return dynstring(strcpy(new char[strlen(text)+1], text));
 }
 
 // vector?
@@ -2143,37 +2127,35 @@ sexp write_char(sexp args)
     return voida;
 }
 
-sexp achunk(sexp s) { assertString(s); return ((String*)s)->chunks; }
-
 // string<=?
-sexp string_lep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmp(p, q) <= 0); }
+sexp string_lep(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) <= 0); }
 
 // string<?
-sexp string_ltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmp(p, q) <  0); }
+sexp string_ltp(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) <  0); }
 
 // string=?
-sexp string_eqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmp(p, q) == 0); }
+sexp string_eqp(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) == 0); }
 
 // string>=?
-sexp string_gep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmp(p, q) >= 0); }
+sexp string_gep(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) >= 0); }
 
 // string>?
-sexp string_gtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmp(p, q) >  0); }
+sexp string_gtp(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) >  0); }
 
 // string-ci-<=?
-sexp string_cilep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmpi(p, q) <= 0); }
+sexp string_cilep(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) <= 0); }
 
 // string-ci<?
-sexp string_ciltp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmpi(p, q) <  0); }
+sexp string_ciltp(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) <  0); }
 
 // string-ci=?
-sexp string_cieqp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmpi(p, q) == 0); }
+sexp string_cieqp(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) == 0); }
 
 // string-ci>=?
-sexp string_cigep(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmpi(p, q) >= 0); }
+sexp string_cigep(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) >= 0); }
 
 // string-ci>?
-sexp string_cigtp(sexp p, sexp q) { p=achunk(p); q = achunk(q); return boolwrap(scmpi(p, q) >  0); }
+sexp string_cigtp(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) >  0); }
 
 // string-ref
 sexp string_ref(sexp s, sexp i)
@@ -2181,7 +2163,7 @@ sexp string_ref(sexp s, sexp i)
     assertString(s);
     assertFixnum(i);
 
-    char* p = sref(s, asFixnum(i));
+    char* p = ((String*)s)->text + asFixnum(i);
     if (!p)
         error("string-ref: out of bounds");
 
@@ -2195,8 +2177,7 @@ sexp string_set(sexp s, sexp k, sexp c)
     assertFixnum(k);
     assertChar(c);
 
-    // utf8
-    char* p = sref(s, asFixnum(k));
+    char* p = ((String*)s)->text + asFixnum(k);
     if (!p)
         error("string-set!: out of bounds");
 
@@ -2212,12 +2193,13 @@ sexp substringf(sexp args)
         error("substring: no string");
 
     sexp s = args->car;
+    char* text = ((String*)s)->text;
 
     if (!(args = args->cdr) || !isFixnum(args->car))
         error("substring: bad start index");
 
     int i = asFixnum(args->car);
-    int j = slen(s);
+    int j = strlen(text);
 
     if ((args = args->cdr) && isFixnum(args->car))
         j = asFixnum(args->car);
@@ -2225,29 +2207,10 @@ sexp substringf(sexp args)
     if (i < 0 || j <= i)
         error("substring: start negative or end before start");
 
-    char* b = (char*)alloca(j-i+1);
-
-    int k = 0;
-    for (sexp p = ((String*)s)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        if (k <= i && i < k+sizeof(t->text))
-        {
-            for (int m = 0; m < sizeof(t->text); ++m)
-            {
-                int n = k+m;
-                if (n == j) {
-                    b[n-i] = 0;
-                    return newstring(b);
-                }
-                if (i <= n && n < j)
-                    b[n-i] = t->text[m];
-            }
-        }
-        k += sizeof(t->text);
-    }
-
-    error("substring: bad arguments");
+    char* b = new char[j-i+1];
+    strncpy(b, text+i, j-i);
+    b[j-i] = 0;
+    return dynstring(b);
 }
 
 sexp append(sexp p, sexp q)
@@ -2400,9 +2363,7 @@ sexp load(sexp x)
 {
     assertString(x);
 
-    int len = slen(x)+1;
-
-    char *name = sstr((char*)alloca(len), len, x);
+    char *name = ((String*)x)->text;
 
     std::cout << ";; load: " << name << std::endl;
 
@@ -2593,7 +2554,7 @@ void displayAtom(Context& context, sexp exp)
 
 void displayString(Context& context, sexp exp)
 {
-    displayChunks(context, ((String*)exp)->chunks, false);
+    context.s << ((String*)exp)->text;
 }
 
 void displayNamed(Context& context, const char *kind, sexp exp)
@@ -2774,22 +2735,24 @@ void debug(sexp exp)
 sexp string_symbol(sexp x)
 {
     assertString(x);
-    sexp y = save(string_copy(x));
-    return lose(intern(newcell(ATOM, replace(cons(0, (((String*)y)->chunks)))))); }
+    return newatom(((String*)x)->text, 0);
+}
 
 // symbol->string
 sexp symbol_string(sexp x)
 {
     assertAtom(x);
-    sexp* mark = psp;
-    return lose(mark, string_copy(save(newcell(STRING, ((Atom*)save(x))->body->cdr))));
+    int l = slen(x);
+    char* name = new char[l+1];
+    sstr(name, l, x);
+    return dynstring(name);
 }
 
 // string->number
 sexp string_number(sexp exp)
 {
     Context context(0, false, false);
-    displayChunks(context, ((String*)exp)->chunks, false);
+    context.s << ((String*)exp)->text;
     return read(context.s, 0);
 }
 
@@ -2797,19 +2760,14 @@ sexp string_number(sexp exp)
 sexp string_list(sexp x)
 {
     assertString(x);
-    char* b = (char*) alloca(slen(x));
-    char *q = b;
-    for (sexp p = ((String*)x)->chunks; p; p = p->cdr)
-    {
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
-    }
-
-    sexp p = 0;
-    while (--q >= b)
-        p = lose(lose(cons(save(newcharacter(*q)), save(p))));
-
-    return p;
+    char* q = ((String*)x)->text;
+    char* r = q + strlen(q);
+    sexp* mark = psp;
+    sexp p = save(0);
+    do
+        p = replace(cons(save(newcharacter(*--r)), p));
+    while (q != r);
+    return lose(mark, p);
 }
 
 // list->string
@@ -2818,32 +2776,17 @@ sexp list_string(sexp s)
     if (!s)
         return newcell(STRING, 0);
 
-    sexp* mark = psp;
-    save(s);
-    Chunk* r = (Chunk*) save(newcell(CHUNK));
-    sexp p = replace(cons((sexp)r, 0));
-    sexp q = p;
-
     int i = 0;
-    for ( ; s; s = s->cdr)
-    {
-        assertChar(s->car);
+    for (sexp p = s; p; p = p->cdr)
+        ++i;
 
-        // utf8
-        r->text[i++] = ((Char*)(s->car))->ch;
+    char* b = new char[i+1];
+    char* q = b;
+    for (sexp p = s; p; p = p->cdr)
+        *q++ = ((Char*)(p->car))->ch;
+    *q++ = 0;
 
-        if (i == sizeof(r->text))
-        {
-            i = 0;
-            r = (Chunk*) save(newcell(CHUNK));
-            q = q->cdr = lose(cons((sexp)r, 0));
-        }
-    }
-
-    while (i < sizeof(r->text))
-        r->text[i++] = 0;
-
-    return lose(mark, newcell(STRING, p));
+    return dynstring(b);
 }
 
 // string
@@ -2891,7 +2834,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
     case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
     case CHUNK :   return 0 == scmp(x, y);
-    case STRING:   return 0 == scmp(((String*)x)->chunks, ((String*)y)->chunks);
+    case STRING:   return 0 == strcmp(((String*)x)->text, ((String*)y)->text);
     case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
     case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
     case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
@@ -3791,10 +3734,12 @@ sexp scans(std::istream& fin)
     if ('"' != c)
         return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
 
+    (void)fin.get();
     c = fin.get();
-    sexp r = newcell(STRING, save(readChunks(fin, "\"")));
-    (void)fin.get();  // read the " again
-    return lose(mark, r);
+    while (0 <= c && c != '"')
+        c = accept(s, fin, c);
+    const char* text = s.str().c_str();
+    return dynstring(strcpy(new char[strlen(text)+1], text));
 }
 
 // stub to enable tracing of scans()
@@ -4240,7 +4185,7 @@ int main(int argc, char **argv, char **envp)
     sigaction(SIGSEGV, &segv_action, NULL);
     sigaction(SIGINT,  &intr_action, NULL);
 
-    load(newstring("init.ss"));
+    load(stastring("init.ss"));
 
     global = replenv;
 
@@ -4248,7 +4193,7 @@ int main(int argc, char **argv, char **envp)
 
     if (argc > 1)
     {
-        load(newstring(argv[1]));
+        load(stastring(argv[1]));
         return 0;
     }
 
