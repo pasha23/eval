@@ -4,7 +4,7 @@
  * 
  * Robert Kelley October 2019
  */
-#define PSIZE   32768
+#define PSIZE   65536
 #define CELLS   262144
 #undef  BROKEN
 
@@ -211,7 +211,7 @@ struct Float    { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
 struct Double   { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
 struct Funct    { char tags[sizeof(sexp)]; void*                      funcp; };
 struct Form     { char tags[sizeof(sexp)]; Formp                      formp; };
-struct Char     { char tags[sizeof(sexp)-sizeof(short)];  short          ch; };
+struct Char     { char tags[sizeof(Cons)-sizeof(uint32_t)];  uint32_t    ch; };
 struct InPort   { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
 struct OutPort  { char tags[sizeof(sexp)]; PortStream*                    s; };
 struct Vector   { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
@@ -2336,7 +2336,8 @@ sexp xorf(sexp args)
     return lose(newfixnum(result));
 }
 
-// (define (lfsr-shift r p) (if (zero? (& r 1)) (^ (>> r 1) p) (>> r 1)))
+// (define (lfsr-shift r p) (if (odd? r) (>> r 1) (^ (>> r 1) p)))
+
 sexp lfsr_shift(sexp r, sexp p)
 {
     if (isFixnum(r) && isFixnum(p))
@@ -2536,15 +2537,13 @@ void displayList(Context& context, sexp exp, int level)
         return;
     context.s << '(';
     sexp p = exp;
-    int len = displayLength(p->car) + 2;
     level += displayLength(p->car) + 2;
     while (p)
     {
         if (first && context.labelCycles(p, true))
             break;
         display(context, p->car, level);
-        p = p->cdr;
-        if (p) {
+        if ((p = p->cdr)) {
             if (isCons(p) && !isClosure(p) && !isPromise(p) && replenv != p && global != p) {
                 context.wrap(level, displayLength(p->car));
             } else {
@@ -3692,6 +3691,10 @@ sexp scans(std::istream& fin)
                {
                case 'f': return f;
                case 't': return t;
+               case 'v': if ('o' == fin.get() &&
+                             'i' == fin.get() &&
+                             'd' == fin.get())
+                                return voida;   // we are missing lookahead to do this right
                case '\\':
                     c = fin.get();
                     do
@@ -3910,7 +3913,7 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
           free(name);
     }
 #endif
-    exit(0);
+    exit(1);
 }
 
 struct FuncTable {
