@@ -203,7 +203,6 @@ void StrPortStream::write(const char *s, int len)
 struct Cons     { sexp                cdr; sexp                         car; };
 struct Tags     { char                                   tags[sizeof(Cons)]; };
 struct Stags    { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
-struct Chunk    { char tags[2];            char        text[sizeof(Cons)-2]; };
 struct Atom     { char tags[sizeof(sexp)]; sexp                        body; };
 struct String   { char tags[sizeof(sexp)]; char*                       text; };
 struct Fixnum   { char tags[sizeof(sexp)]; int                       fixnum; };
@@ -1419,18 +1418,10 @@ sexp symbolp(sexp x) { return boolwrap(isAtom(x)); }
 sexp procedurep(sexp p) { return boolwrap(isFunct(p) || isClosure(p)); }
 
 // length of Atom
-int slen(sexp s)
+int slen(sexp a)
 {
-    int length = 0;
-    for (sexp p = ((Atom*)s)->body->cdr; p; p = p->cdr)
-    {
-        int i = 0;
-        Chunk* t = (Chunk*)(p->car);
-        while (i < sizeof(t->text) && t->text[i])
-            ++i;
-        length += i;
-    }
-    return length;
+    Atom* atom = (Atom*)a;
+    return strlen(((String*)(atom->body->cdr->car))->text);
 }
 
 // string-length
@@ -1463,119 +1454,6 @@ char encodeEscape(char c)
     return c;
 }
 
-/*
- * construct a linked list of chunks of characters
- */
-sexp newchunk(const char *t)
-{
-    if (0 == *t)
-        return 0;
-
-    Chunk* r = (Chunk*) save(newcell(CHUNK));
-    sexp p = replace(cons((sexp)r, 0));
-    sexp q = p;
-
-    int i = 0;
-    for (;;)
-    {
-        char c = *t++;
-
-        if ('\\' == c)
-            c = decodeEscape(*t++);
-
-        if (!c)
-        {
-            while (i < sizeof(r->text))
-                r->text[i++] = 0;
-            return lose(p);
-        }
-
-        r->text[i++] = c;
-
-        if (i == sizeof(r->text))
-        {
-            i = 0;
-            r = (Chunk*) save(newcell(CHUNK));
-            q = q->cdr = lose(cons((sexp)r, 0));
-        }
-    }
-}
-
-/*
- * compare chunks
- */
-int scmp(sexp p, sexp q)
-{
-    for (;;)
-    {
-        if (p == q)
-            return  0;
-        if (!q)
-            return  1;
-        if (!p)
-            return -1;
-        Chunk* s = (Chunk*)(p->car);
-        Chunk* t = (Chunk*)(q->car);
-        for (int i = 0; i < sizeof(s->text); ++i)
-        {
-            int r = s->text[i] - t->text[i];
-            if (r)
-                return r;
-            if (0 == s->text[i])
-                return 0;
-        }
-        p = p->cdr;
-        q = q->cdr;
-    }
-}
-
-/*
- * compare chunks, case insensitive
- */
-int scmpi(sexp p, sexp q)
-{
-    for (;;)
-    {
-        if (p == q)
-            return  0;
-        if (!q)
-            return  1;
-        if (!p)
-            return -1;
-        Chunk* s = (Chunk*)(p->car);
-        Chunk* t = (Chunk*)(q->car);
-        for (int i = 0; i < sizeof(s->text); ++i)
-        {
-            int r = tolower(s->text[i]) - tolower(t->text[i]);
-            if (r)
-                return r;
-            if (0 == s->text[i])
-                return 0;
-        }
-        p = p->cdr;
-        q = q->cdr;
-    }
-}
-
-// every atom must be unique and saved in the atoms list
-sexp intern(sexp p)
-{
-    for (sexp q = atoms; q; q = q->cdr)
-    {
-        sexp r = q->car;
-        if (0 == scmp(((Atom*)p)->body->cdr, ((Atom*)r)->body->cdr))
-            return r;
-    }
-    atoms = cons(p, atoms);
-    return p;
-}
-
-// create an interned atom
-sexp newatom(const char* s, sexp value)
-{
-    return lose(intern(replace(newcell(ATOM, replace(cons(value, save(newchunk(s))))))));
-}
-
 // create a string (s needs to be deleted)
 sexp dynstring(const char* s)
 {
@@ -1593,14 +1471,36 @@ sexp stastring(const char* s)
     return (sexp) string;
 }
 
+// every atom must be unique and saved in the atoms list
+// these atoms are made from a "..." string
+sexp dynintern(const char *s)
+{
+    for (sexp q = atoms; q; q = q->cdr)
+        if (0 = strcmp(s, atomText(q->car)))
+            return q->car;
+    Atom* a = (Atom*)newcell(ATOM, cons(0, cons(dynstring(s), 0)));
+    atoms = cons((sexp)a, atoms);
+    return (sexp)a;
+}
+
+// these atoms are made from a strsave string
+sexp staintern(const char *s)
+{
+    for (sexp q = atoms; q; q = q->cdr)
+        if (0 == strcmp(s, atomText(q->car)))
+            return q->car;
+    Atom* a = (Atom*)newcell(ATOM, cons(0, cons(stastring(s), 0)));
+    atoms = cons((sexp)a, atoms);
+    return (sexp)a;
+}
+
 // number->string
 sexp number_string(sexp exp)
 {
     Context context(0, true, false);
     mapCycles(context, exp);
     display(context, exp, 0);
-    const char* text = context.s.str().c_str();
-    return dynstring(strcpy(new char[strlen(text)+1], text));
+    return dynstring(strsave(context.s.str().c_str()));
 }
 
 // make-string
@@ -1610,37 +1510,21 @@ sexp make_string(sexp args)
         error("make-string: args expected");
 
     int l = asFixnum(args->car);
-    char *b = new char[l+1];
-    char *q = b;
     int c = args->cdr && isChar(args->cdr->car) ?
                   ((Char*)(args->cdr->car))->ch : ' ';
+    char *b = new char[l+1];
+    char *q = b;
     for (int i = 0; i < l; ++i)
         *q++ = c;
     *q++ = 0;
     return dynstring(b);
 }
 
-// copy characters from an Atom
-char* sstr(char* b, int len, sexp s)
-{
-    char *q = b;
-    for (sexp p = ((Atom*)s)->body->cdr; p; p = p->cdr)
-    {
-        if (q >= b+len-1)
-            break;
-        Chunk* t = (Chunk*)(p->car);
-        for (int i = 0; i < sizeof(t->text) && t->text[i]; *q++ = t->text[i++]) {}
-    }
-    *q++ = 0;
-    return b;
-}
-
 // string-copy
 sexp string_copy(sexp s)
 {
     assertString(s);
-    char* text = ((String*)s)->text;
-    return dynstring(strcpy(new char[strlen(text)+1], text));
+    return dynstring(strsave(stringText(s)));
 }
 
 // string-append
@@ -1688,14 +1572,14 @@ sexp input_portp(sexp p) { return boolwrap(isInPort(p)); }
 sexp open_input_file(sexp p)
 {
     assertString(p);
-    return newinport(((String*)p)->text);
+    return newinport(stringText(p));
 }
 
 // open-output-file
 sexp open_output_file(sexp p)
 {
     assertString(p);
-    return newoutport(((String*)p)->text);
+    return newoutport(stringText(p));
 }
 
 // output-port?
@@ -1785,8 +1669,7 @@ sexp get_output_string(sexp port)
     assertOutPort(port);
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    const char* text = ss->str().c_str();
-    return dynstring(strcpy(new char[strlen(text)+1], text));
+    return dynstring(strsave(ss->str().c_str()));
 }
 
 // open-output-string
@@ -1835,8 +1718,7 @@ sexp write_to_string(sexp args)
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
-    const char* text = context.s.str().substr(0, limit).c_str();
-    return dynstring(strcpy(new char[strlen(text)+1], text));
+    return dynstring(strsave(context.s.str().substr(0, limit).c_str()));
 }
 
 // vector?
@@ -2128,34 +2010,34 @@ sexp write_char(sexp args)
 }
 
 // string<=?
-sexp string_lep(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) <= 0); }
+sexp string_lep(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) <= 0); }
 
 // string<?
-sexp string_ltp(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) <  0); }
+sexp string_ltp(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) <  0); }
 
 // string=?
-sexp string_eqp(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) == 0); }
+sexp string_eqp(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) == 0); }
 
 // string>=?
-sexp string_gep(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) >= 0); }
+sexp string_gep(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) >= 0); }
 
 // string>?
-sexp string_gtp(sexp p, sexp q) { return boolwrap(strcmp(((String*)p)->text, ((String*)q)->text) >  0); }
+sexp string_gtp(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) >  0); }
 
 // string-ci-<=?
-sexp string_cilep(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) <= 0); }
+sexp string_cilep(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) <= 0); }
 
 // string-ci<?
-sexp string_ciltp(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) <  0); }
+sexp string_ciltp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) <  0); }
 
 // string-ci=?
-sexp string_cieqp(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) == 0); }
+sexp string_cieqp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) == 0); }
 
 // string-ci>=?
-sexp string_cigep(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) >= 0); }
+sexp string_cigep(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) >= 0); }
 
 // string-ci>?
-sexp string_cigtp(sexp p, sexp q) { return boolwrap(strcasecmp(((String*)p)->text, ((String*)q)->text) >  0); }
+sexp string_cigtp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) >  0); }
 
 // string-ref
 sexp string_ref(sexp s, sexp i)
@@ -2163,7 +2045,7 @@ sexp string_ref(sexp s, sexp i)
     assertString(s);
     assertFixnum(i);
 
-    char* p = ((String*)s)->text + asFixnum(i);
+    char* p = stringText(s) + asFixnum(i);
     if (!p)
         error("string-ref: out of bounds");
 
@@ -2177,7 +2059,7 @@ sexp string_set(sexp s, sexp k, sexp c)
     assertFixnum(k);
     assertChar(c);
 
-    char* p = ((String*)s)->text + asFixnum(k);
+    char* p = stringText(s) + asFixnum(k);
     if (!p)
         error("string-set!: out of bounds");
 
@@ -2193,7 +2075,7 @@ sexp substringf(sexp args)
         error("substring: no string");
 
     sexp s = args->car;
-    char* text = ((String*)s)->text;
+    char* text = stringText(s);
 
     if (!(args = args->cdr) || !isFixnum(args->car))
         error("substring: bad start index");
@@ -2230,7 +2112,7 @@ sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
 sexp eqnp(sexp x, sexp y)
 {
     if (isRational(x) && isRational(y))
-        return boolwrap(*((Rational*)x)->ratp == *((Rational*)y)->ratp);
+        return boolwrap(asRational(x) == asRational(y));
  
     if (isComplex(x) && isComplex(y))
     {
@@ -2359,11 +2241,11 @@ sexp promise_value(sexp p)
 }
 
 // load
-sexp load(sexp x)
+sexp load(sexp s)
 {
-    assertString(x);
+    assertString(s);
 
-    char *name = ((String*)x)->text;
+    char *name = stringText(s);
 
     std::cout << ";; load: " << name << std::endl;
 
@@ -2428,29 +2310,6 @@ sexp writef(sexp args)
     display(context, args->car, 0);
     ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
     return voida;
-}
-
-void displayChunks(Context& context, sexp exp, bool atom)
-{
-    if (context.write && !atom)
-        context.s << '"';
-    while (exp)
-    {
-        Chunk* t = (Chunk*)(exp->car);
-        for (int i = 0; i < sizeof(t->text); ++i)
-        {
-            char c = t->text[i];
-            if (!c)
-                break;
-            if (context.write && strchr("\007\b\t\n\r\"\\", c))
-                context.s << '\\' << encodeEscape(c);
-            else
-                context.s << c;
-        }
-        exp = exp->cdr;
-    }
-    if (context.write && !atom)
-        context.s << '"';
 }
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
@@ -2546,15 +2405,28 @@ const char * const character_table[] =
 
 void displayAtom(Context& context, sexp exp)
 {
-    if (context.write && voida == exp)
+    if (context.write && voida == exp) {
         context.s << "#void";
-    else
-        displayChunks(context, ((Atom*)exp)->body->cdr, true);
+    } else {
+        for (char* p = atomText(exp); *p; ++p)
+            if (context.write && strchr("\007\b\t\n\r\"\\", *p))
+                context.s << '\\' << encodeEscape(*p);
+            else
+                context.s << *p;
+    }
 }
 
 void displayString(Context& context, sexp exp)
 {
-    context.s << ((String*)exp)->text;
+    if (context.write)
+        context.s << '"';
+    for (char* p = stringText(exp); *p; ++p)
+        if (context.write && strchr("\007\b\t\n\r\"\\", *p))
+            context.s << '\\' << encodeEscape(*p);
+        else
+            context.s << *p;
+    if (context.write)
+        context.s << '"';
 }
 
 void displayNamed(Context& context, const char *kind, sexp exp)
@@ -2735,17 +2607,14 @@ void debug(sexp exp)
 sexp string_symbol(sexp x)
 {
     assertString(x);
-    return newatom(((String*)x)->text, 0);
+    return dynintern(strsave(stringText(x)));
 }
 
 // symbol->string
 sexp symbol_string(sexp x)
 {
     assertAtom(x);
-    int l = slen(x);
-    char* name = new char[l+1];
-    sstr(name, l, x);
-    return dynstring(name);
+    return dynstring(strsave(atomText(x)));
 }
 
 // string->number
@@ -2760,7 +2629,7 @@ sexp string_number(sexp exp)
 sexp string_list(sexp x)
 {
     assertString(x);
-    char* q = ((String*)x)->text;
+    char* q = stringText(x);
     char* r = q + strlen(q);
     sexp* mark = psp;
     sexp p = save(0);
@@ -2833,8 +2702,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     {
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
     case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
-    case CHUNK :   return 0 == scmp(x, y);
-    case STRING:   return 0 == strcmp(((String*)x)->text, ((String*)y)->text);
+    case STRING:   return 0 == strcmp(stringText(x), stringText(y));
     case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
     case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
     case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
@@ -2872,26 +2740,14 @@ void lookup_error(const char* msg, sexp p)
     strcpy(errorBuffer, msg);
     if (isAtom(p))
     {
-        int len = 0;
-        for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-        {
-            int i = 0;
-            Chunk* t = (Chunk*)(q->car);
-            while (i < sizeof(t->text) && t->text[i])
-                ++i;
-            len += i;
-        }
+        char* text = atomText(p);
+        int len = strlen(text);
         if (len > sizeof(errorBuffer)-strlen(msg))
             len = sizeof(errorBuffer)-strlen(msg);
         char *r = errorBuffer+strlen(msg);
         *r++ = '"';
-        for (sexp q = ((Atom*)p)->body->cdr; q; q = q->cdr)
-        {
-            if (r >= errorBuffer+sizeof(errorBuffer)-1)
-                break;
-            Chunk* t = (Chunk*)(q->car);
-            for (int i = 0; i < sizeof(t->text) && t->text[i]; *r++ = t->text[i++]) {}
-        }
+        for (char* q = text; *q; )
+            *r++ = *q++;
         *r++ = '"';
         *r++ = 0;
     }
@@ -3493,42 +3349,6 @@ sexp xeval(sexp p, sexp env)
     return eval(p, env);
 }
 
-/*
- * read Chunks terminated by some character or eof
- */
-sexp readChunks(std::istream& fin, const char *ends)
-{
-    sexp* mark = psp;
-    Chunk* r = (Chunk*) save(newcell(CHUNK));
-    sexp p = replace(cons((sexp)r, 0));
-    sexp q = p;
-
-    for (int i = 0; ; )
-    {
-        int c = fin.get();
-
-        if (c < 0 || strchr(ends, c))
-        {
-            while (i < sizeof(r->text))
-                r->text[i++] = 0;
-            fin.unget();
-            return lose(mark, p);
-        }
-
-        if ('\\' == c)
-            c = decodeEscape(fin.get());
-
-        r->text[i++] = c;
-
-        if (i == sizeof(r->text))
-        {
-            i = 0;
-            r = (Chunk*) save(newcell(CHUNK));
-            q = q->cdr = lose(cons((sexp)r, 0));
-        }
-    }
-}
-
 // ignore white space and comments
 int whitespace(std::istream& fin, int c)
 {
@@ -3634,10 +3454,6 @@ sexp scans(std::istream& fin)
                {
                case 'f': return f;
                case 't': return t;
-               case 'v': if ('o' == fin.get() &&
-                             'i' == fin.get() &&
-                             'd' == fin.get())
-                                return voida;   // we are missing lookahead to do this right
                case '\\':
                     c = fin.get();
                     do
@@ -3732,14 +3548,19 @@ sexp scans(std::istream& fin)
     }
 
     if ('"' != c)
-        return lose(mark, intern(save(newcell(ATOM, replace(cons (0, save(readChunks(fin, "( )[,]\t\r\n"))))))));
+    {
+        (void)fin.get();
+        while (0 <= c && !strchr("( )[,]\t\r\n", c))
+            c = accept(s, fin, c);
+        fin.unget();
+        return dynintern(strsave(s.str().c_str()));
+    }
 
     (void)fin.get();
     c = fin.get();
     while (0 <= c && c != '"')
         c = accept(s, fin, c);
-    const char* text = s.str().c_str();
-    return dynstring(strcpy(new char[strlen(text)+1], text));
+    return dynstring(strsave(s.str().c_str()));
 }
 
 // stub to enable tracing of scans()
@@ -3805,9 +3626,6 @@ sexp read(std::istream& fin, int level)
         error("error: an s-expression cannot begin with ')' or ']'");
     return p;
 }
-
-// construct an atom and keep a unique copy
-sexp atomize(const char *s) { return newatom(s, 0); }
 
 // the first interrupt will stop everything. the second will exit.
 void intr_handler(int sig, siginfo_t *si, void *ctx)
@@ -4077,9 +3895,9 @@ struct FormTable {
     { 0,             0 }
 };
 
-void define_atomize_sexpr(const char* name, sexp value)
+void define_staintern_sexpr(const char* name, sexp value)
 {
-    define(atomize(name), value);
+    define(staintern(name), value);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -4107,54 +3925,54 @@ int main(int argc, char **argv, char **envp)
     one  = newfixnum(1);
 
     // names
-    closure         = atomize("closure");
-    commaat         = atomize(",@");
-    comma           = atomize(",");
-    complex         = atomize("complex");
-    definea         = atomize("define");
-    dot             = atomize(".");
-    elsea           = atomize("else");
-    eof             = atomize("#eof");
-    f               = atomize("#f");
-    lambda          = atomize("lambda");
-    lbracket        = atomize("[");
-    lparen          = atomize("(");
-    minus           = atomize("-");
-    promise         = atomize("promise");
-    qchar           = atomize("'");
-    quasiquote      = atomize("quasiquote");
-    quote           = atomize("quote");
-    rbracket        = atomize("]");
-    rparen          = atomize(")");
-    t               = atomize("#t");
-    tick            = atomize("`");
-    unquote         = atomize("unquote");
-    unquotesplicing = atomize("unquote-splicing");
-    voida           = atomize("");
+    closure         = staintern("closure");
+    commaat         = staintern(",@");
+    comma           = staintern(",");
+    complex         = staintern("complex");
+    definea         = staintern("define");
+    dot             = staintern(".");
+    elsea           = staintern("else");
+    eof             = staintern("#eof");
+    f               = staintern("#f");
+    lambda          = staintern("lambda");
+    lbracket        = staintern("[");
+    lparen          = staintern("(");
+    minus           = staintern("-");
+    promise         = staintern("promise");
+    qchar           = staintern("'");
+    quasiquote      = staintern("quasiquote");
+    quote           = staintern("quote");
+    rbracket        = staintern("]");
+    rparen          = staintern(")");
+    t               = staintern("#t");
+    tick            = staintern("`");
+    unquote         = staintern("unquote");
+    unquotesplicing = staintern("unquote-splicing");
+    voida           = staintern("");
 
     // streams
-    define_atomize_sexpr("cerr",     errport);
-    define_atomize_sexpr("cin",      inport);
-    define_atomize_sexpr("cout",     outport);
+    define_staintern_sexpr("cerr",     errport);
+    define_staintern_sexpr("cin",      inport);
+    define_staintern_sexpr("cout",     outport);
 
     // metasyntax
-    define_atomize_sexpr("comma",    comma);
-    define_atomize_sexpr("commaat",  commaat);
-    define_atomize_sexpr("dot",      dot);
-    define_atomize_sexpr("lbracket", lbracket);
-    define_atomize_sexpr("lparen",   lparen);
-    define_atomize_sexpr("qchar",    qchar);
-    define_atomize_sexpr("rbracket", rbracket);
-    define_atomize_sexpr("rparen",   rparen);
-    define_atomize_sexpr("tick",     tick);
-    define_atomize_sexpr("void",     voida);
+    define_staintern_sexpr("comma",    comma);
+    define_staintern_sexpr("commaat",  commaat);
+    define_staintern_sexpr("dot",      dot);
+    define_staintern_sexpr("lbracket", lbracket);
+    define_staintern_sexpr("lparen",   lparen);
+    define_staintern_sexpr("qchar",    qchar);
+    define_staintern_sexpr("rbracket", rbracket);
+    define_staintern_sexpr("rparen",   rparen);
+    define_staintern_sexpr("tick",     tick);
+    define_staintern_sexpr("void",     voida);
 
     for (FuncTable* p = funcTable; p->name; ++p)
     {
         sexp* mark = psp;
         Funct* f = (Funct*)save(newcell(FUNCT));
         f->tags[2] = p->arity; f->funcp = p->funcp;
-        define(save(atomize(p->name)), (sexp)f);
+        define(staintern(p->name), (sexp)f);
         psp = mark;
     }
 
@@ -4163,7 +3981,7 @@ int main(int argc, char **argv, char **envp)
         sexp* mark = psp;
         Form* f = (Form*)save(newcell(FORM));
         f->formp = p->formp;
-        define(save(atomize(p->name)), (sexp)f);
+        define(staintern(p->name), (sexp)f);
         psp = mark;
     }
 

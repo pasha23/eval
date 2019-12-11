@@ -251,7 +251,7 @@
 (test '(real? 45.1))
 (test '(= (sin (asin 1.0)) 1.0))
 (test '(= (sin (asin 1)) 1))
-;; (test '(string=? "(0 1 2 3 4 5 6 7 8 " (call-with-truncated-output-string 20 (lambda (port) (write (iota 50) port)))))
+(test '(string=? "(0 1 2 3 4 5 6 7 8 " (call-with-truncated-output-string 20 (lambda (port) (write (iota 50) port)))))
 (test '(string=? "3" (number->string 3)))
 (test '(string=? "AAA" (string-fill! (make-string 3) #\A)))
 (test '(string=? "aA" (substring "baA" 1 3)))
