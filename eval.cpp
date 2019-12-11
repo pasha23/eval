@@ -1471,12 +1471,27 @@ sexp stastring(const char* s)
     return (sexp) string;
 }
 
+char* strsave(const char *s)
+{
+    return strcpy(new char[strlen(s)+1], s);
+}
+
+char* stringText(sexp s)
+{
+    return ((String*)s)->text;
+}
+
+char* atomText(sexp s)
+{
+    return stringText((((Atom*)s)->body->cdr->car));
+}
+
 // every atom must be unique and saved in the atoms list
 // these atoms are made from a "..." string
 sexp dynintern(const char *s)
 {
     for (sexp q = atoms; q; q = q->cdr)
-        if (0 = strcmp(s, atomText(q->car)))
+        if (0 == strcmp(s, atomText(q->car)))
             return q->car;
     Atom* a = (Atom*)newcell(ATOM, cons(0, cons(dynstring(s), 0)));
     atoms = cons((sexp)a, atoms);
