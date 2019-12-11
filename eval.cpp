@@ -200,22 +200,22 @@ void StrPortStream::write(const char *s, int len)
 /*
  * note that there is just no room for virtual function pointers
  */
-struct Cons     { sexp                cdr; sexp                         car; };
-struct Tags     { char                                   tags[sizeof(Cons)]; };
-struct Stags    { short stags; char tags[sizeof(sexp)-2]; sexp          car; };
-struct Atom     { char tags[sizeof(sexp)]; sexp                        body; };
-struct String   { char tags[sizeof(sexp)]; char*                       text; };
-struct Fixnum   { char tags[sizeof(sexp)]; int                       fixnum; };
-struct Float    { char tags[sizeof(Cons)-sizeof(float)];  float      flonum; };
-struct Double   { char tags[sizeof(Cons)-sizeof(double)]; double     flonum; };
-struct Funct    { char tags[sizeof(sexp)]; void*                      funcp; };
-struct Form     { char tags[sizeof(sexp)]; Formp                      formp; };
-struct Char     { char tags[sizeof(Cons)-sizeof(uint32_t)];  uint32_t    ch; };
-struct InPort   { char tags[sizeof(sexp)-2]; char avail,peek; PortStream* s; };
-struct OutPort  { char tags[sizeof(sexp)]; PortStream*                    s; };
-struct Vector   { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*   e; };
-struct Bignum   { char tags[sizeof(sexp)]; Num*                        nump; };
-struct Rational { char tags[sizeof(sexp)]; Rat*                        ratp; };
+struct Cons     { sexp                cdr;                        sexp           car; };
+struct Tags     { char tags[sizeof(Cons)];                                            };
+struct Stags    { short stags; char tags[sizeof(sexp)-2];         sexp           car; };
+struct Atom     { char tags[sizeof(Cons)-sizeof(sexp)];           sexp          body; };
+struct String   { char tags[sizeof(Cons)-sizeof(char*)];          char*         text; };
+struct Fixnum   { char tags[sizeof(Cons)-sizeof(int)];            int         fixnum; };
+struct Float    { char tags[sizeof(Cons)-sizeof(float)];          float       flonum; };
+struct Double   { char tags[sizeof(Cons)-sizeof(double)];         double      flonum; };
+struct Funct    { char tags[sizeof(Cons)-sizeof(void*)];          void*        funcp; };
+struct Form     { char tags[sizeof(Cons)-sizeof(Formp)];          Formp        formp; };
+struct Char     { char tags[sizeof(Cons)-sizeof(uint32_t)];       uint32_t        ch; };
+struct InPort   { char tags[sizeof(sexp)-2], avail, peek;         PortStream*      s; };
+struct OutPort  { char tags[sizeof(Cons)-sizeof(PortStream*)];    PortStream*      s; };
+struct Vector   { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*            e; };
+struct Bignum   { char tags[sizeof(Cons)-sizeof(Num*)];           Num*          nump; };
+struct Rational { char tags[sizeof(Cons)-sizeof(Rat*)];           Rat*          ratp; };
 
 // supports uglyprinting
 struct Context
@@ -289,9 +289,9 @@ bool isComplex(sexp p)
            !p->cdr;                                     // )
 }
 
-sexp real_part(sexp x) { return x->cdr->car; }
+static inline sexp real_part(sexp x) { return x->cdr->car; }
 
-sexp imag_part(sexp x) { return x->cdr->cdr->car; }
+static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
 static inline sexp boolwrap(bool x) { return x ? t : f; }
 
@@ -777,9 +777,9 @@ uint32_t isqrt(uint64_t v)
    return (uint32_t)r;
 }
 
-double realpart(sexp x) { return asFlonum(x->cdr->car); }
+static inline double realpart(sexp x) { return asFlonum(x->cdr->car); }
 
-double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
+static inline double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
 
 double toDouble(sexp x)
 {
@@ -1417,13 +1417,6 @@ sexp symbolp(sexp x) { return boolwrap(isAtom(x)); }
 // procedure?
 sexp procedurep(sexp p) { return boolwrap(isFunct(p) || isClosure(p)); }
 
-// length of Atom
-int slen(sexp a)
-{
-    Atom* atom = (Atom*)a;
-    return strlen(((String*)(atom->body->cdr->car))->text);
-}
-
 // string-length
 sexp string_length(sexp s) { assertString(s); return newfixnum(strlen(((String*)s)->text)); }
 
@@ -1471,17 +1464,17 @@ sexp stastring(const char* s)
     return (sexp) string;
 }
 
-char* strsave(const char *s)
+static inline char* strsave(const char *s)
 {
     return strcpy(new char[strlen(s)+1], s);
 }
 
-char* stringText(sexp s)
+static inline char* stringText(sexp s)
 {
     return ((String*)s)->text;
 }
 
-char* atomText(sexp s)
+static inline char* atomText(sexp s)
 {
     return stringText((((Atom*)s)->body->cdr->car));
 }
