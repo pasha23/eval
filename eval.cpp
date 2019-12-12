@@ -381,7 +381,8 @@ void mark(sexp p)
         mark(r);
         return;
     } else if (isAtom(p)) {
-        mark(((Atom*)p)->body);
+        Atom* atom = (Atom*)p;
+        mark(atom->body);
     } else if (isVector(p)) {
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
@@ -1483,30 +1484,6 @@ sexp dynstring(const char* s)
     return (sexp) string;
 }
 
-sexp widestring(const uint32_t* t)
-{
-    int l = 0;
-    for (const uint32_t* p = t; *p; ++p)
-        ++l;
-    uint32_t* widetext = new uint32_t[l+1];
-    memcpy(widetext, t, (l+1)*sizeof(uint32_t));
-    String* string = (String*)newcell(STRING);
-    string->text = (char*)widetext;
-    string->tags[2] = 2;
-    return (sexp) string;
-}
-
-sexp widestring(const std::vector<uint32_t> s)
-{
-    uint32_t* widetext = new uint32_t[s.size()];
-    for (int i = 0; i < s.size(); ++i)
-        widetext[i] = s[i];
-    String* string = (String*)newcell(STRING);
-    string->text = (char*)widetext;
-    string->tags[2] = 2;
-    return (sexp) string;
-}
-
 // create a string (s does not need to be deleted)
 sexp stastring(const char* s)
 {
@@ -1551,6 +1528,40 @@ sexp staintern(const char *s)
     Atom* a = (Atom*)newcell(ATOM, cons(0, cons(stastring(s), 0)));
     atoms = cons((sexp)a, atoms);
     return (sexp)a;
+}
+
+uint32_t* widecpy(uint32_t* dst, const uint32_t* src)
+{
+    uint32_t* r = dst;
+    while (*src)
+        *dst++ = *src++;
+    return r;
+}
+
+// create a ucs string
+sexp widestring(const uint32_t* t)
+{
+    int l = 0;
+    for (const uint32_t* p = t; *p; ++p)
+        ++l;
+    uint32_t* widetext = new uint32_t[l+1];
+    widecpy(widetext, t);
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)widetext;
+    string->tags[2] = 2;
+    return (sexp) string;
+}
+
+// create a ucs string
+sexp widestring(const std::vector<uint32_t> s)
+{
+    uint32_t* widetext = new uint32_t[s.size()];
+    for (int i = 0; i < s.size(); ++i)
+        widetext[i] = s[i];
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)widetext;
+    string->tags[2] = 2;
+    return (sexp) string;
 }
 
 // number->string
@@ -1598,7 +1609,7 @@ sexp string_copy(sexp s)
     if (isWide(string)) {
         int l = stringlen(string);
         uint32_t *widetext = new uint32_t[l+1];
-        memcpy(widetext, string->text, (l+1)*sizeof(uint32_t));
+        widecpy(widetext, (uint32_t*)string->text);
         return widestring(widetext);
     } else
         return dynstring(strsave(stringText(s)));
@@ -1616,21 +1627,15 @@ sexp string_append(sexp p, sexp q)
         int i = 0;
         uint32_t* b = new uint32_t[pl+ql+1];
         if (isWide((String*)p))
-        {
-            uint32_t* r = (uint32_t*)((String*)p)->text;
-            while (*r)
-                b[i++] = *r++;
-        } else {
+            widecpy(b, (uint32_t*)((String*)p)->text);
+        else {
             char* r = ((String*)p)->text;
             while (*r)
                 b[i++] = *r++;
         }
         if (isWide((String*)q))
-        {
-            uint32_t* r = (uint32_t*)((String*)q)->text;
-            while (*r)
-                b[i++] = *r++;
-        } else {
+            widecpy(b+pl, (uint32_t*)((String*)q)->text);
+        else {
             char* r = ((String*)q)->text;
             while (*r)
                 b[i++] = *r++;
@@ -3628,6 +3633,30 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
     return c;
 }
 
+static const u_int32_t offsetsFromUTF8[6] =
+{
+    0x00000000UL, 0x00003080UL, 0x000E2080UL,
+    0x03C82080UL, 0xFA082080UL, 0x82082080UL
+};
+
+uint32_t read_utf8(std::istream& fin)
+{
+    uint32_t ch = 0;
+    int ci, sz = 0;
+
+    do {
+        ch <<= 6;
+        ch += (unsigned char)fin.get();
+        ci = fin.get();
+        if (ci < 0)
+            return -1;
+        ++sz;
+    } while ((((unsigned char)ci) & 0xc0) == 0x80);
+    ch -= offsetsFromUTF8[sz-1];
+    fin.unget();
+    return ch;
+}
+
 /*
  * read an atom, number or string from the input stream
  */
@@ -3758,6 +3787,7 @@ sexp scans(std::istream& fin)
 
     if ('"' != c)
     {
+        // read an atom
         (void)fin.get();
         while (0 <= c && !strchr("( )[,]\t\r\n", c))
             c = accept(s, fin, c);
@@ -3765,6 +3795,7 @@ sexp scans(std::istream& fin)
         return dynintern(strsave(s.str().c_str()));
     }
 
+    // read a string
     (void)fin.get();
     c = fin.get();
     std::vector<uint32_t> string;
@@ -3773,7 +3804,7 @@ sexp scans(std::istream& fin)
     {
         if ('\\' == c)
         {
-            c = fin.get();
+            c = read_utf8(fin);
             if ('x' == c)
             {
                 int x = 0;
@@ -3792,21 +3823,21 @@ sexp scans(std::istream& fin)
                     ascii = false;
                 string.push_back(x);
                 if (';' == c)
-                    c = fin.get();
+                    c = read_utf8(fin);
                 if (0 < c && '"' != c)
                 {
                     string.push_back(c);
-                    c = fin.get();
+                    c = read_utf8(fin);
                 }
             } else if (0 <= c && !strchr("( )[,]\t\r\n", c)) {
                 string.push_back(decodeEscape(c));
-                c = fin.get();
+                c = read_utf8(fin);
             } else
                 while (0 <= c && strchr("( )[,]\t\r\n", c))
-                    c = fin.get();
+                    c = read_utf8(fin);
         } else {
             string.push_back(c);
-            c = fin.get();
+            c = read_utf8(fin);
         }
     }
     if (ascii)
