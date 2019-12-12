@@ -373,20 +373,16 @@ void mark(sexp p)
     if (!p || isMarked(p))
         return;
 
-    if (isCons(p))
-    {
+    if (isCons(p)) {
         sexp q = p->cdr;
         sexp r = p->car;
         markCell(p);
         mark(q);
         mark(r);
         return;
-    }
-
-    switch (((Stags*)p)->stags)
-    {
-    case ATOM:   mark(((Atom*)p)->body);     break;
-    case VECTOR:
+    } else if (isAtom(p)) {
+        mark(((Atom*)p)->body);
+    } else if (isVector(p)) {
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
     }
@@ -416,7 +412,15 @@ static void deletebignum(sexp n) { delete ((Bignum*)n)->nump; }
 
 static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 
-static void deletestring(sexp s) { if (((String*)s)->tags[1]) delete ((String*)s)->text; }
+// String.tags[2] == 0 ==> immutable ascii string
+// String.tags[2] == 1 ==> mutable ascii string
+// String.tags[2] == 2 ==> mutable uint32_t string
+
+static inline bool isWide(String *s) { return 2 == s->tags[2]; }
+static inline bool isMutable(String *s) { return 0 != s->tags[2]; }
+
+static void deletestring(sexp s) { if (isMutable((String*)s)) delete ((String*)s)->text; }
+
 
 /*
  * mark all reachable cells
@@ -1417,15 +1421,38 @@ sexp symbolp(sexp x) { return boolwrap(isAtom(x)); }
 // procedure?
 sexp procedurep(sexp p) { return boolwrap(isFunct(p) || isClosure(p)); }
 
+int stringlen(String *s)
+{
+    if (isWide(s)) {
+        int len = 0;
+        uint32_t* p = (uint32_t*)s->text;
+        while (*p++)
+            ++len;
+        return len;
+    } else
+        return strlen(s->text);
+}
+
 // string-length
-sexp string_length(sexp s) { assertString(s); return newfixnum(strlen(((String*)s)->text)); }
+sexp string_length(sexp s)
+{
+    assertString(s);
+    return newfixnum(stringlen((String*)s));
+}
 
 // index a character in a string
 char* sref(sexp s, int i)
 {
-    char* text = ((String*)s)->text;
-    if (0 <= i && i < strlen(text))
-        return text + i;
+    String* string = (String*)s;
+    int len = stringlen(string);
+    if (isWide(string)) {
+        if (0 <= i && i < len)
+            return (char*) ((uint32_t*)string->text) + i;
+    } else {
+        char* text = ((String*)s)->text;
+        if (0 <= i && i < len)
+            return text + i;
+    }
     return 0;
 }
 
@@ -1452,7 +1479,31 @@ sexp dynstring(const char* s)
 {
     String* string = (String*)newcell(STRING);
     string->text = (char*)s;
-    string->tags[1] = 1;
+    string->tags[2] = 1;
+    return (sexp) string;
+}
+
+sexp widestring(const uint32_t* t)
+{
+    int l = 0;
+    for (const uint32_t* p = t; *p; ++p)
+        ++l;
+    uint32_t* widetext = new uint32_t[l+1];
+    memcpy(widetext, t, (l+1)*sizeof(uint32_t));
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)widetext;
+    string->tags[2] = 2;
+    return (sexp) string;
+}
+
+sexp widestring(const std::vector<uint32_t> s)
+{
+    uint32_t* widetext = new uint32_t[s.size()];
+    for (int i = 0; i < s.size(); ++i)
+        widetext[i] = s[i];
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)widetext;
+    string->tags[2] = 2;
     return (sexp) string;
 }
 
@@ -1520,19 +1571,37 @@ sexp make_string(sexp args)
     int l = asFixnum(args->car);
     int c = args->cdr && isChar(args->cdr->car) ?
                   ((Char*)(args->cdr->car))->ch : ' ';
-    char *b = new char[l+1];
-    char *q = b;
-    for (int i = 0; i < l; ++i)
-        *q++ = c;
-    *q++ = 0;
-    return dynstring(b);
+
+    if (c > 0x7f)
+    {
+        uint32_t *b = new uint32_t[l+1];
+        uint32_t *q = b;
+        for (int i = 0; i < l; ++i)
+            *q++ = c;
+        *q++ = 0;
+        return widestring(b);
+    } else {
+        char *b = new char[l+1];
+        char *q = b;
+        for (int i = 0; i < l; ++i)
+            *q++ = c;
+        *q++ = 0;
+        return dynstring(b);
+    }
 }
 
 // string-copy
 sexp string_copy(sexp s)
 {
     assertString(s);
-    return dynstring(strsave(stringText(s)));
+    String* string = (String*)s;
+    if (isWide(string)) {
+        int l = stringlen(string);
+        uint32_t *widetext = new uint32_t[l+1];
+        memcpy(widetext, string->text, (l+1)*sizeof(uint32_t));
+        return widestring(widetext);
+    } else
+        return dynstring(strsave(stringText(s)));
 }
 
 // string-append
@@ -1540,12 +1609,40 @@ sexp string_append(sexp p, sexp q)
 {
     assertString(p);
     assertString(q);
-    int pl = strlen(((String*)p)->text);
-    int ql = strlen(((String*)q)->text);
-    char *b = new char[pl+ql+1];
-    strcpy(b,    ((String*)p)->text);
-    strcpy(b+pl, ((String*)q)->text);
-    return dynstring(b);
+    int pl = stringlen((String*)p);
+    int ql = stringlen((String*)q);
+    if (isWide((String*)p) || isWide((String*)q))
+    {
+        int i = 0;
+        uint32_t* b = new uint32_t[pl+ql+1];
+        if (isWide((String*)p))
+        {
+            uint32_t* r = (uint32_t*)((String*)p)->text;
+            while (*r)
+                b[i++] = *r++;
+        } else {
+            char* r = ((String*)p)->text;
+            while (*r)
+                b[i++] = *r++;
+        }
+        if (isWide((String*)q))
+        {
+            uint32_t* r = (uint32_t*)((String*)q)->text;
+            while (*r)
+                b[i++] = *r++;
+        } else {
+            char* r = ((String*)q)->text;
+            while (*r)
+                b[i++] = *r++;
+        }
+        b[i++] = 0;
+        return widestring(b);
+    } else {
+        char *b = new char[pl+ql+1];
+        strcpy(b,    ((String*)p)->text);
+        strcpy(b+pl, ((String*)q)->text);
+        return dynstring(b);
+    }
 }
 
 // string-fill
@@ -1554,10 +1651,22 @@ sexp string_fill(sexp s, sexp c)
     assertChar(c);
     assertString(s);
 
-    int k = ((Char*)c)->ch;
-    int l = strlen(((String*)s)->text);
-    for (int i = 0; i < l; ++i)
-        ((String*)s)->text[i] = k;
+    String* string = (String*)s;
+    if (!isMutable(string))
+        error("string-fill!: immutable string");
+    if (isWide(string))
+    {
+        uint32_t k = ((Char*)c)->ch;
+        uint32_t* p = (uint32_t*)string->text;
+        while (*p)
+            *p++ = k;
+    } else {
+        char k = ((Char*)c)->ch;
+        char* p = string->text;
+        while (*p)
+            *p++ = k;
+    }
+
     return s;
 }
 
@@ -2053,11 +2162,16 @@ sexp string_ref(sexp s, sexp i)
     assertString(s);
     assertFixnum(i);
 
-    char* p = stringText(s) + asFixnum(i);
-    if (!p)
+    String* string = (String*)s;
+    int len = stringlen(string);
+    int ind = asFixnum(i);
+    if (0 <= ind && ind < len)
+        if (isWide(string))
+            return newcharacter(((uint32_t*)string->text)[ind]);
+        else
+            return newcharacter(string->text[ind]);
+    else
         error("string-ref: out of bounds");
-
-    return newcharacter(*p);
 }
 
 // string-set!
@@ -2067,11 +2181,21 @@ sexp string_set(sexp s, sexp k, sexp c)
     assertFixnum(k);
     assertChar(c);
 
-    char* p = stringText(s) + asFixnum(k);
-    if (!p)
+    String* string = (String*)s;
+    if (!isMutable(string))
+        error("string-set!: immutable string");
+
+    int len = stringlen(string);
+    int ind = asFixnum(k);
+    if (ind < 0 || len <= ind)
         error("string-set!: out of bounds");
 
-    *p = ((Char*)c)->ch;
+    if (isWide(string))
+    {
+        uint32_t* p = (uint32_t*)string->text;
+        p[ind] = ((Char*)c)->ch;
+    } else
+        string->text[asFixnum(k)] = ((Char*)c)->ch;
 
     return s;
 }
@@ -2083,24 +2207,33 @@ sexp substringf(sexp args)
         error("substring: no string");
 
     sexp s = args->car;
-    char* text = stringText(s);
 
     if (!(args = args->cdr) || !isFixnum(args->car))
         error("substring: bad start index");
 
     int i = asFixnum(args->car);
-    int j = strlen(text);
+    String* string = (String*)s;
+    int j = stringlen(string);
 
     if ((args = args->cdr) && isFixnum(args->car))
         j = asFixnum(args->car);
 
-    if (i < 0 || j <= i)
+    if (i < 0 || j < i)
         error("substring: start negative or end before start");
 
-    char* b = new char[j-i+1];
-    strncpy(b, text+i, j-i);
-    b[j-i] = 0;
-    return dynstring(b);
+    if (isWide(string)) {
+        uint32_t* b = new uint32_t[j-i+1];
+        uint32_t* t = (uint32_t*)string->text;
+        for (int k = 0; k <= j-i; ++k)
+            b[k] = t[i+k];
+        b[j-i] = 0;
+        return widestring(b);
+    } else {
+        char* b = new char[j-i+1];
+        strncpy(b, string->text+i, j-i);
+        b[j-i] = 0;
+        return dynstring(b);
+    }
 }
 
 sexp append(sexp p, sexp q)
@@ -2411,6 +2544,72 @@ const char * const character_table[] =
     "\040space",     "\177del", 0
 };
 
+int u8_wc_toutf8(char *dest, u_int32_t ch)
+{
+    if (ch < 0x80) {
+        dest[0] = (char)ch;
+        return 1;
+    }
+    if (ch < 0x800) {
+        dest[0] = (ch>>6) | 0xC0;
+        dest[1] = (ch & 0x3F) | 0x80;
+        return 2;
+    }
+    if (ch < 0x10000) {
+        dest[0] = (ch>>12) | 0xE0;
+        dest[1] = ((ch>>6) & 0x3F) | 0x80;
+        dest[2] = (ch & 0x3F) | 0x80;
+        return 3;
+    }
+    if (ch < 0x110000) {
+        dest[0] = (ch>>18) | 0xF0;
+        dest[1] = ((ch>>12) & 0x3F) | 0x80;
+        dest[2] = ((ch>>6) & 0x3F) | 0x80;
+        dest[3] = (ch & 0x3F) | 0x80;
+        return 4;
+    }
+    return 0;
+}
+
+void displayChar(Context& context, sexp exp)
+{
+    char buf[8];
+    int c = ((Char*)exp)->ch;
+    for (int i = 0; character_table[i]; ++i)
+        if (c == *character_table[i]) {
+            context.s << "#\\" << 1+character_table[i];
+            return;
+        }
+    buf[u8_wc_toutf8(buf, ((Char*)exp)->ch)] = 0;
+    context.s << "#\\" << buf;
+}
+
+void displayString(Context& context, sexp exp)
+{
+    char buf[8];
+    if (context.write)
+        context.s << '"';
+    String* string = (String*)exp;
+    if (isWide(string))
+        for (uint32_t* p = (uint32_t*)string->text; *p; ++p)
+            if (context.write && strchr("\007\b\t\n\r\"\\", *p))
+                context.s << '\\' << encodeEscape(*p);
+            else {
+                buf[u8_wc_toutf8(buf, *p)] = 0;
+                context.s << buf;
+            }
+    else
+        for (char* p = stringText(exp); *p; ++p)
+            if (context.write && strchr("\007\b\t\n\r\"\\", *p))
+                context.s << '\\' << encodeEscape(*p);
+            else {
+                buf[u8_wc_toutf8(buf, *p)] = 0;
+                context.s << buf;
+            }
+    if (context.write)
+        context.s << '"';
+}
+
 void displayAtom(Context& context, sexp exp)
 {
     if (context.write && voida == exp) {
@@ -2424,19 +2623,6 @@ void displayAtom(Context& context, sexp exp)
     }
 }
 
-void displayString(Context& context, sexp exp)
-{
-    if (context.write)
-        context.s << '"';
-    for (char* p = stringText(exp); *p; ++p)
-        if (context.write && strchr("\007\b\t\n\r\"\\", *p))
-            context.s << '\\' << encodeEscape(*p);
-        else
-            context.s << *p;
-    if (context.write)
-        context.s << '"';
-}
-
 void displayNamed(Context& context, const char *kind, sexp exp)
 {
     context.s << "#<" << kind << '@';
@@ -2448,17 +2634,6 @@ void displayNamed(Context& context, const char *kind, sexp exp)
             return;
         }
     context.s << std::hex << (void*)exp << std::dec << '>';
-}
-
-void displayChar(Context& context, sexp exp)
-{
-    int c = ((Char*)exp)->ch;
-    for (int i = 0; character_table[i]; ++i)
-        if (c == *character_table[i]) {
-            context.s << "#\\" << 1+character_table[i];
-            return;
-        }
-    context.s << "#\\" << (char)((Char*)exp)->ch;
 }
 
 void displayBignum(Context& context, sexp exp)
@@ -2636,15 +2811,28 @@ sexp string_number(sexp exp)
 // string->list
 sexp string_list(sexp x)
 {
-    assertString(x);
-    char* q = stringText(x);
-    char* r = q + strlen(q);
     sexp* mark = psp;
-    sexp p = save(0);
-    do
-        p = replace(cons(save(newcharacter(*--r)), p));
-    while (q != r);
-    return lose(mark, p);
+    assertString(x);
+    String* string = (String*)x;
+    if (isWide(string))
+    {
+        uint32_t* q = (uint32_t*)string->text;
+        uint32_t* r = q;
+        while (*r++) {}
+        sexp p = save(0);
+        do
+            p = replace(cons(save(newcharacter(*--r)), p));
+        while (q != r);
+        return lose(mark, p);
+    } else {
+        char* q = stringText(x);
+        char* r = q + strlen(q);
+        sexp p = save(0);
+        do
+            p = replace(cons(save(newcharacter(*--r)), p));
+        while (q != r);
+        return lose(mark, p);
+    }
 }
 
 // list->string
@@ -2654,16 +2842,29 @@ sexp list_string(sexp s)
         return newcell(STRING, 0);
 
     int i = 0;
+    bool ascii = true;
     for (sexp p = s; p; p = p->cdr)
+    {
+        if (0x7f < ((Char*)(p->car))->ch)
+            ascii = false;
         ++i;
+    }
 
-    char* b = new char[i+1];
-    char* q = b;
-    for (sexp p = s; p; p = p->cdr)
-        *q++ = ((Char*)(p->car))->ch;
-    *q++ = 0;
-
-    return dynstring(b);
+    if (ascii) {
+        char* b = new char[i+1];
+        char* q = b;
+        for (sexp p = s; p; p = p->cdr)
+            *q++ = ((Char*)(p->car))->ch;
+        *q++ = 0;
+        return dynstring(b);
+    } else {
+        uint32_t* b = new uint32_t[i+1];
+        uint32_t* q = b;
+        for (sexp p = s; p; p = p->cdr)
+            *q++ = ((Char*)(p->car))->ch;
+        *q++ = 0;
+        return widestring(b);
+    }
 }
 
 // string
@@ -3566,9 +3767,57 @@ sexp scans(std::istream& fin)
 
     (void)fin.get();
     c = fin.get();
+    std::vector<uint32_t> string;
+    bool ascii = true;
     while (0 <= c && c != '"')
-        c = accept(s, fin, c);
-    return dynstring(strsave(s.str().c_str()));
+    {
+        if ('\\' == c)
+        {
+            c = fin.get();
+            if ('x' == c)
+            {
+                int x = 0;
+                c = fin.get();
+                while (0 <= c && isxdigit(c))
+                {
+                    if (isdigit(c))
+                        x = x << 4 | (c - '0');
+                    else if (islower(c))
+                        x = x << 4 | (c - 'a');
+                    else
+                        x = x << 4 | (c - 'A');
+                    c = fin.get();
+                }
+                if (0x7f < x)
+                    ascii = false;
+                string.push_back(x);
+                if (';' == c)
+                    c = fin.get();
+                if (0 < c && '"' != c)
+                {
+                    string.push_back(c);
+                    c = fin.get();
+                }
+            } else if (0 <= c && !strchr("( )[,]\t\r\n", c)) {
+                string.push_back(decodeEscape(c));
+                c = fin.get();
+            } else
+                while (0 <= c && strchr("( )[,]\t\r\n", c))
+                    c = fin.get();
+        } else {
+            string.push_back(c);
+            c = fin.get();
+        }
+    }
+    if (ascii)
+    {
+        for (uint32_t wc : string)
+            s.put(wc);
+        return dynstring(strsave(s.str().c_str()));
+    } else {
+        string.push_back(0);
+        return widestring(string);
+    }
 }
 
 // stub to enable tracing of scans()
