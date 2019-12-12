@@ -416,7 +416,9 @@ static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 // String.tags[2] == 0 ==> immutable ascii string
 // String.tags[2] == 1 ==> mutable ascii string
 // String.tags[2] == 2 ==> mutable uint32_t string
+// String.tags[2] == 3 ==> mutable utf8 string
 
+static inline bool isUTF8(String *s) { return 3 == s->tags[2]; }
 static inline bool isWide(String *s) { return 2 == s->tags[2]; }
 static inline bool isMutable(String *s) { return 0 != s->tags[2]; }
 
@@ -886,17 +888,6 @@ sexp lcm(sexp x, sexp y)
     Num l = (xb / g) * (yb / g);
     return bignumResult(l);
 }
-
-/*
- * complex > rational > bignum > fixnum
- * 
- * if either argument is a flonum
- *     convert the other to a flonum
- * else
- *     convert the lower argument to the higher type
- *
- * sum diff product quotient moduloff remainderff
- */
 
 // x + y
 sexp sum(sexp x, sexp y)
@@ -1441,22 +1432,6 @@ sexp string_length(sexp s)
     return newfixnum(stringlen((String*)s));
 }
 
-// index a character in a string
-char* sref(sexp s, int i)
-{
-    String* string = (String*)s;
-    int len = stringlen(string);
-    if (isWide(string)) {
-        if (0 <= i && i < len)
-            return (char*) ((uint32_t*)string->text) + i;
-    } else {
-        char* text = ((String*)s)->text;
-        if (0 <= i && i < len)
-            return text + i;
-    }
-    return 0;
-}
-
 const char * const escapes[] = { "\007a", "\010b", "\011t", "\012n", "\015r", "\"\"", "\\\\", 0 };
 
 char decodeEscape(char c)
@@ -1484,6 +1459,15 @@ sexp dynstring(const char* s)
     return (sexp) string;
 }
 
+// this string was probably written by write or display
+sexp utfstring(const char* s)
+{
+    String* string = (String*)newcell(STRING);
+    string->text = (char*)s;
+    string->tags[2] = 3;
+    return (sexp) string;
+}
+
 // create a string (s does not need to be deleted)
 sexp stastring(const char* s)
 {
@@ -1508,7 +1492,6 @@ static inline char* atomText(sexp s)
 }
 
 // every atom must be unique and saved in the atoms list
-// these atoms are made from a "..." string
 sexp dynintern(const char *s)
 {
     for (sexp q = atoms; q; q = q->cdr)
@@ -1519,7 +1502,7 @@ sexp dynintern(const char *s)
     return (sexp)a;
 }
 
-// these atoms are made from a strsave string
+// these atoms are made from a string constant
 sexp staintern(const char *s)
 {
     for (sexp q = atoms; q; q = q->cdr)
@@ -1530,6 +1513,7 @@ sexp staintern(const char *s)
     return (sexp)a;
 }
 
+// strcpy for ucs strings
 uint32_t* widecpy(uint32_t* dst, const uint32_t* src)
 {
     uint32_t* r = dst;
@@ -1570,7 +1554,7 @@ sexp number_string(sexp exp)
     Context context(0, true, false);
     mapCycles(context, exp);
     display(context, exp, 0);
-    return dynstring(strsave(context.s.str().c_str()));
+    return utfstring(strsave(context.s.str().c_str()));
 }
 
 // make-string
@@ -1791,7 +1775,7 @@ sexp get_output_string(sexp port)
     assertOutPort(port);
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    return dynstring(strsave(ss->str().c_str()));
+    return utfstring(strsave(ss->str().c_str()));
 }
 
 // open-output-string
@@ -1840,7 +1824,7 @@ sexp write_to_string(sexp args)
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
-    return dynstring(strsave(context.s.str().substr(0, limit).c_str()));
+    return utfstring(strsave(context.s.str().substr(0, limit).c_str()));
 }
 
 // vector?
@@ -1953,7 +1937,7 @@ sexp vector_set(sexp vector, sexp index, sexp value)
     return voida;
 }
 
-// all of these need to be made utf8
+// these only work on ascii data
 
 // char-alphabetic?
 sexp char_alphabeticp(sexp c) { return boolwrap(isChar(c) && isalpha(((Char*)c)->ch)); }
@@ -2131,6 +2115,8 @@ sexp write_char(sexp args)
     return voida;
 }
 
+// these only work on ascii data
+
 // string<=?
 sexp string_lep(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) <= 0); }
 
@@ -2254,7 +2240,7 @@ sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = 
 // eq?
 sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
 
-// =
+// = numeric equality
 sexp eqnp(sexp x, sexp y)
 {
     if (isRational(x) && isRational(y))
@@ -2487,7 +2473,7 @@ bool cyclic(std::set<sexp>& seenSet, sexp exp)
 // cyclic?
 sexp cyclicp(sexp x) { std::set<sexp> seenSet; return boolwrap(cyclic(seenSet, x)); }
 
-// for prettyprinting
+// for prettyprinting (we should be counting code points)
 int displayLength(sexp exp)
 {
     Context context(0, true, false);
@@ -2614,6 +2600,8 @@ void displayString(Context& context, sexp exp)
     if (context.write)
         context.s << '"';
 }
+
+// atoms are not yet utf8
 
 void displayAtom(Context& context, sexp exp)
 {
@@ -2772,7 +2760,6 @@ void display(Context& context, sexp exp, int level)
     case RATIONAL: displayRational(context, exp);           break;
     case VECTOR:   displayVector(context, exp, level);
     }
-    return;
 }
 
 void debug(const char *what, sexp exp)
@@ -3079,17 +3066,17 @@ sexp evlis(sexp p, sexp env)
 }
 
 // associate a list of formal parameters and actual parameters in an environment
-sexp assoc(sexp formals, sexp actuals, sexp env)
+sexp assoc(sexp names, sexp values, sexp env)
 {
     sexp* mark = psp;
-    save(actuals, formals, env);
-    if (!isCons(formals))
-        return lose(mark, cons(save(cons(formals, actuals)), env));
-    if (!actuals)
-        return lose(mark, cons(save(cons(formals->car, voida)),
-                               save(assoc(formals->cdr, actuals, env))));
-    return lose(mark, cons(save(cons(formals->car, actuals->car)),
-                           save(assoc(formals->cdr, actuals->cdr, env))));
+    save(values, names, env);
+    if (!isCons(names))
+        return lose(mark, cons(save(cons(names, values)), env));
+    if (!values)
+        return lose(mark, cons(save(cons(names->car, voida)),
+                               save(assoc(names->cdr, values, env))));
+    return lose(mark, cons(save(cons(names->car, values->car)),
+                           save(assoc(names->cdr, values->cdr, env))));
 }
 
 // environment
@@ -3649,7 +3636,7 @@ uint32_t read_utf8(std::istream& fin)
         ch += (unsigned char)fin.get();
         ci = fin.get();
         if (ci < 0)
-            return -1;
+            return -1L;
         ++sz;
     } while ((((unsigned char)ci) & 0xc0) == 0x80);
     ch -= offsetsFromUTF8[sz-1];
@@ -3744,7 +3731,8 @@ sexp scans(std::istream& fin)
         {
             std::string realdata = cdata.substr(0, split);
             int realdiv = realdata.find_first_of('/');
-            real = save(newrational(Num(realdata.substr(0,realdiv).c_str()), Num(realdata.substr(realdiv+1).c_str())));
+            real = save(newrational(Num(realdata.substr(0,realdiv).c_str()),
+                                    Num(realdata.substr(realdiv+1).c_str())));
         } else
             { double re; s >> re; real = save(newflonum(re)); }
 
@@ -3755,7 +3743,8 @@ sexp scans(std::istream& fin)
             std::string imagdata = cdata.substr(split+1);
             imagdata = imagdata.substr(0, imagdata.length()-1);
             int imagdiv = imagdata.find_first_of('/');
-            imag = save(newrational(Num(imagdata.substr(0,imagdiv).c_str()), Num(imagdata.substr(imagdiv+1).c_str())));
+            imag = save(newrational(Num(imagdata.substr(0,imagdiv).c_str()),
+                                    Num(imagdata.substr(imagdiv+1).c_str())));
         } else
             { double im; s >> im; imag = save(newflonum(im)); }
 
@@ -3768,7 +3757,8 @@ sexp scans(std::istream& fin)
         case '@':
             double r = isRational(real) ? asRational(real).to_double() : asFlonum(real);
             double theta = isRational(imag) ? asRational(imag).to_double() : asFlonum(imag);
-            return lose(mark, make_complex(save(newflonum(r * cos(theta))), save(newflonum(r * sin(theta)))));
+            return lose(mark, make_complex(save(newflonum(r * cos(theta))),
+                                           save(newflonum(r * sin(theta)))));
         }
     }
 
@@ -3780,74 +3770,73 @@ sexp scans(std::istream& fin)
         { double re; s >> re; return newflonum(re); }
     case RATIO:
         { std::string ratio; s >> ratio; int pos = ratio.find_first_of('/');
-          return newrational(Num(ratio.substr(0,pos).c_str()), Num(ratio.substr(pos+1).c_str())); }
+          return newrational(Num(ratio.substr(0,pos).c_str()),
+                             Num(ratio.substr(pos+1).c_str())); }
     default:
         break;
     }
 
-    if ('"' != c)
-    {
-        // read an atom
-        (void)fin.get();
+    (void)fin.get();
+    bool ascii = true;
+    std::vector<uint32_t> string;
+    if ('"' != c) {
+        // read an atom (not yet utf8)
         while (0 <= c && !strchr("( )[,]\t\r\n", c))
             c = accept(s, fin, c);
         fin.unget();
         return dynintern(strsave(s.str().c_str()));
-    }
-
-    // read a string
-    (void)fin.get();
-    c = fin.get();
-    std::vector<uint32_t> string;
-    bool ascii = true;
-    while (0 <= c && c != '"')
-    {
-        if ('\\' == c)
-        {
-            c = read_utf8(fin);
-            if ('x' == c)
-            {
-                int x = 0;
-                c = fin.get();
-                while (0 <= c && isxdigit(c))
-                {
-                    if (isdigit(c))
-                        x = x << 4 | (c - '0');
-                    else if (islower(c))
-                        x = x << 4 | (c - 'a');
-                    else
-                        x = x << 4 | (c - 'A');
-                    c = fin.get();
-                }
-                if (0x7f < x)
-                    ascii = false;
-                string.push_back(x);
-                if (';' == c)
-                    c = read_utf8(fin);
-                if (0 < c && '"' != c)
-                {
-                    string.push_back(c);
-                    c = read_utf8(fin);
-                }
-            } else if (0 <= c && !strchr("( )[,]\t\r\n", c)) {
-                string.push_back(decodeEscape(c));
-                c = read_utf8(fin);
-            } else
-                while (0 <= c && strchr("( )[,]\t\r\n", c))
-                    c = read_utf8(fin);
-        } else {
-            string.push_back(c);
-            c = read_utf8(fin);
-        }
-    }
-    if (ascii)
-    {
-        for (uint32_t wc : string)
-            s.put(wc);
-        return dynstring(strsave(s.str().c_str()));
     } else {
-        string.push_back(0);
-        return widestring(string);
+        // read a string (utf8)
+        c = fin.get();
+        while (0 <= c && c != '"')
+        {
+            if ('\\' == c)
+            {
+                c = read_utf8(fin);
+                if ('x' == c)
+                {
+                    int x = 0;
+                    c = fin.get();
+                    while (0 <= c && isxdigit(c))
+                    {
+                        if (isdigit(c))
+                            x = x << 4 | (c - '0');
+                        else if (islower(c))
+                            x = x << 4 | (c - 'a');
+                        else
+                            x = x << 4 | (c - 'A');
+                        c = fin.get();
+                    }
+                    if (0x7f < x)
+                        ascii = false;
+                    string.push_back(x);
+                    if (';' == c)
+                        c = read_utf8(fin);
+                    if (0 < c && '"' != c)
+                    {
+                        string.push_back(c);
+                        c = read_utf8(fin);
+                    }
+                } else if (0 <= c && !strchr("( )[,]\t\r\n", c)) {
+                    string.push_back(decodeEscape(c));
+                    c = read_utf8(fin);
+                } else
+                    while (0 <= c && strchr("( )[,]\t\r\n", c))
+                        c = read_utf8(fin);
+            } else {
+                string.push_back(c);
+                c = read_utf8(fin);
+            }
+        }
+        if (ascii)
+        {
+            for (uint32_t wc : string)
+                s.put(wc);
+            return dynstring(strsave(s.str().c_str()));
+        } else {
+            string.push_back(0);
+            return widestring(string);
+        }
     }
 }
 
@@ -4260,7 +4249,7 @@ int main(int argc, char **argv, char **envp)
         sexp* mark = psp;
         Funct* f = (Funct*)save(newcell(FUNCT));
         f->tags[2] = p->arity; f->funcp = p->funcp;
-        define(staintern(p->name), (sexp)f);
+        define_staintern_sexpr(p->name, (sexp)f);
         psp = mark;
     }
 
@@ -4269,7 +4258,7 @@ int main(int argc, char **argv, char **envp)
         sexp* mark = psp;
         Form* f = (Form*)save(newcell(FORM));
         f->formp = p->formp;
-        define(staintern(p->name), (sexp)f);
+        define_staintern_sexpr(p->name, (sexp)f);
         psp = mark;
     }
 
