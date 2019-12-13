@@ -51,7 +51,7 @@
  * otherwise the type is in the second byte
  * if bit 1 is set then it's marked
  *
- * vectors are stored on the regular heap new / delete
+ * vectors and strings are stored on the regular heap new / delete
  */
 enum Tag0 { CONS = 0, OTHER = 1, MARK = 2 };
 
@@ -1420,12 +1420,60 @@ sexp symbolp(sexp x) { return boolwrap(isAtom(x)); }
 // procedure?
 sexp procedurep(sexp p) { return boolwrap(isFunct(p) || isClosure(p)); }
 
+static const u_int32_t offsetsFromUTF8[6] =
+{
+    0x00000000UL, 0x00003080UL, 0x000E2080UL,
+    0x03C82080UL, 0xFA082080UL, 0x82082080UL
+};
+
+uint32_t read_utf8(std::istream& fin)
+{
+    uint32_t ch = 0;
+    int ci, sz = 0;
+
+    do {
+        ch <<= 6;
+        ch += (unsigned char)fin.get();
+        ci = fin.get();
+        if (ci < 0)
+            return -1L;
+        ++sz;
+    } while ((((unsigned char)ci) & 0xc0) == 0x80);
+    ch -= offsetsFromUTF8[sz-1];
+    fin.unget();
+    return ch;
+}
+
+uint32_t read_utf8(char*& p)
+{
+    uint32_t ch = 0;
+    int ci, sz = 0;
+
+    do {
+        ch <<= 6;
+        ch += (unsigned char)*p++;
+        ci = *p++;
+        if (ci == 0)
+            return 0L;
+        ++sz;
+    } while ((((unsigned char)ci) & 0xc0) == 0x80);
+    ch -= offsetsFromUTF8[sz-1];
+    --p;
+    return ch;
+}
+
 int stringlen(String *s)
 {
     if (isWide(s)) {
         int len = 0;
         uint32_t* p = (uint32_t*)s->text;
         while (*p++)
+            ++len;
+        return len;
+    } else if (isUTF8(s)) {
+        int len = 0;
+        char* p = s->text;
+        while (read_utf8(p))
             ++len;
         return len;
     } else
@@ -1529,6 +1577,14 @@ uint32_t* widecpy(uint32_t* dst, const uint32_t* src)
     return r;
 }
 
+// strcmp for ucs strings
+int widecmp(const uint32_t* s0, const uint32_t* s1)
+{
+    int r = 0;
+    while (*s0 && *s1 && (r = *s0++ - *s1++)) {}
+    return r;
+}
+
 // create a ucs string, text on heap
 sexp widestring(const uint32_t* text)
 {
@@ -1603,39 +1659,61 @@ sexp string_copy(sexp s)
         return dynstring(strsave(stringText(s)));
 }
 
-// string-append should be careful about utf8
+// string-append
 sexp string_append(sexp p, sexp q)
 {
     assertString(p);
     assertString(q);
-    int pl = stringlen((String*)p);
-    int ql = stringlen((String*)q);
-    if (isWide((String*)p) || isWide((String*)q))
+    String* ps = (String*)p;
+    String* qs = (String*)q;
+    int pl = stringlen(ps);
+    int ql = stringlen(qs);
+    if (isWide(ps) || isWide(qs))
     {
         int i = 0;
         uint32_t* b = new uint32_t[pl+ql+1];
-        if (isWide((String*)p))
-            widecpy(b, (uint32_t*)((String*)p)->text);
-        else {
-            char* r = ((String*)p)->text;
+        uint32_t* s = b;
+        if (isWide(ps)) {
+            widecpy(b, (uint32_t*)ps->text);
+        } else if (isUTF8(ps)) {
+            char* r = ps->text;
+            uint32_t wc;
+            while ((wc = read_utf8(r)))
+                *s++ = wc;
+        } else {
+            char* r = ps->text;
             while (*r)
                 b[i++] = *r++;
         }
-        if (isWide((String*)q))
-            widecpy(b+pl, (uint32_t*)((String*)q)->text);
-        else {
-            char* r = ((String*)q)->text;
+        if (isWide(qs)) {
+            widecpy(b+pl, (uint32_t*)qs->text);
+        } else if (isUTF8(qs)) {
+            char* r = qs->text;
+            uint32_t wc;
+            while ((wc = read_utf8(r)))
+                *s++ = wc;
+            *s++ = 0;
+        } else {
+            char* r = qs->text;
             while (*r)
                 b[i++] = *r++;
         }
         b[i++] = 0;
         return widestring(b);
-    } else {
+    } else if (isUTF8(ps) && isUTF8(qs)) {
+        pl = strlen(ps->text);
+        ql = strlen(qs->text);
+        char *b = new char[pl+ql+1];
+        strcpy(b,    ((String*)p)->text);
+        strcpy(b+pl, ((String*)q)->text);
+        return utfstring(b);
+    } else if (!isUTF8(ps) && !isUTF8(qs)) {
         char *b = new char[pl+ql+1];
         strcpy(b,    ((String*)p)->text);
         strcpy(b+pl, ((String*)q)->text);
         return dynstring(b);
-    }
+    } else
+        error("utf8 not complete");
 }
 
 // string-fill
@@ -2152,7 +2230,7 @@ sexp string_cigep(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), st
 // string-ci>?
 sexp string_cigtp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) >  0); }
 
-// string-ref does not yet work on utf8 strings
+// string-ref
 sexp string_ref(sexp s, sexp i)
 {
     assertString(s);
@@ -2161,16 +2239,50 @@ sexp string_ref(sexp s, sexp i)
     String* string = (String*)s;
     int len = stringlen(string);
     int ind = asFixnum(i);
-    if (0 <= ind && ind < len)
+    if (0 <= ind && ind < len) {
         if (isWide(string))
             return newcharacter(((uint32_t*)string->text)[ind]);
-        else
+        else if (isUTF8(string)) {
+            int ix = 0;
+            uint32_t wc;
+            for (char* p = string->text; wc = read_utf8(p); ++ix)
+                if (ind == ix)
+                    return newcharacter(wc);
+        } else
             return newcharacter(string->text[ind]);
-    else
-        error("string-ref: out of bounds");
+    }
+    error("string-ref: out of bounds");
 }
 
-// string-set! does not yet work on utf8 strings
+int encodeUTF8(char *p, uint32_t ch)
+{
+    char* q = p;
+    if (ch < 0x80) {
+        *q++ = (char)ch;
+    } else if (ch < 0x800) {
+        *q++ = (ch>>6) | 0xC0;
+        *q++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x10000) {
+        *q++ = (ch>>12) | 0xE0;
+        *q++ = ((ch>>6) & 0x3F) | 0x80;
+        *q++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x110000) {
+        *q++ = (ch>>18) | 0xF0;
+        *q++ = ((ch>>12) & 0x3F) | 0x80;
+        *q++ = ((ch>>6) & 0x3F) | 0x80;
+        *q++ = (ch & 0x3F) | 0x80;
+    }
+    *q++ = 0;
+    return q-p;
+}
+
+int encodedLength(uint32_t ch)
+{
+    char b[8];
+    return encodeUTF8(b, ch);
+}
+
+// string-set!
 sexp string_set(sexp s, sexp k, sexp c)
 {
     assertString(s);
@@ -2186,10 +2298,21 @@ sexp string_set(sexp s, sexp k, sexp c)
     if (ind < 0 || len <= ind)
         error("string-set!: out of bounds");
 
-    if (isWide(string))
-    {
+    if (isWide(string)) {
         uint32_t* p = (uint32_t*)string->text;
         p[ind] = ((Char*)c)->ch;
+    } else if (isUTF8(string)) {
+        int ix = 0;
+        uint32_t wc;
+        int el = encodedLength(((Char*)c)->ch);
+        for (char* p = string->text; wc = read_utf8(p); ++ix)
+            if (ind == ix)
+                if (encodedLength(wc) == el) {
+                    unsigned char sp = *p;
+                    encodeUTF8(p-el, ((Char*)c)->ch);
+                    *p = sp;
+                } else
+                    error("utf8 not complete");
     } else
         string->text[asFixnum(k)] = ((Char*)c)->ch;
 
@@ -2224,6 +2347,12 @@ sexp substringf(sexp args)
             b[k] = t[i+k];
         b[j-i] = 0;
         return widestring(b);
+    } else if (isUTF8(string)) {
+        int ix = 0;
+        uint32_t wc;
+        for (char* p = string->text; wc = read_utf8(p); ++ix)
+            if (i <= ix && ix < j)
+                error("utf8 incomplete");
     } else {
         char* b = new char[j-i+1];
         strncpy(b, string->text+i, j-i);
@@ -2544,26 +2673,6 @@ const char * const character_table[] =
     "\040space",     "\177del", 0
 };
 
-void encodeUTF8(char *p, u_int32_t ch)
-{
-    if (ch < 0x80) {
-        *p++ = (char)ch;
-    } else if (ch < 0x800) {
-        *p++ = (ch>>6) | 0xC0;
-        *p++ = (ch & 0x3F) | 0x80;
-    } else if (ch < 0x10000) {
-        *p++ = (ch>>12) | 0xE0;
-        *p++ = ((ch>>6) & 0x3F) | 0x80;
-        *p++ = (ch & 0x3F) | 0x80;
-    } else if (ch < 0x110000) {
-        *p++ = (ch>>18) | 0xF0;
-        *p++ = ((ch>>12) & 0x3F) | 0x80;
-        *p++ = ((ch>>6) & 0x3F) | 0x80;
-        *p++ = (ch & 0x3F) | 0x80;
-    }
-    *p++ = 0;
-}
-
 void displayChar(Context& context, sexp exp)
 {
     char buf[8];
@@ -2820,6 +2929,14 @@ sexp string_list(sexp x)
             p = replace(cons(save(newcharacter(*--r)), p));
         while (q != r);
         return lose(mark, p);
+    } else if (isUTF8(string)) {
+        char* r = string->text;
+        uint32_t wc;
+        sexp p = save(0);
+        while ((wc = read_utf8(r)))
+            p = replace(cons(save(newcharacter(wc)), p));
+        p = reverse(p);
+        return lose(mark, reverse(p));
     } else {
         char* q = stringText(x);
         char* r = q + strlen(q);
@@ -2907,7 +3024,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     {
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
     case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
-    case STRING:   return 0 == strcmp(stringText(x), stringText(y));
+    case STRING:   return 0 == strcmp(stringText(x), stringText(y));    // UTF8
     case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
     case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
     case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
@@ -3618,30 +3735,6 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
 
     fin.unget();
     return c;
-}
-
-static const u_int32_t offsetsFromUTF8[6] =
-{
-    0x00000000UL, 0x00003080UL, 0x000E2080UL,
-    0x03C82080UL, 0xFA082080UL, 0x82082080UL
-};
-
-uint32_t read_utf8(std::istream& fin)
-{
-    uint32_t ch = 0;
-    int ci, sz = 0;
-
-    do {
-        ch <<= 6;
-        ch += (unsigned char)fin.get();
-        ci = fin.get();
-        if (ci < 0)
-            return -1L;
-        ++sz;
-    } while ((((unsigned char)ci) & 0xc0) == 0x80);
-    ch -= offsetsFromUTF8[sz-1];
-    fin.unget();
-    return ch;
 }
 
 /*

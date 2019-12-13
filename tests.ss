@@ -65,6 +65,8 @@
              (newline)
              (set! i (+ i 64)))))
 
+;; (with-output-to-file "chartable" (lambda () (chars (hexin "10000"))))
+
 (define bbbbb '(b))
 (define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
 (set-cdr! (cddddr aaaaa) aaaaa)
@@ -333,4 +335,3 @@
 (test #t)
 
 (display "tests complete.") (newline)
-
