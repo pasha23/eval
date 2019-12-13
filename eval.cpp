@@ -59,18 +59,17 @@ enum Tag1
 {
     ATOM     = 0x0001,
     STRING   = 0x0101,
-    CHUNK    = 0x0201,
-    FORM     = 0x0301,
-    FIXNUM   = 0x0401,
-    FUNCT    = 0x0501,
-    FLOAT    = 0x0601,
-    DOUBLE   = 0x0701,
-    CHAR     = 0x0801,
-    INPORT   = 0x0901,
-    OUTPORT  = 0x0A01,
-    VECTOR   = 0x0B01,
-    BIGNUM   = 0x0C01,
-    RATIONAL = 0x0D01
+    FORM     = 0x0201,
+    FIXNUM   = 0x0301,
+    FUNCT    = 0x0401,
+    FLOAT    = 0x0501,
+    DOUBLE   = 0x0601,
+    CHAR     = 0x0701,
+    INPORT   = 0x0801,
+    OUTPORT  = 0x0901,
+    VECTOR   = 0x0A01,
+    BIGNUM   = 0x0B01,
+    RATIONAL = 0x0C01
 };
 
 typedef struct Cons *sexp;
@@ -202,7 +201,9 @@ void StrPortStream::write(const char *s, int len)
  */
 struct Cons     { sexp                cdr;                        sexp           car; };
 struct Tags     { char tags[sizeof(Cons)];                                            };
+struct InPort   { char tags[sizeof(sexp)-2], avail, peek;         PortStream*      s; };
 struct Stags    { short stags; char tags[sizeof(sexp)-2];         sexp           car; };
+struct Vector   { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*            e; };
 struct Atom     { char tags[sizeof(Cons)-sizeof(sexp)];           sexp          body; };
 struct String   { char tags[sizeof(Cons)-sizeof(char*)];          char*         text; };
 struct Fixnum   { char tags[sizeof(Cons)-sizeof(int)];            int         fixnum; };
@@ -211,9 +212,7 @@ struct Double   { char tags[sizeof(Cons)-sizeof(double)];         double      fl
 struct Funct    { char tags[sizeof(Cons)-sizeof(void*)];          void*        funcp; };
 struct Form     { char tags[sizeof(Cons)-sizeof(Formp)];          Formp        formp; };
 struct Char     { char tags[sizeof(Cons)-sizeof(uint32_t)];       uint32_t        ch; };
-struct InPort   { char tags[sizeof(sexp)-2], avail, peek;         PortStream*      s; };
 struct OutPort  { char tags[sizeof(Cons)-sizeof(PortStream*)];    PortStream*      s; };
-struct Vector   { char tags[sizeof(sexp)-sizeof(short)]; short l; sexp*            e; };
 struct Bignum   { char tags[sizeof(Cons)-sizeof(Num*)];           Num*          nump; };
 struct Rational { char tags[sizeof(Cons)-sizeof(Rat*)];           Rat*          ratp; };
 
@@ -575,13 +574,6 @@ sexp newbignum(const Num& num)
     return (sexp)bignum;
 }
 
-sexp newbignum(const char *s)
-{
-    Bignum* bignum = (Bignum*)newcell(BIGNUM);
-    bignum->nump = new Num(s);
-    return (sexp)bignum;
-}
-
 sexp newrational(const Rat& rat)
 {
     Rational* rational = (Rational*)newcell(RATIONAL);
@@ -720,7 +712,7 @@ sexp positivep(sexp x)
 }
 
 // <
-sexp ltp(sexp x, sexp y) { return boolwrap(asFlonum(x) < asFlonum(y)); }
+sexp ltp(sexp x, sexp y) { return boolwrap(asFlonum(x) <  asFlonum(y)); }
 
 // <=
 sexp lep(sexp x, sexp y) { return boolwrap(asFlonum(x) <= asFlonum(y)); }
@@ -729,7 +721,7 @@ sexp lep(sexp x, sexp y) { return boolwrap(asFlonum(x) <= asFlonum(y)); }
 sexp gep(sexp x, sexp y) { return boolwrap(asFlonum(x) >= asFlonum(y)); }
 
 // >
-sexp gtp(sexp x, sexp y) { return boolwrap(asFlonum(x) > asFlonum(y)); }
+sexp gtp(sexp x, sexp y) { return boolwrap(asFlonum(x) >  asFlonum(y)); }
 
 sexp make_complex(sexp re, sexp im)
 {
@@ -749,8 +741,7 @@ bool unsafe_sub(int a, int x)
 
 bool unsafe_mul(int a, int x)
 {
-    return true ||
-           ((a == -1) && (x == INT_MIN)) ||
+    return ((a == -1) && (x == INT_MIN)) ||
            ((x == -1) && (a == INT_MIN)) ||
            (a > INT_MAX / x) || (a < INT_MIN / x);
 }
@@ -1297,6 +1288,8 @@ sexp unimod(sexp l)
     return lose(mark, result);
 }
 
+sexp randomf(sexp x) { return newflonum(drand48()); }
+
 double truncate(double x) { return x < 0 ? ceil(x) : floor(x); }
 
 sexp floatstub(double (*f)(double), sexp x) { assertFlonum(x); return newflonum((*f)(asFlonum(x))); }
@@ -1381,10 +1374,28 @@ sexp exact_inexact(sexp x)
 }
 
 // <<
-sexp lsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) << asFixnum(y)); }
+sexp lsh(sexp x, sexp y)
+{
+    assertFixnum(y);
+    if (isFixnum(x))
+        return newfixnum(asFixnum(x) << asFixnum(y));
+    else if (isBignum(x))
+        return bignumResult(asBignum(x) << asFixnum(y));
+    else
+        error("<< non integer arguments");
+}
 
 // >>
-sexp rsh(sexp x, sexp y) { assertFixnum(x); assertFixnum(y); return newfixnum(asFixnum(x) >> asFixnum(y)); }
+sexp rsh(sexp x, sexp y)
+{
+    assertFixnum(y);
+    if (isFixnum(x))
+        return newfixnum(asFixnum(x) >> asFixnum(y));
+    else if (isBignum(x))
+        return bignumResult(asBignum(x) >> asFixnum(y));
+    else
+        error(">> non integer arguments");
+}
 
 // not
 sexp isnot(sexp x) { return boolwrap(f == x); }
@@ -1450,7 +1461,7 @@ char encodeEscape(char c)
     return c;
 }
 
-// create a string (s needs to be deleted)
+// a string with text on the heap
 sexp dynstring(const char* s)
 {
     String* string = (String*)newcell(STRING);
@@ -1459,7 +1470,7 @@ sexp dynstring(const char* s)
     return (sexp) string;
 }
 
-// this string was probably written by write or display
+// a utf8 string created by displayString()
 sexp utfstring(const char* s)
 {
     String* string = (String*)newcell(STRING);
@@ -1468,7 +1479,7 @@ sexp utfstring(const char* s)
     return (sexp) string;
 }
 
-// create a string (s does not need to be deleted)
+// a string with string constant text
 sexp stastring(const char* s)
 {
     String* string = (String*)newcell(STRING);
@@ -1999,7 +2010,7 @@ sexp char_upper_casep(sexp c) { return boolwrap(isChar(c) && isupper(((Char*)c)-
 // char-whitespace?
 sexp char_whitespacep(sexp c) { return boolwrap(isChar(c) && isspace(((Char*)c)->ch)); }
 
-// save the original termios then modify it for cbreak style input
+// save the original termios then modify it for cbreak style input. return success
 bool setTermios(struct termios& original, int vmin)
 {
     if (tcgetattr(0, &original))
@@ -2147,7 +2158,7 @@ sexp string_cigep(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), st
 // string-ci>?
 sexp string_cigtp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) >  0); }
 
-// string-ref
+// string-ref does not yet work on utf8 strings
 sexp string_ref(sexp s, sexp i)
 {
     assertString(s);
@@ -2165,7 +2176,7 @@ sexp string_ref(sexp s, sexp i)
         error("string-ref: out of bounds");
 }
 
-// string-set!
+// string-set! does not yet work on utf8 strings
 sexp string_set(sexp s, sexp k, sexp c)
 {
     assertString(s);
@@ -2191,7 +2202,7 @@ sexp string_set(sexp s, sexp k, sexp c)
     return s;
 }
 
-// substring
+// substring does not yet work on utf8 strings
 sexp substringf(sexp args)
 {
     if (!args || !isString(args->car))
@@ -2581,7 +2592,9 @@ void displayString(Context& context, sexp exp)
     if (context.write)
         context.s << '"';
     String* string = (String*)exp;
-    if (isWide(string))
+    if (isUTF8(string))
+        context.s << string->text;
+    else if (isWide(string))
         for (uint32_t* p = (uint32_t*)string->text; *p; ++p)
             if (context.write && strchr("\007\b\t\n\r\"\\", *p))
                 context.s << '\\' << encodeEscape(*p);
@@ -2747,7 +2760,6 @@ void display(Context& context, sexp exp, int level)
     default:       error("display: unknown object");
     case FLOAT: 
     case DOUBLE:   displayFlonum(context, exp);             break;
-    case CHUNK:    context.s << "#<chunk>";                 break;
     case FIXNUM:   context.s << asFixnum(exp);              break;
     case STRING:   displayString(context, exp);             break;
     case ATOM:     displayAtom(context, exp);               break;
@@ -3065,7 +3077,7 @@ sexp evlis(sexp p, sexp env)
     return p ? lose(mark, cons(save(eval(p->car, env)), save(evlis(p->cdr, env)))) : 0;
 }
 
-// associate a list of formal parameters and actual parameters in an environment
+// associate formal and actual parameters in an environment
 sexp assoc(sexp names, sexp values, sexp env)
 {
     sexp* mark = psp;
@@ -3338,8 +3350,8 @@ sexp let(sexp exp, sexp env)
     }
     // (let ((var val) (var val) ..) body )
     for (sexp v = exp->car; v; v = v->cdr)
-        if (!v->car->cdr)
-            error("let: missing value");
+        if (!v->car->cdr || v->car->cdr->cdr)
+            error("let: malformed expression");
         else
             e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
     return lose(mark, tailforms(exp->cdr, e));
@@ -3353,8 +3365,8 @@ sexp letstar(sexp exp, sexp env)
     sexp e = save(env);
     exp = exp->cdr;
     for (sexp v = exp->car; v; v = v->cdr)
-        if (!v->car->cdr)
-            error("let*: missing value");
+        if (!v->car->cdr || v->car->cdr->cdr)
+            error("let*: malformed expression");
         else
             e = save(cons(save(cons(v->car->car, save(eval(v->car->cdr->car, e)))), e));
     return lose(mark, tailforms(exp->cdr, e));
@@ -3370,8 +3382,8 @@ sexp letrec(sexp exp, sexp env)
     for (sexp v = exp->car; v; v = v->cdr)
         e = save(cons(save(cons(v->car->car, 0)), e));
     for (sexp v = exp->car; v; v = v->cdr)
-        if (!v->car->cdr)
-            error("letrec: missing value");
+        if (!v->car->cdr || v->car->cdr->cdr)
+            error("letrec: malformed expression");
         else
             set(v->car->car, save(eval(v->car->cdr->car, e)), e);
     return lose(mark, tailforms(exp->cdr, e));
@@ -3508,7 +3520,9 @@ sexp eval(sexp p, sexp env)
         std::cout.write(context.s.str().c_str(), context.s.str().length());
         --indent;
         return lose(mark, p);
+
     } else {
+
         if (!p || f == p || t == p || (OTHER & shortType(p)) && shortType(p) > ATOM)
             return p;
 
@@ -3818,12 +3832,17 @@ sexp scans(std::istream& fin)
                         c = read_utf8(fin);
                     }
                 } else if (0 <= c && !strchr("( )[,]\t\r\n", c)) {
-                    string.push_back(decodeEscape(c));
+                    uint32_t x = decodeEscape(c);
+                    if (0x7f < x)
+                        ascii = false;
+                    string.push_back(x);
                     c = read_utf8(fin);
                 } else
                     while (0 <= c && strchr("( )[,]\t\r\n", c))
                         c = read_utf8(fin);
             } else {
+                if (0x7f < c)
+                    ascii = false;
                 string.push_back(c);
                 c = read_utf8(fin);
             }
@@ -4081,6 +4100,7 @@ struct FuncTable {
     { "promise-forced?",                   1, (void*)promise_forcedp },
     { "promise-value",                     1, (void*)promise_value },
     { "quotient",                          2, (void*)quotientf },
+    { "random",                            0, (void*)randomf },
     { "rational?",                         1, (void*)rationalp },
     { "read",                              0, (void*)readf },
     { "read-char",                         0, (void*)read_char },

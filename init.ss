@@ -445,15 +445,6 @@
 
 (define (tmt) (timer (lambda () (fib 30))))
 
-(define (make-random)
-        (let ((a 69069)
-              (c 1)
-              (m (<< 1 31))
-              (seed 19380110))
-             (lambda ()
-                     (set! seed (remainder (+ (* seed a) c) m))
-                     (abs (/ (exact->inexact seed) m)))))
-
 (define (epsilon)
         (let ((e 1.0))
              (while (not (= 1.0 (+ 1.0 e))) (set! e (/ e 2)))
