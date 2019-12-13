@@ -694,9 +694,9 @@ bool Context::labelCycles(sexp exp, bool last)
 // negative?
 sexp negativep(sexp x)
 {
-    return boolwrap(isRational(x) ? (asRational(x).num < 0 ?
+    return boolwrap(isRational(x) ? (asRational(x).num <  0 ?
                                      asRational(x).den >= 0 :
-                                     asRational(x).den < 0) :
+                                     asRational(x).den <  0) :
                     isBignum(x)   ?  asBignum(x) < 0 :
                                      asFlonum(x) < 0);
 }
@@ -781,64 +781,59 @@ static inline double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
 
 double toDouble(sexp x)
 {
-    double xd;
+    double d;
     if (isFlonum(x))
-        xd = asFlonum(x);
+        d = asFlonum(x);
     else if (isRational(x))
-        xd = asRational(x).to_double();
+        d = asRational(x).to_double();
     else if (isBignum(x))
-        xd = asBignum(x).to_double();
+        d = asBignum(x).to_double();
     else if (isFixnum(x))
-        xd = (double)asFixnum(x);
+        d = (double)asFixnum(x);
     else
         error("not a number");
-    return xd;
+    return d;
 }
 
 Rat toRational(sexp x)
 {
-    Rat xr;
+    Rat r;
     if (isRational(x))
-        xr = asRational(x);
+        r = asRational(x);
     else if (isBignum(x))
-        xr = Rat(asBignum(x));
+        r = Rat(asBignum(x));
     else if (isFixnum(x))
-        xr = Rat(asFixnum(x));
+        r = Rat(asFixnum(x));
     else
         error("not a number");
-    return xr;
+    return r;
 }
 
 Num toBignum(sexp x)
 {
-    Num xb;
+    Num b;
     if (isBignum(x))
-        xb = asBignum(x);
+        b = asBignum(x);
     else if (isFixnum(x))
-        xb = Num(asFixnum(x));
+        b = Num(asFixnum(x));
     else
         error("not an integer");
-    return xb;
+    return b;
+}
+
+sexp bignumResult(Num result)
+{
+    int r; return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
 }
 
 sexp rationalResult(Rat result)
 {
     result.reduce();
 
-    if (Num(1) == result.den)
-    {
-        int r;
-        return result.num.can_convert_to_int(&r) ?
-                                    newfixnum(r) : newbignum(result.num);
-    }
+    if (result.den == 1)
+        return bignumResult(result.num);
 
     return newrational(result);
-}
-
-sexp bignumResult(Num result)
-{
-    int r;
-    return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
 }
 
 int igcd(int x, int y)
@@ -895,7 +890,8 @@ sexp sum(sexp x, sexp y)
 
     if (isComplex(x)) {
         if (isComplex(y))
-            return lose(mark, make_complex(save(sum(real_part(x), real_part(y))), save(sum(imag_part(x), imag_part(y)))));
+            return lose(mark, make_complex(save(sum(real_part(x), real_part(y))),
+                                           save(sum(imag_part(x), imag_part(y)))));
         else
             return lose(mark, make_complex(save(sum(real_part(x), y)), imag_part(x)));
     } else if (isComplex(y))
@@ -929,7 +925,8 @@ sexp diff(sexp x, sexp y)
 
     if (isComplex(x)) {
         if (isComplex(y))
-            return lose(mark, make_complex(save(diff(real_part(x), real_part(y))), save(diff(imag_part(x), imag_part(y)))));
+            return lose(mark, make_complex(save(diff(real_part(x), real_part(y))),
+                                           save(diff(imag_part(x), imag_part(y)))));
         else
             return lose(mark, make_complex(save(diff(real_part(x), y)), imag_part(x)));
     } else if (isComplex(y))
@@ -1009,8 +1006,10 @@ sexp quotientf(sexp x, sexp y)
     {
         sexp* mark = psp;
         sexp d = save(sum(save(product(yr, yr)), save(product(yi, yi))));
-        return lose(mark, make_complex(save(quotientf(save(sum(save(product(xr, yr)), save(product(xi, yi)))), d)),
-                                       save(quotientf(save(diff(save(product(xi, yr)), save(product(xr, yi)))), d))));
+        return lose(mark, make_complex(save(quotientf(save(sum(save(product(xr, yr)),
+                                                               save(product(xi, yi)))), d)),
+                                       save(quotientf(save(diff(save(product(xi, yr)),
+                                                                save(product(xr, yi)))), d))));
     }
 
     if (isFlonum(x))
@@ -1533,21 +1532,16 @@ uint32_t* widecpy(uint32_t* dst, const uint32_t* src)
     return r;
 }
 
-// create a ucs string
-sexp widestring(const uint32_t* t)
+// create a ucs string, text on heap
+sexp widestring(const uint32_t* text)
 {
-    int l = 0;
-    for (const uint32_t* p = t; *p; ++p)
-        ++l;
-    uint32_t* widetext = new uint32_t[l+1];
-    widecpy(widetext, t);
     String* string = (String*)newcell(STRING);
-    string->text = (char*)widetext;
+    string->text = (char*)text;
     string->tags[2] = 2;
     return (sexp) string;
 }
 
-// create a ucs string
+// create a ucs string, copying argument to heap
 sexp widestring(const std::vector<uint32_t> s)
 {
     uint32_t* widetext = new uint32_t[s.size()];
