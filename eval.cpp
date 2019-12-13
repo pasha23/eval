@@ -417,12 +417,11 @@ static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 // String.tags[2] == 2 ==> mutable uint32_t string
 // String.tags[2] == 3 ==> mutable utf8 string
 
-static inline bool isUTF8(String *s) { return 3 == s->tags[2]; }
-static inline bool isWide(String *s) { return 2 == s->tags[2]; }
+static inline bool isUTF8(String *s)    { return 3 == s->tags[2]; }
+static inline bool isWide(String *s)    { return 2 == s->tags[2]; }
 static inline bool isMutable(String *s) { return 0 != s->tags[2]; }
 
 static void deletestring(sexp s) { if (isMutable((String*)s)) delete ((String*)s)->text; }
-
 
 /*
  * mark all reachable cells
@@ -906,8 +905,7 @@ sexp sum(sexp x, sexp y)
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) + toRational(y));
 
-    if (isBignum(x) || isBignum(y))
-        return bignumResult(toBignum(x) + toBignum(y));
+    return bignumResult(toBignum(x) + toBignum(y));
 }
 
 // x - y
@@ -941,13 +939,20 @@ sexp diff(sexp x, sexp y)
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) - toRational(y));
 
-    if (isBignum(x) || isBignum(y))
-        return bignumResult(toBignum(x) - toBignum(y));
+    return bignumResult(toBignum(x) - toBignum(y));
 }
 
 // x * y
 sexp product(sexp x, sexp y)
 {
+    if (isFixnum(x) && isFixnum(y))
+    {
+        if (unsafe_mul(asFixnum(x), asFixnum(y)))
+            return newbignum(Num(asFixnum(x)) * Num(asFixnum(y)));
+        else
+            return newfixnum(asFixnum(x) * asFixnum(y));
+    }
+
     bool cpx = false;
     sexp xr, xi, yr, yi;
 
@@ -977,18 +982,18 @@ sexp product(sexp x, sexp y)
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) * toRational(y));
 
-    if (isBignum(x) || isBignum(y))
-        return bignumResult(toBignum(x) * toBignum(y));
-
-    if (unsafe_mul(asFixnum(x), asFixnum(y)))
-        return bignumResult(Num(asFixnum(x)) * Num(asFixnum(y)));
-    else
-        return newfixnum(asFixnum(x) * asFixnum(y));
+    return bignumResult(toBignum(x) * toBignum(y));
 }
 
 // x / y
 sexp quotientf(sexp x, sexp y)
 {
+    if (isFixnum(x) && isFixnum(y))
+    {
+        Rat result(Num(asFixnum(x)), Num(asFixnum(y)));
+        return rationalResult(result);
+    }
+
     bool cpx = false;
     sexp xr, xi, yr, yi;
 
@@ -1021,12 +1026,7 @@ sexp quotientf(sexp x, sexp y)
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) / toRational(y));
 
-    if (isBignum(x) || isBignum(y))
-        return bignumResult(toBignum(x) / toBignum(y));
-
-    Rat result(Num(asFixnum(x)), Num(asFixnum(y)));
-
-    return rationalResult(result);
+    return bignumResult(toBignum(x) / toBignum(y));
 }
 
 int mod(int x, int y)
@@ -1040,6 +1040,9 @@ int mod(int x, int y)
 // (modulo x y)
 sexp moduloff(sexp x, sexp y)
 {
+    if (isFixnum(x) && isFixnum(y))
+        return newfixnum(mod(asFixnum(x), asFixnum(y)));
+
     bool cpx = false;
     sexp xr, xi, yr, yi;
 
@@ -1071,10 +1074,7 @@ sexp moduloff(sexp x, sexp y)
                    xrat.den * yrat.den);
     }
 
-    if (isBignum(x) || isBignum(y))
-        return bignumResult(Num::mod(toBignum(x), toBignum(y)));
-
-    return newfixnum(mod(asFixnum(x), asFixnum(y)));
+    return bignumResult(Num::mod(toBignum(x), toBignum(y)));
 }
 
 int rem(int x, int y)
@@ -1108,6 +1108,9 @@ double drem(double xd, double yd)
 // x % y
 sexp remainderff(sexp x, sexp y)
 {
+    if (isFixnum(x) && isFixnum(y))
+        return newfixnum(rem(asFixnum(x), asFixnum(y)));
+
     bool cpx = false;
     sexp xr, xi, yr, yi;
 
@@ -1160,36 +1163,31 @@ sexp remainderff(sexp x, sexp y)
         return rationalResult(result);
     }
 
-    if (isBignum(x) || isBignum(y))
+    Num xb = toBignum(x);
+    Num yb = toBignum(y);
+
+    Num result(Num::mod(xb, yb));
+
+    if (result > 0)
     {
-        Num xb = toBignum(x);
-        Num yb = toBignum(y);
-
-        Num result(Num::mod(xb, yb));
-
-        if (result > 0)
+        if (xb < 0)
         {
-            if (xb < 0)
-            {
-                if (yb < 0)
-                    result += yb;
-                else
-                    result -= yb;
-            }
-        } else if (result < 0) {
-            if (xb > 0)
-            {
-                if (yb < 0)
-                    result -= yb;
-                else
-                    result += yb;
-            }
+            if (yb < 0)
+                result += yb;
+            else
+                result -= yb;
         }
-
-        return bignumResult(result);
+    } else if (result < 0) {
+        if (xb > 0)
+        {
+            if (yb < 0)
+                result -= yb;
+            else
+                result += yb;
+        }
     }
 
-    return newfixnum(rem(asFixnum(x), asFixnum(y)));
+    return bignumResult(result);
 }
 
 // x0 + x1 + x2 ...
@@ -1367,9 +1365,9 @@ sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((int)asFlonum(x))
 // exact->inexact
 sexp exact_inexact(sexp x)
 {
-    if (!isRational(x))
-        assertFixnum(x);
-    return newflonum((double)asFlonum(x));
+    if (isFixnum(x) || isRational(x) || isBignum(x))
+        return newflonum((double)asFlonum(x));
+    error("exact->inexact: not exact");
 }
 
 // <<
