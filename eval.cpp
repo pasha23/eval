@@ -2585,7 +2585,7 @@ void displayString(Context& context, sexp exp)
     String* string = (String*)exp;
     if (isUTF8(string))
         context.s << string->text;
-    else if (isWide(string))
+    else if (isWide(string)) {
         for (uint32_t* p = (uint32_t*)string->text; *p; ++p)
             if (context.write && strchr("\007\b\t\n\r\"\\", *p))
                 context.s << '\\' << encodeEscape(*p);
@@ -2593,14 +2593,15 @@ void displayString(Context& context, sexp exp)
                 encodeUTF8(buf, *p);
                 context.s << buf;
             }
-    else
-        for (char* p = stringText(exp); *p; ++p)
+    } else {
+        for (char* p = string->text; *p; ++p)
             if (context.write && strchr("\007\b\t\n\r\"\\", *p))
                 context.s << '\\' << encodeEscape(*p);
             else {
                 encodeUTF8(buf, *p);
                 context.s << buf;
             }
+    }
     if (context.write)
         context.s << '"';
 }

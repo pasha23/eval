@@ -420,7 +420,11 @@
         (let ((r '()))
              (while (> n 0)
                     (set! r (cons (hexo (& n 15)) r))
-                    (set! n (>> n 4))) (list->string r)))
+                    (set! n (>> n 4)))
+             (list->string r)))
+
+(define (hexdigit d)
+        (vector-ref [#\0, #\1, #\2, #\3, #\4, #\5, #\6, #\7, #\8, #\9, #\A, #\B, #\C, #\D, #\E, #\F ] d))
 
 (define (hexin s)
 
@@ -439,7 +443,8 @@
               (n 0))
              (while (pair? l)
                     (set! n (+ (<< n 4) (hexi (car l))))
-                    (set! l (cdr l))) n))
+                    (set! l (cdr l)))
+             n))
 
 (define (timer thunk) (let ((start (time))) (thunk) (- (time) start)))
 
