@@ -418,6 +418,7 @@
                     (integer->char (+ 87 (& n 15)))))
 
         (let ((r '()))
+             (when (zero? n) (set! r (cons #\0 r)))
              (while (> n 0)
                     (set! r (cons (hexo (& n 15)) r))
                     (set! n (>> n 4)))

@@ -43,7 +43,7 @@
              (set! i 0)
              (while (< i n)
                     (set! j 64)
-                    (set! l '())
+                    (set! l (cons #\space (cons #\space '())))
                     (while (> j 0)
                            (set! j (- j 1))
                            (if (zero? (+ i j))
@@ -61,6 +61,7 @@
              (set! k (>> k 4))
              (set! l (cons (hexdigit (& k 15)) l))
              (display (list->string l))
+             (display i)
              (newline)
              (set! i (+ i 64)))))
 
