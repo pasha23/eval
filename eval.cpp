@@ -1026,7 +1026,9 @@ sexp quotientf(sexp x, sexp y)
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) / toRational(y));
 
-    return bignumResult(toBignum(x) / toBignum(y));
+    Rat result(toBignum(x), toBignum(y));
+
+    return rationalResult(result);
 }
 
 int mod(int x, int y)
