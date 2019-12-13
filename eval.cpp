@@ -2348,7 +2348,11 @@ sexp lfsr_shift(sexp r, sexp p)
 // delay
 sexp delayform(sexp exp, sexp env)
 {
-    return lose(cons(promise, replace(cons(0, replace(cons(0, replace(cons(exp->cdr->car, save(cons(env, 0))))))))));
+    return lose(cons(promise,
+        replace(cons(0,
+        replace(cons(0,
+        replace(cons(exp->cdr->car,
+           save(cons(env, 0))))))))));
 }
 
 // force
@@ -2546,31 +2550,24 @@ const char * const character_table[] =
     "\040space",     "\177del", 0
 };
 
-int u8_wc_toutf8(char *dest, u_int32_t ch)
+void encodeUTF8(char *p, u_int32_t ch)
 {
     if (ch < 0x80) {
-        dest[0] = (char)ch;
-        return 1;
+        *p++ = (char)ch;
+    } else if (ch < 0x800) {
+        *p++ = (ch>>6) | 0xC0;
+        *p++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x10000) {
+        *p++ = (ch>>12) | 0xE0;
+        *p++ = ((ch>>6) & 0x3F) | 0x80;
+        *p++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x110000) {
+        *p++ = (ch>>18) | 0xF0;
+        *p++ = ((ch>>12) & 0x3F) | 0x80;
+        *p++ = ((ch>>6) & 0x3F) | 0x80;
+        *p++ = (ch & 0x3F) | 0x80;
     }
-    if (ch < 0x800) {
-        dest[0] = (ch>>6) | 0xC0;
-        dest[1] = (ch & 0x3F) | 0x80;
-        return 2;
-    }
-    if (ch < 0x10000) {
-        dest[0] = (ch>>12) | 0xE0;
-        dest[1] = ((ch>>6) & 0x3F) | 0x80;
-        dest[2] = (ch & 0x3F) | 0x80;
-        return 3;
-    }
-    if (ch < 0x110000) {
-        dest[0] = (ch>>18) | 0xF0;
-        dest[1] = ((ch>>12) & 0x3F) | 0x80;
-        dest[2] = ((ch>>6) & 0x3F) | 0x80;
-        dest[3] = (ch & 0x3F) | 0x80;
-        return 4;
-    }
-    return 0;
+    *p++ = 0;
 }
 
 void displayChar(Context& context, sexp exp)
@@ -2582,7 +2579,7 @@ void displayChar(Context& context, sexp exp)
             context.s << "#\\" << 1+character_table[i];
             return;
         }
-    buf[u8_wc_toutf8(buf, ((Char*)exp)->ch)] = 0;
+    encodeUTF8(buf, ((Char*)exp)->ch);
     context.s << "#\\" << buf;
 }
 
@@ -2599,7 +2596,7 @@ void displayString(Context& context, sexp exp)
             if (context.write && strchr("\007\b\t\n\r\"\\", *p))
                 context.s << '\\' << encodeEscape(*p);
             else {
-                buf[u8_wc_toutf8(buf, *p)] = 0;
+                encodeUTF8(buf, *p);
                 context.s << buf;
             }
     else
@@ -2607,7 +2604,7 @@ void displayString(Context& context, sexp exp)
             if (context.write && strchr("\007\b\t\n\r\"\\", *p))
                 context.s << '\\' << encodeEscape(*p);
             else {
-                buf[u8_wc_toutf8(buf, *p)] = 0;
+                encodeUTF8(buf, *p);
                 context.s << buf;
             }
     if (context.write)
