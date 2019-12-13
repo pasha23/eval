@@ -27,6 +27,17 @@
           ((= k n) 1)
           (else (+ (s (- n 1) (- k 1)) (* k (s (- n 1) k))))))
 
+(define (phi)
+        (let ((f (list 1 1))
+              (n 2)
+              (q 1))
+             (while (< n 1479)
+                    (set! q (/ (car f) (cadr f)))
+                    (display (list n (+ 0.0 q) q))
+                    (newline)
+                    (set! f (cons (+ (car f) (cadr f)) f))
+                    (set! n (+ n 1)))))
+
 (define bbbbb '(b))
 (define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
 (set-cdr! (cddddr aaaaa) aaaaa)

@@ -288,10 +288,6 @@ bool isComplex(sexp p)
            !p->cdr;                                     // )
 }
 
-static inline sexp real_part(sexp x) { return x->cdr->car; }
-
-static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
-
 static inline sexp boolwrap(bool x) { return x ? t : f; }
 
 // boolean?
@@ -774,9 +770,9 @@ uint32_t isqrt(uint64_t v)
    return (uint32_t)r;
 }
 
-static inline double realpart(sexp x) { return asFlonum(x->cdr->car); }
+static inline sexp real_part(sexp x) { return x->cdr->car; }
 
-static inline double imagpart(sexp x) { return asFlonum(x->cdr->cdr->car); }
+static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
 double toDouble(sexp x)
 {
@@ -1252,6 +1248,7 @@ sexp unimul(sexp l)
     return lose(mark, result);
 }
 
+// 1 / x0
 // x0 / x1 / x2 ...
 sexp unidiv(sexp l)
 {
@@ -1321,6 +1318,8 @@ sexp isqrtf(sexp x)
 {
     if (isFixnum(x) && 0 <= asFixnum(x))
         return newfixnum(isqrt(asFixnum(x)));
+    if (isBignum(x) && asBignum(x) >= 0)
+        return newbignum(asBignum(x).sqrt());
     error("isqrt: not a positive integer");
 }
 
@@ -1376,10 +1375,8 @@ sexp exact_inexact(sexp x)
 sexp lsh(sexp x, sexp y)
 {
     assertFixnum(y);
-    if (isFixnum(x))
-        return newfixnum(asFixnum(x) << asFixnum(y));
-    else if (isBignum(x))
-        return bignumResult(asBignum(x) << asFixnum(y));
+    if (isFixnum(x) || isBignum(x))
+        return bignumResult(toBignum(x) << asFixnum(y));
     else
         error("<< non integer arguments");
 }
@@ -1600,11 +1597,13 @@ sexp string_copy(sexp s)
         uint32_t *widetext = new uint32_t[l+1];
         widecpy(widetext, (uint32_t*)string->text);
         return widestring(widetext);
-    } else
+    } else if (isUTF8(string))
+        return utfstring(strsave(stringText(s)));
+    else
         return dynstring(strsave(stringText(s)));
 }
 
-// string-append
+// string-append should be careful about utf8
 sexp string_append(sexp p, sexp q)
 {
     assertString(p);
@@ -1655,6 +1654,7 @@ sexp string_fill(sexp s, sexp c)
         while (*p)
             *p++ = k;
     } else {
+        string->tags[2] = 1;
         char k = ((Char*)c)->ch;
         char* p = string->text;
         while (*p)
@@ -2636,8 +2636,7 @@ void displayNamed(Context& context, const char *kind, sexp exp)
 void displayBignum(Context& context, sexp exp)
 {
     std::vector<char> cs;
-    Num* nump = ((Bignum*)exp)->nump;
-    nump->print(cs);
+    ((Bignum*)exp)->nump->print(cs);
     for (char c : cs)
         if (c)
             context.s.put(c);
@@ -2776,6 +2775,7 @@ void debug(const char *what, sexp exp)
     std::cout.write(context.s.str().c_str(), context.s.str().length());
 }
 
+// call this from gdb
 void debug(sexp exp)
 {
     debug(0, exp);
@@ -3388,10 +3388,6 @@ sexp letrec(sexp exp, sexp env)
  */
 sexp doform(sexp exp, sexp env)
 {
-    // loop {
-    //    set value step
-    //    body
-    // }
     sexp* mark = psp;
     save(exp);
     sexp e = save(env);
@@ -3415,9 +3411,7 @@ sexp doform(sexp exp, sexp env)
 
         // step each variable
         for (sexp v = exp->car; v; v = v->cdr)
-            if (!v->car->cdr->cdr)
-                error("do: missing step");
-            else
+            if (v->car->cdr->cdr)
                 set(v->car->car, eval(v->car->cdr->cdr->car, e), e);
     }
 }
