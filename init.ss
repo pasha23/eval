@@ -181,6 +181,11 @@
 
 (define (length s) (if (null? s) 0 (+ 1 (length (cdr s)))))
 
+(define (nth i s)
+        (if (zero? i)
+            (car s)
+            (nth (- i 1) (cdr s))))
+
 (define (list . s) s)
 
 (define (alist? s)
@@ -223,16 +228,6 @@
             (if (equal? a (caar e)) (car e) (memv a (cdr e)))))
 
 (define (fold f i s) (if (null? s) 1 (f (car s) (fold f i (cdr s)))))
-
-(define (reverse! s)
-        (let ((q '())
-              (u '()))
-             (while (pair? s)
-                    (set! u (cdr s))
-                    (set-cdr! s q)
-                    (set! q s)
-                    (set! s u))
-             q))
 
 (define (iota n)
         (define (riota n)
@@ -309,7 +304,7 @@
                                   (string? (cdr x)) (number? (cdr x)))
                               (begin (write (definition (car x)))
                                      (newline) (newline))))
-                  (reverse (environment))))
+                  (reverse! (environment))))
 
 (define (random-char)
         (call-with-input-file "/dev/random"
@@ -463,18 +458,18 @@
 
 (define polynomials
         [0, 1, 3, 5, 9, 18, 33, 65, 142, 264, 516, 1026, 2089, 4109,
-        8213, 16385, 32790, 65540, 131091, 262163, 524292, 1048578,
-        2097153, 4194320, 8388621, 16777220, 33554467, 67108883,
-        134217732, 268435458, 536870953, 1073741828, 2147483735,
-        4294967337, 8589934707, 17179869186, 34359738427, 68719476767,
-        137438953521, 274877906952, 549755813916, 1099511627780,
-        2199023255583, 4398046511148, 8796093022258, 17592186044429,
-        35184372088983, 70368744177680, 140737488355419,
-        281474976710712, 562949953421326, 1125899906842661,
-        2251799813685252, 4503599627370531, 9007199254741054,
-        18014398509482019, 36028797018964042, 72057594037927958,
-        144115188075855921, 288230376151711805, 576460752303423489,
-        1152921504606846995, 2305843009213694004, 4611686018427387905])
+            8213, 16385, 32790, 65540, 131091, 262163, 524292, 1048578,
+            2097153, 4194320, 8388621, 16777220, 33554467, 67108883,
+            134217732, 268435458, 536870953, 1073741828, 2147483735,
+            4294967337, 8589934707, 17179869186, 34359738427, 68719476767,
+            137438953521, 274877906952, 549755813916, 1099511627780,
+            2199023255583, 4398046511148, 8796093022258, 17592186044429,
+            35184372088983, 70368744177680, 140737488355419,
+            281474976710712, 562949953421326, 1125899906842661,
+            2251799813685252, 4503599627370531, 9007199254741054,
+            18014398509482019, 36028797018964042, 72057594037927958,
+            144115188075855921, 288230376151711805, 576460752303423489,
+            1152921504606846995, 2305843009213694004, 4611686018427387905])
 
 (define (make-lfsr n)
         (let ((r 0)
@@ -501,21 +496,21 @@
                     (set! busy (not (zero? r))))
              (list->string o)))
 
-(define (merge f p q)
+(define (merge cmp p q)
         (cond ((null? p) q)
               ((null? q) p)
-              (else (if (f (car p) (car q))
-                        (cons (car p) (merge f (cdr p) q))
-                        (cons (car q) (merge f (cdr q) p))))))
+              (else (if (cmp (car p) (car q))
+                        (cons (car p) (merge cmp (cdr p) q))
+                        (cons (car q) (merge cmp (cdr q) p))))))
 
 (define (alternate p)
         (if (or (null? p) (null? (cdr p))) p
             (cons (car p) (alternate (cdr (cdr p))))))
 
-(define (sort f p)
+(define (sort cmp p)
         (if (or (null? p) (null? (cdr p))) p
-            (merge f (sort f (alternate p))
-                   (sort f (alternate (cdr p))))))
+            (merge cmp (sort cmp (alternate p))
+                   (sort cmp (alternate (cdr p))))))
 
 ;; (display (map car (environment))) (newline)
 

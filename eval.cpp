@@ -2368,8 +2368,8 @@ sexp append(sexp p, sexp q)
     return lose(mark, p ? cons(p->car, save(append(p->cdr, q))) : q);
 }
 
-// reverse
-sexp reverse(sexp x) { sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
+// reverse!
+sexp reverse(sexp x) { assertCons(x); sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
 
 // eq?
 sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
@@ -2651,10 +2651,12 @@ void displayVector(Context& context, sexp v, int level)
 {
     context.s << '[';
     Vector *vv = (Vector*)v;
+    if (vv->l)
+        level += displayLength(vv->e[0]) + 3;
     for (int i = 0; i < vv->l; ++i)
     {
         if (!context.labelCycles(vv->e[i], false))
-            display(context, vv->e[i], level+context.tabs);
+            display(context, vv->e[i], level);
         if (i < vv->l-1)
         {
             context.s << ",";
@@ -2806,11 +2808,7 @@ void display(Context& context, sexp exp, int level)
     if (context.limit && context.s.tellp() >= context.limit)
         return;
 
-    if (!exp)
-    {
-        context.s << "()";
-        return;
-    }
+    if (!exp) { context.s << "()"; return; }
 
     if (isCons(exp)) {
         bool quoted = false;
@@ -4185,7 +4183,7 @@ struct FuncTable {
     { "read-char",                         0, (void*)read_char },
     { "real?",                             1, (void*)realp },
     { "remainder",                         2, (void*)remainderff },
-    { "reverse",                           1, (void*)reverse },
+    { "reverse!",                          1, (void*)reverse },
     { "round",                             1, (void*)roundff },
     { "scan",                              0, (void*)scanff },
     { "set-car!",                          2, (void*)set_car },

@@ -46,9 +46,8 @@
                     (set! l (cons #\space (cons #\space '())))
                     (while (> j 0)
                            (set! j (- j 1))
-                           (if (zero? (+ i j))
-                               (set! l (cons #\space l))
-                               (set! l (cons (integer->char (+ i j)) l))))
+                           (when (not (zero? (+ i j)))
+                                 (set! l (cons (integer->char (+ i j)) l))))
              (set! l (cons #\space (cons #\space l)))
              (set! k i)
              (set! l (cons (hexdigit (& k 15)) l))
@@ -66,6 +65,52 @@
              (set! i (+ i 64)))))
 
 ;; (with-output-to-file "chartable" (lambda () (chars (hexin "10000"))))
+
+(define (triples maxPeri)
+
+    (define (area l)
+            (let* ((a (car l))
+                   (b (cadr l))
+                   (c (caddr l))
+                   (p (/ (+ a b c) 2)))
+                  (sqrt (* p (- p a) (- p b) (- p c)))))
+
+    (define (compare-areas x y)
+            (< (area x) (area y)))
+
+    (define (perimeter l)
+            (+ (car l) (cadr l) (caddr l)))
+
+    (define (compare-perimeters x y)
+            (< (perimeter x) (perimeter y)))
+
+    (let ((total 0) (prim 0) (result '()))
+
+         (define (newtri a b c)
+                 (let ((p (+ a b c)))
+                      (when (<= p maxPeri)
+
+                            (set! result (cons (list a b c) result))
+
+                            (set! prim (+ prim 1))
+
+                            (set! total (+ total (floor (quotient maxPeri p))))
+
+                            (newtri (+ (* 1 a) (* -2 b) (* 2 c))
+                                    (+ (* 2 a) (* -1 b) (* 2 c))
+                                    (+ (* 2 a) (* -2 b) (* 3 c)))
+
+                            (newtri (+ (* 1 a) (* 2 b) (* 2 c))
+                                    (+ (* 2 a) (* 1 b) (* 2 c))
+                                    (+ (* 2 a) (* 2 b) (* 3 c)))
+
+                            (newtri (+ (* -1 a) (* 2 b) (* 2 c))
+                                    (+ (* -2 a) (* 1 b) (* 2 c))
+                                    (+ (* -2 a) (* 2 b) (* 3 c))))))
+
+         (newtri 3 4 5)
+
+         (sort compare-perimeters result)))
 
 (define bbbbb '(b))
 (define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
@@ -234,7 +279,6 @@
 (test '(eqv? '(1 2 3) (list 1 2 3)))
 (test '(eqv? 1/6 (- 1/2 1/3)))
 (test '(eqv? 3.0 (imag-part 5.0+3.0i)))
-(test '(eqv? '(3 2 1) (reverse '(1 2 3))))
 (test '(eqv? '(3 2 1) (reverse! '(1 2 3))))
 (test '(eqv? 3/2 (/ 3/4 1/2)))
 (test '(eqv? 5/6 (+ 1/2 1/3)))
