@@ -738,7 +738,7 @@ bool unsafe_mul(int a, int x)
 {
     return ((a == -1) && (x == INT_MIN)) ||
            ((x == -1) && (a == INT_MIN)) ||
-           (a > INT_MAX / x) || (a < INT_MIN / x);
+           (x && ((a > INT_MAX / x) || (a < INT_MIN / x)));
 }
 
 // magnitude
@@ -2369,7 +2369,19 @@ sexp append(sexp p, sexp q)
 }
 
 // reverse!
-sexp reverse(sexp x) { assertCons(x); sexp t = 0; while (isCons(x)) { t = cons(car(x), t); x = x->cdr; } return t; }
+sexp reverse(sexp x)
+{
+    sexp t = 0;
+    if (x)
+        while (x)
+            if (isCons(x))
+            {
+                t = cons(car(x), t);
+                x = x->cdr;
+            } else
+                error("reverse!: not a proper list");
+    return t;
+}
 
 // eq?
 sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }

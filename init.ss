@@ -496,6 +496,14 @@
                     (set! busy (not (zero? r))))
              (list->string o)))
 
+(define (filter p l)
+    (cond ((null? l) l)
+          ((p (car l)) (cons (car l) (filter p (cdr l))))
+          (else (filter p (cdr l)))))
+
+(define (every f l)
+    (if (null? l) l (cons (f (car l)) (every f (cdr l)))))
+
 (define (merge cmp p q)
         (cond ((null? p) q)
               ((null? q) p)

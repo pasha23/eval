@@ -84,17 +84,15 @@
     (define (compare-perimeters x y)
             (< (perimeter x) (perimeter y)))
 
-    (let ((total 0) (prim 0) (result '()))
+    (let ((result '()))
 
          (define (newtri a b c)
+
                  (let ((p (+ a b c)))
+
                       (when (<= p maxPeri)
 
-                            (set! result (cons (list a b c) result))
-
-                            (set! prim (+ prim 1))
-
-                            (set! total (+ total (floor (quotient maxPeri p))))
+                            (set! result (cons (sort < (list a b c)) result))
 
                             (newtri (+ (* 1 a) (* -2 b) (* 2 c))
                                     (+ (* 2 a) (* -1 b) (* 2 c))
@@ -112,6 +110,46 @@
 
          (sort compare-perimeters result)))
 
+(define (collapse s)
+    (if (null? s)
+        s
+        (let ((n (car s))
+              (k 0))
+             (while (and (pair? s) (= n (car s)))
+                    (set! k (+ k 1))
+                    (set! s (cdr s)))
+             (cons (list n k) (collapse s)))))
+
+(define (factor n)
+  (let ((r '())
+        (d 2))
+       (while (<= d n)
+              (while (zero? (remainder n d))
+                    (set! n (/ n d))
+                    (set! r (cons d r)))
+              (set! d (+ d 1)))
+       (reverse! r)))
+
+(define (prime? x)
+    (let ((f #t)
+          (c 2))
+         (while (and f (<= (* c c) x))
+                (when (zero? (remainder x c)) (set! f #f))
+                (set! c (+ c 1)))
+         f))
+
+(define (next-prime x)
+    (while (not (prime? x))
+           (set! x (+ x 1)))
+    x)
+
+(define (primes limit)
+    (let ((n 2) (l '()))
+         (while (<= n limit)
+                (set! l (cons n l))
+                (set! n (next-prime (+ n 1))))
+         (reverse! l)))
+
 (define bbbbb '(b))
 (define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
 (set-cdr! (cddddr aaaaa) aaaaa)
@@ -120,6 +158,12 @@
         (unless (eq? #t (eval s (environment)))
                 (begin (display 'fail) (space) (display s)))
         (gc))
+
+(test '(eqv? '((2 15) (3 6) (5 3) (7 2) (11 1) (13 1))
+             (collapse (factor (fac 16)))))
+
+(test '(eqv? (triples 100)
+             '((3 4 5) (5 12 13) (8 15 17) (7 24 25) (20 21 29) (12 35 37) (9 40 41))))
 
 (test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
 
