@@ -181,6 +181,15 @@
 
 (define (length s) (if (null? s) 0 (+ 1 (length (cdr s)))))
 
+(define (append! p q)
+    (if (null? p)
+        q
+        (let ((r p))
+             (while (pair? (cdr r))
+                    (set! r (cdr r)))
+             (set-cdr! r q)
+             p)))
+
 (define (nth i s)
         (if (zero? i)
             (car s)

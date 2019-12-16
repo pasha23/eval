@@ -232,8 +232,10 @@ struct Context
     Context(int limit, bool write, bool pretty) :
         limit(limit), label(0), write(write), pretty(pretty) { setp(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
-    void wrap(int level, int length) { if (pretty && s.tellp() - pos + length > eol) newline(level); else space(); }
-    void newline(int level) { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
+    void wrap(int level, int length)
+        { if (pretty && s.tellp() - pos + length > eol) newline(level); else space(); }
+    void newline(int level)
+        { s << '\n'; pos = s.tellp(); for (int i = level; --i >= 0; s << ' ') {} }
     void space(void) { s << ' '; }
     bool labelCycles(sexp exp, bool last);
 };
@@ -243,6 +245,7 @@ void display(Context& context, sexp p, int level);
 
 static inline int  shortType(const sexp p)  { return       (~MARK &  ((Stags*)p)->stags); }
 static inline int  arity(const sexp p)      { return                ((Funct*)p)->tags[2]; }
+static inline int  stringtag(const sexp p)  { return               ((String*)p)->tags[2]; }
 static inline bool isMarked(const sexp p)   { return       ( MARK & ((Tags*)p)->tags[0]); }
 static inline bool isCons(const sexp p)     { return p && !(OTHER & ((Tags*)p)->tags[0]); }
 static inline bool isAtom(const sexp p)     { return p &&       ATOM     == shortType(p); }
@@ -408,14 +411,11 @@ static void deletebignum(sexp n) { delete ((Bignum*)n)->nump; }
 
 static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 
-// String.tags[2] == 0 ==> immutable ascii string
-// String.tags[2] == 1 ==> mutable ascii string
-// String.tags[2] == 2 ==> mutable uint32_t string
-// String.tags[2] == 3 ==> mutable utf8 string
+enum StringTags { IMMUTABLE, ASCII, UCS, UTF8 };
 
-static inline bool isUTF8(String *s)    { return 3 == s->tags[2]; }
-static inline bool isWide(String *s)    { return 2 == s->tags[2]; }
-static inline bool isMutable(String *s) { return 0 != s->tags[2]; }
+static inline bool isUTF8(String *s)    { return UTF8      == s->tags[2]; }
+static inline bool isWide(String *s)    { return UCS       == s->tags[2]; }
+static inline bool isMutable(String *s) { return IMMUTABLE != s->tags[2]; }
 
 static void deletestring(sexp s) { if (isMutable((String*)s)) delete ((String*)s)->text; }
 
@@ -829,6 +829,24 @@ sexp rationalResult(Rat result)
         return bignumResult(result.num);
 
     return newrational(result);
+}
+
+sexp numerator(sexp x)
+{
+    if (isFixnum(x) || isBignum(x))
+        return x;
+    if (isRational(x))
+        return bignumResult(((Rational*)x)->ratp->num);
+    error("numerator: not rational");
+}
+
+sexp denominator(sexp x)
+{
+    if (isFixnum(x) || isBignum(x))
+        return one;
+    if (isRational(x))
+        return bignumResult(((Rational*)x)->ratp->den);
+    error("denominator: not rational");
 }
 
 int igcd(int x, int y)
@@ -1513,7 +1531,7 @@ sexp dynstring(const char* s)
 {
     String* string = (String*)newcell(STRING);
     string->text = (char*)s;
-    string->tags[2] = 1;
+    string->tags[2] = ASCII;
     return (sexp) string;
 }
 
@@ -1522,7 +1540,7 @@ sexp utfstring(const char* s)
 {
     String* string = (String*)newcell(STRING);
     string->text = (char*)s;
-    string->tags[2] = 3;
+    string->tags[2] = UTF8;
     return (sexp) string;
 }
 
@@ -1593,7 +1611,7 @@ sexp widestring(const uint32_t* text)
 {
     String* string = (String*)newcell(STRING);
     string->text = (char*)text;
-    string->tags[2] = 2;
+    string->tags[2] = UCS;
     return (sexp) string;
 }
 
@@ -1605,7 +1623,7 @@ sexp widestring(const std::vector<uint32_t> s)
         widetext[i] = s[i];
     String* string = (String*)newcell(STRING);
     string->text = (char*)widetext;
-    string->tags[2] = 2;
+    string->tags[2] = UCS;
     return (sexp) string;
 }
 
@@ -1735,7 +1753,7 @@ sexp string_fill(sexp s, sexp c)
         while (*p)
             *p++ = k;
     } else {
-        string->tags[2] = 1;
+        string->tags[2] = ASCII;
         char k = ((Char*)c)->ch;
         char* p = string->text;
         while (*p)
@@ -4067,7 +4085,7 @@ void segv_handler(int sig, siginfo_t *si, void *ctx)
     exit(1);
 }
 
-struct FuncTable {
+const struct FuncTable {
     const char* name;
     short       arity;
     void*       funcp;
@@ -4138,6 +4156,7 @@ struct FuncTable {
     { "cyclic?",                           1, (void*)cyclicp },
     { "diff",                              2, (void*)diff },
     { "display",                           0, (void*)displayf },
+    { "denominator",                       1, (void*)denominator },
     { "eof-object?",                       1, (void*)eof_objectp },
     { "eq?",                               2, (void*)eqp },
     { "equal?",                            2, (void*)equalp },
@@ -4177,6 +4196,7 @@ struct FuncTable {
     { "null?",                             1, (void*)nullp },
     { "number?",                           1, (void*)numberp },
     { "number->string",                    1, (void*)number_string },
+    { "numerator",                         1, (void*)numerator },
     { "odd?",                              1, (void*)oddp },
     { "open-input-file",                   1, (void*)open_input_file },
     { "open-input-string",                 0, (void*)open_input_string },
@@ -4255,7 +4275,7 @@ struct FuncTable {
     { 0,                                   0, 0 }
 };
 
-struct FormTable {
+const struct FormTable {
     const char* name;
     Formp       formp;
 } formTable[] = {
@@ -4357,7 +4377,7 @@ int main(int argc, char **argv, char **envp)
     define_staintern_sexpr("tick",     tick);
     define_staintern_sexpr("void",     voida);
 
-    for (FuncTable* p = funcTable; p->name; ++p)
+    for (const FuncTable* p = funcTable; p->name; ++p)
     {
         sexp* mark = psp;
         Funct* f = (Funct*)save(newcell(FUNCT));
@@ -4366,7 +4386,7 @@ int main(int argc, char **argv, char **envp)
         psp = mark;
     }
 
-    for (FormTable* p = formTable; p->name; ++p)
+    for (const FormTable* p = formTable; p->name; ++p)
     {
         sexp* mark = psp;
         Form* f = (Form*)save(newcell(FORM));

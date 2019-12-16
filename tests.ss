@@ -214,7 +214,7 @@
 (test '(= (% 3 2) 1))
 (test '(= 3 (+ 2 1)))
 (test '(= 3/2 (/ 3/4 1/2)))
-(test '(= 3/2 (rationalize 1.5)))
+(test '(= 3/2 (rationalize 1.5 1e-7)))
 (test '(<= 3 3))
 (test '(= 3 3))
 (test '(>= 3 3))
