@@ -1354,6 +1354,9 @@ sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(
 // atan2
 sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(atan2(asFlonum(x), asFlonum(y))); }
 
+// bignum?
+sexp bignump(sexp x) { return boolwrap(isBignum(x)); }
+
 // integer?
 sexp integerp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) && (int)asFlonum(x) == asFlonum(x)); }
 
@@ -4094,6 +4097,7 @@ struct FuncTable {
     { "atan2",                             2, (void*)atan2ff },
     { "atom?",                             1, (void*)atomp },
     { "atoms",                             0, (void*)atomsf },
+    { "bignum?",                           1, (void*)bignump },
     { "boolean?",                          1, (void*)booleanp },
     { "call-with-input-file",              2, (void*)call_with_input_file },
     { "call-with-output-file",             2, (void*)call_with_output_file },
