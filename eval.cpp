@@ -224,13 +224,14 @@ struct Context
 
     bool write;
     bool pretty;
+    bool cyclic;
     int  label;
     std::streampos pos;
     std::streampos limit;
     std::stringstream s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(int limit, bool write, bool pretty) :
-        limit(limit), label(0), write(write), pretty(pretty) { setp(); pos = s.tellp(); }
+    Context(int limit, bool write, bool pretty, bool cyclic) :
+        limit(limit), label(0), write(write), pretty(pretty), cyclic(cyclic) { setp(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
     void wrap(int level, int length)
         { if (pretty && s.tellp() - pos + length > eol) newline(level); else space(); }
@@ -673,15 +674,18 @@ double asFlonum(sexp p)
 // supports labeling of cyclic structures
 bool Context::labelCycles(sexp exp, bool last)
 {
-    sexp value = seenMap[exp];
-    if (isFixnum(value)) {
-        if (last)
-            s << ". ";
-        s << '#' << asFixnum(value) << '#';
-        return true;
-    } else if (t == value) {
-        s << '#' << label << '=';
-        seenMap[exp] = newfixnum(label++);
+    if (cyclic)
+    {
+        sexp value = seenMap[exp];
+        if (isFixnum(value)) {
+            if (last)
+                s << ". ";
+            s << '#' << asFixnum(value) << '#';
+            return true;
+        } else if (t == value) {
+            s << '#' << label << '=';
+            seenMap[exp] = newfixnum(label++);
+        }
     }
     return false;
 }
@@ -1630,7 +1634,7 @@ sexp widestring(const std::vector<uint32_t> s)
 // number->string
 sexp number_string(sexp exp)
 {
-    Context context(0, true, false);
+    Context context(0, true, false, false);
     mapCycles(context, exp);
     display(context, exp, 0);
     return utfstring(strsave(context.s.str().c_str()));
@@ -1924,7 +1928,7 @@ sexp write_to_string(sexp args)
         assertFixnum(args->car);
         limit = asFixnum(args->car);
     }
-    Context context(limit, true, false);
+    Context context(limit, true, false, true);
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
@@ -2382,6 +2386,15 @@ sexp substringf(sexp args)
     }
 }
 
+// (define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
+sexp map(sexp f, sexp s)
+{
+    sexp* mark = psp;
+    save(f, s);
+    return lose(mark, s ? cons(replace(apply(f, save(cons(s->car, 0)))), save(map(f, s->cdr))) : s);
+}
+
+// append
 sexp append(sexp p, sexp q)
 {
     sexp* mark = psp;
@@ -2594,7 +2607,7 @@ sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 // display
 sexp displayf(sexp args)
 {
-    Context context(0, false, true);
+    Context context(0, false, true, true);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -2606,7 +2619,7 @@ sexp displayf(sexp args)
 // write
 sexp writef(sexp args)
 {
-    Context context(0, true, true);
+    Context context(0, true, true, true);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -2647,7 +2660,7 @@ sexp cyclicp(sexp x) { std::set<sexp> seenSet; return boolwrap(cyclic(seenSet, x
 // for prettyprinting (we should be counting code points)
 int displayLength(sexp exp)
 {
-    Context context(0, true, false);
+    Context context(0, true, false, true);
     mapCycles(context, exp);
     display(context, exp, 0);
     return context.s.str().length();
@@ -2907,7 +2920,7 @@ void display(Context& context, sexp exp, int level)
 
 void debug(const char *what, sexp exp)
 {
-    Context context(0, true, true);
+    Context context(0, true, true, true);
     mapCycles(context, exp);
     if (what)
         context.s << what << ": ";
@@ -2939,7 +2952,7 @@ sexp symbol_string(sexp x)
 // string->number
 sexp string_number(sexp exp)
 {
-    Context context(0, false, false);
+    Context context(0, false, false, false);
     context.s << ((String*)exp)->text;
     return read(context.s, 0);
 }
@@ -3351,6 +3364,9 @@ sexp defineform(sexp p, sexp env)
 // atoms
 sexp atomsf(sexp args) { return atoms; }
 
+// closure
+sexp closureform(sexp exp, sexp env) { return exp; }
+
 // quote
 sexp quoteform(sexp exp, sexp env) { return exp->cdr->car; }
 
@@ -3571,7 +3587,7 @@ sexp apply(sexp fun, sexp args)
     sexp* mark = psp;
     save(fun, args);
 
-    if (false && f != tracing)
+    if (true && f != tracing)
     {
         debug("apply-fun", fun);
         debug("apply-args", args);
@@ -3631,7 +3647,7 @@ sexp eval(sexp p, sexp env)
     if (f != tracing && p && (t != p) && (f != p) && (isAtom(p) || isCons(p)))
     {
         ++indent;
-        Context context(0, true, false);
+        Context context(0, true, false, false);
         context.s << "eval:";
         for (int i = indent; --i >= 0; context.s << ' ') {}
         display(context, p, 0);
@@ -4188,6 +4204,7 @@ const struct FuncTable {
     { "magnitude",                         1, (void*)magnitude },
     { "make-string",                       0, (void*)make_string },
     { "make-vector",                       0, (void*)make_vector },
+    { "map",                               2, (void*)map },
     { "modulo",                            2, (void*)moduloff },
     { "neg",                               1, (void*)unineg },
     { "negative?",                         1, (void*)negativep },
@@ -4283,6 +4300,7 @@ const struct FormTable {
     { "begin",       begin },
     { "bound?",      boundp },
     { "case",        caseform },
+    { "closure",     closureform },
     { "complex",     complexform },
     { "cond",        cond },
     { "define",      defineform },
@@ -4452,7 +4470,7 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         valu = eval(expr, replenv);
         {
-            Context context(0, false, true);
+            Context context(0, false, true, true);
             mapCycles(context, valu);
             display(context, valu, 0);
             std::cout.write(context.s.str().c_str(), context.s.str().length());
