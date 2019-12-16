@@ -147,10 +147,10 @@
     x)
 
 (define (primes limit)
-    (let ((n 2) (l '()))
+    (let ((n 3) (l (list 2)))
          (while (<= n limit)
                 (set! l (cons n l))
-                (set! n (next-prime (+ n 1))))
+                (set! n (next-prime (+ n 2))))
          (reverse! l)))
 
 (define bbbbb '(b))

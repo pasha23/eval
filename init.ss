@@ -287,7 +287,7 @@
 
 (define (for-each f s) (while (pair? s) (f (car s)) (set! s (cdr s))))
 
-;;(define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
+(define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
 
 (define (make-counter)
         (let ((n 0)) (lambda () (begin (set! n (+ n 1)) n))))
@@ -304,7 +304,7 @@
         (let ((value (eval name (environment))))
              (if (closure? value)
                  (cons 'define
-                       (cons (cons name (cadadr value)) (cddadr value)))
+                       (cons (cons name (cadr (car (unbox value)))) (cddr (car (unbox value)))))
                  (list 'define name value))))
 
 (define (definitions)

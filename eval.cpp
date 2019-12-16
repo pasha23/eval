@@ -69,7 +69,8 @@ enum Tag1
     OUTPORT  = 0x0901,
     VECTOR   = 0x0A01,
     BIGNUM   = 0x0B01,
-    RATIONAL = 0x0C01
+    RATIONAL = 0x0C01,
+    CLOSURE  = 0x0D01
 };
 
 typedef struct Cons *sexp;
@@ -102,7 +103,7 @@ sexp *psp;          		// protection stack pointer
 sexp *psend;            	// protection stack end
 sexp *protect;      		// protection stack
 
-sexp closure, comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
+sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
 sexp lbracket, lparen, minus, one, promise, qchar, quasiquote, quote;
 sexp rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
 
@@ -215,6 +216,7 @@ struct Char     { char tags[sizeof(Cons)-sizeof(uint32_t)];       uint32_t      
 struct OutPort  { char tags[sizeof(Cons)-sizeof(PortStream*)];    PortStream*      s; };
 struct Bignum   { char tags[sizeof(Cons)-sizeof(Num*)];           Num*          nump; };
 struct Rational { char tags[sizeof(Cons)-sizeof(Rat*)];           Rat*          ratp; };
+struct Closure  { char tags[sizeof(sexp)];                        sexp        expenv; };
 
 // supports uglyprinting
 struct Context
@@ -262,17 +264,9 @@ static inline bool isOutPort(const sexp p)  { return p &&       OUTPORT  == shor
 static inline bool isVector(const sexp p)   { return p &&       VECTOR   == shortType(p); }
 static inline bool isBignum(const sexp p)   { return p &&       BIGNUM   == shortType(p); }
 static inline bool isRational(const sexp p) { return p &&       RATIONAL == shortType(p); }
+static inline bool isClosure(const sexp p)  { return p &&       CLOSURE  == shortType(p); }
 
 bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p); }
-
-bool isClosure(sexp p)
-{
-    return isCons(p) &&
-           closure == p->car &&                         // (closure
-           isCons(p = p->cdr) && p->car &&              //  exp
-           isCons(p = p->cdr) && p->car &&              //  env)
-           !p->cdr;
-}
 
 bool isPromise(sexp p)
 {
@@ -382,6 +376,9 @@ void mark(sexp p)
     } else if (isAtom(p)) {
         Atom* atom = (Atom*)p;
         mark(atom->body);
+    } else if (isClosure(p)) {
+        Closure* clo = (Closure*)p;
+        mark(clo->expenv);
     } else if (isVector(p)) {
         Vector* v = (Vector*)p;
         for (int i = v->l; --i >= 0; mark(v->e[i])) {}
@@ -2630,7 +2627,7 @@ sexp writef(sexp args)
 
 bool cyclic(std::set<sexp>& seenSet, sexp exp)
 {
-    if (!exp || isClosure(exp) || isPromise(exp))
+    if (!exp || isPromise(exp))
         return false;
 
     if (isCons(exp))
@@ -2680,7 +2677,7 @@ void displayList(Context& context, sexp exp, int level)
             break;
         display(context, p->car, level);
         if ((p = p->cdr)) {
-            if (isCons(p) && !isClosure(p) && !isPromise(p) && replenv != p && global != p) {
+            if (isCons(p) && !isPromise(p) && replenv != p && global != p) {
                 context.wrap(level, displayLength(p->car));
             } else {
                 context.s << " . ";
@@ -2874,8 +2871,6 @@ void display(Context& context, sexp exp, int level)
             context.s << "#<repl environment>";
         else if (global == exp)
             context.s << "#<global environment>";
-        else if (isClosure(exp))
-            displayNamed(context, "closure", exp);
         else if (isPromise(exp))
             displayNamed(context, "promise", exp);
         else if (isComplex(exp)) {
@@ -2914,7 +2909,8 @@ void display(Context& context, sexp exp, int level)
     case CHAR:     displayChar(context, exp);               break;
     case BIGNUM:   displayBignum(context, exp);             break;
     case RATIONAL: displayRational(context, exp);           break;
-    case VECTOR:   displayVector(context, exp, level);
+    case VECTOR:   displayVector(context, exp, level);      break;
+    case CLOSURE:  displayNamed(context, "closure", exp);   break;
     }
 }
 
@@ -3095,7 +3091,7 @@ void fixenvs(sexp env)
 {
     for (sexp e = env; e; e = e->cdr)
         if (isClosure(e->car->cdr))
-            e->car->cdr->cdr->cdr->car = env;
+            ((Closure*)(e->car->cdr))->expenv->cdr = env;
 }
 
 static char errorBuffer[128];   // used by get and set
@@ -3302,7 +3298,12 @@ sexp cond(sexp exp, sexp env)
 // lambda creates a closure
 sexp lambdaform(sexp exp, sexp env)
 {
-    return lose(cons(closure, replace(cons(exp, save(cons(env, 0))))));
+    return lose(newcell(CLOSURE, save(cons(exp, env))));
+}
+
+sexp unbox(sexp s)
+{
+    return ((Closure*)s)->expenv;
 }
 
 /*
@@ -3328,7 +3329,7 @@ sexp nesteddefine(sexp p, sexp env)
         sexp v = replace(cons(lambda, save(cons(p->car->cdr, p->cdr))));
         // v is the transformed definition (lambda (x) ...) or (lambda (x y . z) ...)
         v = save(lambdaform(v, env));
-        // v is a closure (closure exp env)
+        // v is a closure
         for (sexp q = env; q; q = q->cdr)
             if (k == q->car->car)
             {
@@ -3336,7 +3337,7 @@ sexp nesteddefine(sexp p, sexp env)
                 return lose(mark, env);
             }
         // update the closure definition to include the one we just made
-        return lose(mark, v->cdr->cdr->car = cons(save(cons(p->car->car, save(v))), env));
+        return lose(mark, ((Closure*)v)->expenv->cdr = cons(save(cons(p->car->car, save(v))), env));
     } else {
         sexp k = p->car;
         if (!isAtom(k))
@@ -3363,9 +3364,6 @@ sexp defineform(sexp p, sexp env)
 
 // atoms
 sexp atomsf(sexp args) { return atoms; }
-
-// closure
-sexp closureform(sexp exp, sexp env) { return exp; }
 
 // quote
 sexp quoteform(sexp exp, sexp env) { return exp->cdr->car; }
@@ -3500,8 +3498,8 @@ sexp let(sexp exp, sexp env)
     {
         // (let name ((var val) (var val) ..) body )
         sexp l = replace(cons(lambda, replace(cons(save(names(exp->cdr->car)), exp->cdr->cdr))));
-        sexp c = replace(cons(closure, replace(cons(l, save(cons(env, 0))))));
-        c->cdr->cdr->car = e = replace(cons(save(cons(exp->car, c)), e));
+        sexp c = replace(newcell(CLOSURE, save(cons(l, env))));
+        ((Closure*)c)->expenv->cdr = e = replace(cons(save(cons(exp->car, c)), e));
         return lose(mark, apply(e->car->cdr, save(values(exp->cdr->car, e))));
     }
     // (let ((var val) (var val) ..) body )
@@ -3612,17 +3610,17 @@ sexp apply(sexp fun, sexp args)
 
     if (isClosure(fun))
     {
-        fun          = fun->cdr;
-        sexp env     = fun->cdr->car;
-        sexp fcc     = fun->car->cdr;
+        Closure* clo = (Closure*)fun;
+        sexp env     = clo->expenv->cdr;
+        sexp fcc     = clo->expenv->car->cdr;
 
         if (!fcc->car) {
-            // fun->cdr->car = (lambda () foo)
+            // (lambda () foo)
         } else if (isAtom(fcc->car)) {
-            // fun->cdr->car = (lambda s foo)
+            // (lambda s foo)
             env = replace(cons(save(cons(fcc->car, args)), env));
         } else {
-            // fun->cdr->car = (lambda (n) (car x))
+            // (lambda (n) (car x))
             env = save(assoc(fcc->car, args, env));
         }
 
@@ -4275,6 +4273,7 @@ const struct FuncTable {
     { "time",                              1, (void*)timeff },
     { "trace",                             1, (void*)trace },
     { "truncate",                          1, (void*)truncateff },
+    { "unbox",                             1, (void*)unbox },
     { "undefine",                          1, (void*)undefine },
     { "vector",                            0, (void*)vector },
     { "vector?",                           1, (void*)vectorp },
@@ -4300,7 +4299,6 @@ const struct FormTable {
     { "begin",       begin },
     { "bound?",      boundp },
     { "case",        caseform },
-    { "closure",     closureform },
     { "complex",     complexform },
     { "cond",        cond },
     { "define",      defineform },
@@ -4353,7 +4351,6 @@ int main(int argc, char **argv, char **envp)
     one  = newfixnum(1);
 
     // names
-    closure         = staintern("closure");
     commaat         = staintern(",@");
     comma           = staintern(",");
     complex         = staintern("complex");
