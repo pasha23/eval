@@ -20,6 +20,7 @@
 #include <cstring>
 #include <ctype.h>
 #include <errno.h>
+#include <float.h>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -409,11 +410,11 @@ static void deletebignum(sexp n) { delete ((Bignum*)n)->nump; }
 
 static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 
-enum StringTags { IMMUTABLE, ASCII, UCS, UTF8 };
+enum StringTags { IMMUTABLE, ASCII, UTF8, UCS };
 
+static inline bool isMutable(String *s) { return IMMUTABLE != s->tags[2]; }
 static inline bool isUTF8(String *s)    { return UTF8      == s->tags[2]; }
 static inline bool isWide(String *s)    { return UCS       == s->tags[2]; }
-static inline bool isMutable(String *s) { return IMMUTABLE != s->tags[2]; }
 
 static void deletestring(sexp s) { if (isMutable((String*)s)) delete ((String*)s)->text; }
 
@@ -1484,6 +1485,7 @@ uint32_t read_utf8(char*& p)
     return ch;
 }
 
+// length of a String (3 kinds)
 int stringlen(String *s)
 {
     if (isWide(s)) {
@@ -1568,6 +1570,27 @@ static inline char* atomText(sexp s)
     return stringText((((Atom*)s)->body->cdr->car));
 }
 
+// does a string contain only ASCII characters?
+bool isAscii(const char *s)
+{
+    while (*s)
+        if (0x7f < *s++)
+            return false;
+    return true;
+}
+
+bool isAscii(String* string)
+{
+    if (isWide(string))
+    {
+        for (uint32_t* p = (uint32_t*)string->text; *p; ++p)
+            if (0x7f < *p)
+                return false;
+        return true;
+    } else
+        return isAscii(string->text);
+}
+
 // every atom must be unique and saved in the atoms list
 sexp dynintern(const char *s)
 {
@@ -1634,7 +1657,19 @@ sexp number_string(sexp exp)
     Context context(0, true, false, false);
     mapCycles(context, exp);
     display(context, exp, 0);
-    return utfstring(strsave(context.s.str().c_str()));
+    const char * text = context.s.str().c_str();
+    bool ascii = true;
+    for (const char *p = text; *p; ++p)
+        if (0x7f < *p)
+        {
+            ascii = false;
+            break;
+        }
+    text = strsave(text);
+    if (ascii)
+        return dynstring(text);
+    else
+        return utfstring(text);
 }
 
 // make-string
@@ -1647,7 +1682,7 @@ sexp make_string(sexp args)
     int c = args->cdr && isChar(args->cdr->car) ?
                   ((Char*)(args->cdr->car))->ch : ' ';
 
-    if (c > 0x7f)
+    if (0x7f < c)
     {
         uint32_t *b = new uint32_t[l+1];
         uint32_t *q = b;
@@ -1675,67 +1710,67 @@ sexp string_copy(sexp s)
         uint32_t *widetext = new uint32_t[l+1];
         widecpy(widetext, (uint32_t*)string->text);
         return widestring(widetext);
-    } else if (isUTF8(string))
+    } else if (!isAscii(string))
         return utfstring(strsave(stringText(s)));
     else
         return dynstring(strsave(stringText(s)));
 }
 
 // string-append
-sexp string_append(sexp p, sexp q)
+sexp string_append(sexp args)
 {
-    assertString(p);
-    assertString(q);
-    String* ps = (String*)p;
-    String* qs = (String*)q;
-    int pl = stringlen(ps);
-    int ql = stringlen(qs);
-    if (isWide(ps) || isWide(qs))
+    int length = 0;
+    bool wide = false;
+    bool utf8 = false;
+    for (sexp p = args; p; p = p->cdr)
     {
-        int i = 0;
-        uint32_t* b = new uint32_t[pl+ql+1];
-        uint32_t* s = b;
-        if (isWide(ps)) {
-            widecpy(b, (uint32_t*)ps->text);
-        } else if (isUTF8(ps)) {
-            char* r = ps->text;
-            uint32_t wc;
-            while ((wc = read_utf8(r)))
-                *s++ = wc;
-        } else {
-            char* r = ps->text;
-            while (*r)
-                b[i++] = *r++;
+        if (!isString(p->car))
+            error("string-append: not a string");
+        String* string = (String*)p->car;
+        length += strlen(string->text);
+        wide |= isWide(string);
+        utf8 |= isUTF8(string);
+    }
+
+    if (!wide)
+    {
+        char* b = new char[length+1];
+        char* q = b;
+        bool ascii = true;
+        for (sexp p = args; p; p = p->cdr)
+        {
+            String* string = (String*)p->car;
+            for (char* r = string->text; *r; )
+            {
+                if (0x7f < *r)
+                    ascii = false;
+                *q++ = *r++;
+            }
         }
-        if (isWide(qs)) {
-            widecpy(b+pl, (uint32_t*)qs->text);
-        } else if (isUTF8(qs)) {
-            char* r = qs->text;
-            uint32_t wc;
-            while ((wc = read_utf8(r)))
-                *s++ = wc;
-            *s++ = 0;
-        } else {
-            char* r = qs->text;
-            while (*r)
-                b[i++] = *r++;
-        }
-        b[i++] = 0;
-        return widestring(b);
-    } else if (isUTF8(ps) && isUTF8(qs)) {
-        pl = strlen(ps->text);
-        ql = strlen(qs->text);
-        char *b = new char[pl+ql+1];
-        strcpy(b,    ((String*)p)->text);
-        strcpy(b+pl, ((String*)q)->text);
-        return utfstring(b);
-    } else if (!isUTF8(ps) && !isUTF8(qs)) {
-        char *b = new char[pl+ql+1];
-        strcpy(b,    ((String*)p)->text);
-        strcpy(b+pl, ((String*)q)->text);
-        return dynstring(b);
-    } else
-        error("utf8 not complete");
+        *q++ = 0;
+        return ascii ? dynstring(b) : utfstring(b);
+    }
+
+    length = 0;
+    for (sexp p = args; p; p = p->cdr)
+        length += stringlen((String*)p->car);
+    uint32_t* b = new uint32_t[length+1];
+    uint32_t* q = b;
+    for (sexp p = args; p; p = p->cdr)
+    {
+        String* string = (String*)p->car;
+        if (isWide(string))
+            for (uint32_t* r = (uint32_t*)string->text; *r; )
+                *q++ = *r++;
+        else if (isUTF8(string))
+            for (char *r = string->text; *r; )
+                *q++ = read_utf8(r);
+        else
+            for (const char *r = string->text; *r; )
+                *q++ = *r++;
+    }
+    *q++ = 0;
+    return widestring(b);
 }
 
 // string-fill
@@ -1783,6 +1818,8 @@ sexp input_portp(sexp p) { return boolwrap(isInPort(p)); }
 sexp open_input_file(sexp p)
 {
     assertString(p);
+    if (isWide((String*)p))
+        error("open-input-file: wide string not supported");
     return newinport(stringText(p));
 }
 
@@ -1790,6 +1827,8 @@ sexp open_input_file(sexp p)
 sexp open_output_file(sexp p)
 {
     assertString(p);
+    if (isWide((String*)p))
+        error("open-output-file: wide string not supported");
     return newoutport(stringText(p));
 }
 
@@ -1840,6 +1879,34 @@ sexp call_with_output_file(sexp p, sexp func)
     return lose(mark, q);
 }
 
+int encodeUTF8(char *p, uint32_t ch)
+{
+    char* q = p;
+    if (ch < 0x80) {
+        *q++ = (char)ch;
+    } else if (ch < 0x800) {
+        *q++ = (ch>>6) | 0xC0;
+        *q++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x10000) {
+        *q++ = (ch>>12) | 0xE0;
+        *q++ = ((ch>>6) & 0x3F) | 0x80;
+        *q++ = (ch & 0x3F) | 0x80;
+    } else if (ch < 0x110000) {
+        *q++ = (ch>>18) | 0xF0;
+        *q++ = ((ch>>12) & 0x3F) | 0x80;
+        *q++ = ((ch>>6) & 0x3F) | 0x80;
+        *q++ = (ch & 0x3F) | 0x80;
+    }
+    *q++ = 0;
+    return q-p;
+}
+
+int encodedLength(uint32_t ch)
+{
+    char b[8];
+    return encodeUTF8(b, ch);
+}
+
 // open-input-string
 sexp open_input_string(sexp args)
 {
@@ -1853,8 +1920,8 @@ sexp open_input_string(sexp args)
         i = asFixnum(args->car);
     }
 
-    char* text = ((String*)s)->text;
-    int j = strlen(text);
+    String* string = (String*)s;
+    int j = stringlen(string);
     if (args = args->cdr)
     {
         assertFixnum(args->car);
@@ -1865,8 +1932,27 @@ sexp open_input_string(sexp args)
         error("open-input-string: bad arguments");
 
     std::stringstream* ss = new std::stringstream();
-    for (int k = i; k < j; ++k)
-        ss->put(text[k]);
+    if (isWide(string)) {
+        char buf[8];
+        uint32_t *p = (uint32_t*)string->text;
+        for (int k = i; k < j; ++k)
+        {
+            encodeUTF8(buf, p[k]);
+            for (char* q = buf; *q; ++q)
+                ss->put(*q);
+        }
+    } else {
+        char* p = string->text;
+        for (int k = 0; k < j; ++k)
+            if (i <= k)
+            {
+                char* q = p;
+                read_utf8(p);
+                while (q < p)
+                    ss->put(*q++);
+                    
+            }
+    }
     InPort* port = (InPort*)save(newcell(INPORT));
     port->avail = 0;
     port->peek = 0;
@@ -2276,34 +2362,6 @@ sexp string_ref(sexp s, sexp i)
     error("string-ref: out of bounds");
 }
 
-int encodeUTF8(char *p, uint32_t ch)
-{
-    char* q = p;
-    if (ch < 0x80) {
-        *q++ = (char)ch;
-    } else if (ch < 0x800) {
-        *q++ = (ch>>6) | 0xC0;
-        *q++ = (ch & 0x3F) | 0x80;
-    } else if (ch < 0x10000) {
-        *q++ = (ch>>12) | 0xE0;
-        *q++ = ((ch>>6) & 0x3F) | 0x80;
-        *q++ = (ch & 0x3F) | 0x80;
-    } else if (ch < 0x110000) {
-        *q++ = (ch>>18) | 0xF0;
-        *q++ = ((ch>>12) & 0x3F) | 0x80;
-        *q++ = ((ch>>6) & 0x3F) | 0x80;
-        *q++ = (ch & 0x3F) | 0x80;
-    }
-    *q++ = 0;
-    return q-p;
-}
-
-int encodedLength(uint32_t ch)
-{
-    char b[8];
-    return encodeUTF8(b, ch);
-}
-
 // string-set!
 sexp string_set(sexp s, sexp k, sexp c)
 {
@@ -2334,14 +2392,13 @@ sexp string_set(sexp s, sexp k, sexp c)
                     encodeUTF8(p-el, ((Char*)c)->ch);
                     *p = sp;
                 } else
-                    error("utf8 not complete");
+                    error("string-set!: utf8 not complete");
     } else
         string->text[asFixnum(k)] = ((Char*)c)->ch;
 
     return s;
 }
 
-// substring does not yet work on utf8 strings
 sexp substringf(sexp args)
 {
     if (!args || !isString(args->car))
@@ -2374,21 +2431,13 @@ sexp substringf(sexp args)
         uint32_t wc;
         for (char* p = string->text; wc = read_utf8(p); ++ix)
             if (i <= ix && ix < j)
-                error("utf8 incomplete");
+                error("substring: utf8 incomplete");
     } else {
         char* b = new char[j-i+1];
         strncpy(b, string->text+i, j-i);
         b[j-i] = 0;
         return dynstring(b);
     }
-}
-
-// (define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
-sexp map(sexp f, sexp s)
-{
-    sexp* mark = psp;
-    save(f, s);
-    return lose(mark, s ? cons(replace(apply(f, save(cons(s->car, 0)))), save(map(f, s->cdr))) : s);
 }
 
 // append
@@ -2436,6 +2485,16 @@ sexp eqnp(sexp x, sexp y)
 // zero?
 sexp zerop(sexp x)
 {
+    if (isDouble(x))
+    {
+        double xf = ((Double*)x)->flonum;
+        return boolwrap(-DBL_MIN < xf && xf < DBL_MIN);
+    }
+    if (isFloat(x))
+    {
+        float xf = ((Float*)x)->flonum;
+        return boolwrap(-FLT_MIN < xf && xf < FLT_MIN);
+    }
     return eqnp(zero, x);
 }
 
@@ -3295,15 +3354,16 @@ sexp cond(sexp exp, sexp env)
     return voida;
 }
 
+// not only Closures adhere to this idea
+sexp unbox(sexp s)
+{
+    return ((Closure*)s)->expenv;
+}
+
 // lambda creates a closure
 sexp lambdaform(sexp exp, sexp env)
 {
     return lose(newcell(CLOSURE, save(cons(exp, env))));
-}
-
-sexp unbox(sexp s)
-{
-    return ((Closure*)s)->expenv;
 }
 
 /*
@@ -3560,17 +3620,19 @@ sexp doform(sexp exp, sexp env)
         if (!v->car->cdr)
             error("do: missing value");
         else
-            e = save(cons(save(cons(v->car->car, v->car->cdr->car)), e));
-    sexp s = save(voida);
+            e = save(cons(replace(cons(v->car->car, save(eval(v->car->cdr->car, env)))), e));
+
     for (;;)
     {
-        // if any test succeeds, return s
-        for (sexp t = exp->cdr->car; t; t = t->cdr)
-            if (f != eval(t->car, e))
-                return lose(mark, s);
+        sexp u = exp->cdr->car;
+        if (f != eval(u->car, e))
+            if (u->cdr)
+                return lose(mark, tailforms(u->cdr, e));
+            else
+                return voida;
 
         // evaluate each body expression
-        s = replace(tailforms(exp->cdr->cdr, e));
+        tailforms(exp->cdr->cdr, e);
 
         // step each variable
         for (sexp v = exp->car; v; v = v->cdr)
@@ -3586,10 +3648,7 @@ sexp apply(sexp fun, sexp args)
     save(fun, args);
 
     if (true && f != tracing)
-    {
-        debug("apply-fun", fun);
-        debug("apply-args", args);
-    }
+        debug("apply", cons(fun, args));
 
     if (isFunct(fun))
     {
@@ -4202,7 +4261,6 @@ const struct FuncTable {
     { "magnitude",                         1, (void*)magnitude },
     { "make-string",                       0, (void*)make_string },
     { "make-vector",                       0, (void*)make_vector },
-    { "map",                               2, (void*)map },
     { "modulo",                            2, (void*)moduloff },
     { "neg",                               1, (void*)unineg },
     { "negative?",                         1, (void*)negativep },
@@ -4250,7 +4308,7 @@ const struct FuncTable {
     { "string>?",                          2, (void*)string_gtp },
     { "string<=?",                         2, (void*)string_lep },
     { "string<?",                          2, (void*)string_ltp },
-    { "string-append",                     2, (void*)string_append },
+    { "string-append",                     0, (void*)string_append },
     { "string-ci=?",                       2, (void*)string_cieqp },
     { "string-ci>=?",                      2, (void*)string_cigep },
     { "string-ci>?",                       2, (void*)string_cigtp },

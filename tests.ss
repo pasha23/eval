@@ -246,7 +246,7 @@
 (test '(= 45 (real-part 45+18i)))
 (test '(= 45 (string-length (make-string 45))))
 (test '(= 4 (cond (#f 1) (#f 2) (#t 3 4) (#f 4) (else 5))))
-(test '(= 4 (do ((i 1 (+ 1 i))) ((> i 4)) i)))
+(test '(= 77 (do ((i 1 (+ 1 i))) ((> i 4) 77) i)))
 (test '(= 4 (imag-part 3+4i)))
 (test '(= 5.0 (real-part 5.0+3.0i)))
 (test '(= (& 5 2) 0))
