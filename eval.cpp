@@ -410,10 +410,9 @@ static void deletebignum(sexp n) { delete ((Bignum*)n)->nump; }
 
 static void deleterational(sexp n) { delete ((Rational*)n)->ratp; }
 
-enum StringTags { IMMUTABLE, ASCII, UTF8 };
+enum StringTags { STATIC, DYNAMIC };
 
-static inline bool isMutable(String *s) { return IMMUTABLE != s->tags[2]; }
-static inline bool isUTF8(String *s)    { return UTF8      == s->tags[2]; }
+static inline bool isMutable(String *s) { return STATIC != s->tags[2]; }
 
 static void deletestring(sexp s) { if (isMutable((String*)s)) delete ((String*)s)->text; }
 
@@ -1485,14 +1484,11 @@ uint32_t read_utf8(char*& p)
 // length of a String
 int stringlen(String *s)
 {
-    if (isUTF8(s)) {
-        int len = 0;
-        char* p = s->text;
-        while (read_utf8(p))
-            ++len;
-        return len;
-    } else
-        return strlen(s->text);
+    int len = 0;
+    char* p = s->text;
+    while (read_utf8(p))
+        ++len;
+    return len;
 }
 
 // string-length
@@ -1525,16 +1521,7 @@ sexp dynstring(const char* s)
 {
     String* string = (String*)newcell(STRING);
     string->text = (char*)s;
-    string->tags[2] = ASCII;
-    return (sexp) string;
-}
-
-// a utf8 string created by displayString()
-sexp utfstring(const char* s)
-{
-    String* string = (String*)newcell(STRING);
-    string->text = (char*)s;
-    string->tags[2] = UTF8;
+    string->tags[2] = DYNAMIC;
     return (sexp) string;
 }
 
@@ -1543,6 +1530,7 @@ sexp stastring(const char* s)
 {
     String* string = (String*)newcell(STRING);
     string->text = (char*)s;
+    string->tags[2] = STATIC;
     return (sexp) string;
 }
 
@@ -1559,20 +1547,6 @@ static inline char* stringText(sexp s)
 static inline char* atomText(sexp s)
 {
     return stringText((((Atom*)s)->body->cdr->car));
-}
-
-// does a string contain only ASCII characters?
-bool isAscii(const char *s)
-{
-    while (*s)
-        if (0x7f < *s++)
-            return false;
-    return true;
-}
-
-bool isAscii(String* string)
-{
-    return isAscii(string->text);
 }
 
 // every atom must be unique and saved in the atoms list
@@ -1603,19 +1577,7 @@ sexp number_string(sexp exp)
     Context context(0, true, false, false);
     mapCycles(context, exp);
     display(context, exp, 0);
-    const char * text = context.s.str().c_str();
-    bool ascii = true;
-    for (const char *p = text; *p; ++p)
-        if (0x7f < *p)
-        {
-            ascii = false;
-            break;
-        }
-    text = strsave(text);
-    if (ascii)
-        return dynstring(text);
-    else
-        return utfstring(text);
+    return dynstring(strsave(context.s.str().c_str()));
 }
 
 int encodeUTF8(char *p, uint32_t ch)
@@ -1642,7 +1604,7 @@ int encodeUTF8(char *p, uint32_t ch)
 
 int encodedLength(uint32_t ch)
 {
-    char b[8];
+    char b[5];
     return encodeUTF8(b, ch);
 }
 
@@ -1652,7 +1614,7 @@ sexp make_string(sexp args)
     if (!args || !isFixnum(args->car))
         error("make-string: args expected");
 
-    char cb[8];
+    char cb[5];
     int l = asFixnum(args->car);
     uint32_t cx = args->cdr && isChar(args->cdr->car) ? ((Char*)(args->cdr->car))->ch : ' ';
     int cl = encodeUTF8(cb, cx);
@@ -1664,7 +1626,7 @@ sexp make_string(sexp args)
         q += cl;
     }
     *q++ = 0;
-    return 0x7f < cx ? utfstring(b) : dynstring(b);
+    return dynstring(b);
 }
 
 // string-copy
@@ -1672,11 +1634,7 @@ sexp string_copy(sexp s)
 {
     assertString(s);
     String* string = (String*)s;
-    const char * text = strsave(string->text);
-    if (isAscii(text))
-        return dynstring(text);
-    else
-        return utfstring(text);
+    return dynstring(strsave(string->text));
 }
 
 // string-append
@@ -1693,23 +1651,18 @@ sexp string_append(sexp args)
 
     char* b = new char[length+1];
     char* q = b;
-    bool ascii = true;
     for (sexp p = args; p; p = p->cdr)
     {
         String* string = (String*)p->car;
         for (char* r = string->text; *r; )
-        {
-            if (0x7f < *r)
-                ascii = false;
             *q++ = *r++;
-        }
     }
     *q++ = 0;
-
-    return ascii ? dynstring(b) : utfstring(b);
+    return dynstring(b);
 }
 
 // string-fill
+// this is slightly broken because not all chars are the same length
 sexp string_fill(sexp s, sexp c)
 {
     assertChar(c);
@@ -1721,10 +1674,9 @@ sexp string_fill(sexp s, sexp c)
     uint32_t k = ((Char*)c)->ch;
     int kl = encodedLength(k);
     char* p = string->text;
-    while (p <= string->text + length - kl)
+    while (p+kl <= string->text + length)
         p += encodeUTF8(p, k);
     *p++ = 0;
-    string->tags[2] = 0x7f < k ? UTF8 : ASCII;
     return s;
 }
 
@@ -1852,8 +1804,7 @@ sexp get_output_string(sexp port)
     assertOutPort(port);
     OutPort* p = (OutPort*)port;
     std::stringstream* ss = (std::stringstream*) p->s->streamPointer;
-    char* text = strsave(ss->str().c_str());
-    return isAscii(text) ? dynstring(text) : utfstring(text);
+    return dynstring(strsave(ss->str().c_str()));
 }
 
 // open-output-string
@@ -1902,8 +1853,7 @@ sexp write_to_string(sexp args)
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
-    const char* text = strsave(context.s.str().substr(0, limit).c_str());
-    return isAscii(text) ? dynstring(text) : utfstring(text);
+    return dynstring(strsave(context.s.str().substr(0, limit).c_str()));
 }
 
 // vector?
@@ -2188,8 +2138,9 @@ sexp write_char(sexp args)
             assertOutPort(port = args->cdr->car);
     }
 
-    // utf8
-    ((OutPort*)port)->s->put(((Char*)(args->car))->ch);
+    char b[5];
+    encodeUTF8(b, ((Char*)(args->car))->ch);
+    ((OutPort*)port)->s->write(b, strlen(b));
 
     return voida;
 }
@@ -2307,7 +2258,7 @@ sexp substringf(sexp args)
     char* b = new char[p-q+1];
     memcpy(b, q, p-q);
     b[p-q] = 0;
-    return isAscii(b) ? dynstring(b) : utfstring(b);
+    return dynstring(b);
 }
 
 // append
@@ -2649,7 +2600,7 @@ const char * const character_table[] =
 
 void displayChar(Context& context, sexp exp)
 {
-    char buf[8];
+    char buf[5];
     int c = ((Char*)exp)->ch;
     for (int i = 0; character_table[i]; ++i)
         if (c == *character_table[i]) {
@@ -2671,7 +2622,7 @@ void displayString(Context& context, sexp exp)
         if (context.write && cx <= 0x7f && strchr("\007\b\t\n\r\"\\", cx)) {
             context.s << '\\' << encodeEscape(cx);
         } else {
-            char buf[8];
+            char buf[5];
             encodeUTF8(buf, cx);
             context.s << buf;
         }
@@ -2882,13 +2833,8 @@ sexp string_list(sexp x)
     char* r = string->text;
     uint32_t wc;
     sexp p = save(0);
-#if 1
-    while (*r)
-        p = replace(cons(save(newcharacter(*r++)), p));
-#else
     while ((wc = read_utf8(r)))
         p = replace(cons(save(newcharacter(wc)), p));
-#endif
     return lose(mark, reverse(p));
 }
 
@@ -2899,29 +2845,19 @@ sexp list_string(sexp s)
         return newcell(STRING, 0);
 
     int size = 1;
-    bool ascii = true;
     for (sexp p = s; p; p = p->cdr)
     {
         assertChar(p->car);
-        uint32_t cx = ((Char*)p->car)->ch;
-        if (0x7f < cx)
-        {
-            ascii = false;
-            size += encodedLength(cx);
-        } else
-            ++size;
+        size += encodedLength(((Char*)(p->car))->ch);
     }
 
     char* b = new char[size];
     char* q = b;
     for (sexp p = s; p; p = p->cdr)
-    {
-        uint32_t cx = ((Char*)(p->car))->ch;
-        q += encodeUTF8(q, cx);
-    }
+        q += encodeUTF8(q, ((Char*)(p->car))->ch);
     *q++ = 0;
 
-    return ascii ? dynstring(b) : utfstring(b);
+    return dynstring(b);
 }
 
 // string
@@ -3870,8 +3806,7 @@ sexp scans(std::istream& fin)
                 c = read_utf8(fin);
             }
         }
-        char* text = strsave(s.str().c_str());
-        return isAscii(text) ? dynstring(text) : utfstring(text);
+        return dynstring(strsave(s.str().c_str()));
     }
 }
 
