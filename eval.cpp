@@ -2235,6 +2235,7 @@ sexp string_set(sexp s, sexp k, sexp c)
     return s;
 }
 
+// substring
 sexp substringf(sexp args)
 {
     if (!args || !isString(args->car))
@@ -3074,16 +3075,25 @@ sexp evlis(sexp p, sexp env)
 {
     sexp* mark = psp;
     save(p, env);
-    return p ? lose(mark, cons(save(eval(p->car, env)), save(evlis(p->cdr, env)))) : 0;
+    if (!p)
+        return p;
+    if (!isCons(p))
+        error("evlis: not a pair");
+    return lose(mark, cons(save(eval(p->car, env)), save(evlis(p->cdr, env))));
 }
 
 // associate names with values in an environment
 sexp assoc(sexp names, sexp values, sexp env)
 {
+    if (!names)
+        return env;
     sexp* mark = psp;
     save(values, names, env);
     if (!isCons(names))
-        return lose(mark, cons(save(cons(names, values)), env));
+        if (values)
+            return lose(mark, cons(save(cons(names, values)), env));
+        else
+            return lose(mark, cons(save(cons(names, voida)), env));
     if (!values)
         return lose(mark, cons(save(cons(names->car, voida)),
                                save(assoc(names->cdr, values, env))));
@@ -3963,6 +3973,7 @@ const struct FuncTable {
     { "append",                            2, (void*)append },
     { "apply",                             2, (void*)apply },
     { "asin",                              1, (void*)asinff },
+    { "assoc",                             3, (void*)assoc },
     { "atan",                              1, (void*)atanff },
     { "atan2",                             2, (void*)atan2ff },
     { "atom?",                             1, (void*)atomp },
@@ -4014,6 +4025,7 @@ const struct FuncTable {
     { "equal?",                            2, (void*)equalp },
     { "eqv?",                              2, (void*)eqvp },
     { "eval",                              2, (void*)xeval },
+    { "evlis",                             2, (void*)evlis },
     { "exact?",                            1, (void*)exactp },
     { "exact->inexact",                    1, (void*)exact_inexact },
     { "exp",                               1, (void*)expff },

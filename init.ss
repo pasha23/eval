@@ -287,7 +287,21 @@
 
 (define (for-each f s) (while (pair? s) (f (car s)) (set! s (cdr s))))
 
-(define (map f s) (if (null? s) s (cons (f (car s)) (map f (cdr s)))))
+(define (cars lists)
+        (if (null? lists)
+            '()
+            (cons (caar lists) (cars (cdr lists)))))
+
+(define (cdrs lists)
+        (if (null? lists)
+            '()
+            (cons (cdar lists) (cdrs (cdr lists)))))
+
+(define (map f . lists)
+        (if (and (pair? lists) (pair? (car lists)))
+            (cons (apply f (cars lists))
+                  (apply map (cons f (cdrs lists))))
+            '()))
 
 (define (make-counter)
         (let ((n 0)) (lambda () (begin (set! n (+ n 1)) n))))
