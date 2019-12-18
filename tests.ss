@@ -162,6 +162,9 @@
                 (begin (display 'fail) (space) (display s)))
         (gc))
 
+(test '(eqv? '((-7 -6 11) (-17 -20 25))
+             (matrix-multiply '((1 2) (3 4)) '((-3 -8 3) (-2 1 4)))))
+
 (test '(eqv? '((2 15) (3 6) (5 3) (7 2) (11 1) (13 1))
              (collapse (factor (fac 16)))))
 

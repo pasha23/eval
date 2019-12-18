@@ -303,6 +303,14 @@
                   (apply map (cons f (cdrs lists))))
             '()))
 
+;; the cons should not be here...
+(define (matrix-multiply matrix1 matrix2)
+        (map (lambda (row)
+             (apply map
+                    (cons (lambda column (apply + (map * row column)))
+                          matrix2)))
+             matrix1))
+
 (define (make-counter)
         (let ((n 0)) (lambda () (begin (set! n (+ n 1)) n))))
 
