@@ -774,6 +774,7 @@ static inline sexp real_part(sexp x) { return x->cdr->car; }
 
 static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
+// prepare operands for arithmetic
 double toDouble(sexp x)
 {
     double d;
@@ -790,6 +791,7 @@ double toDouble(sexp x)
     return d;
 }
 
+// prepare operands for arithmetic
 Rat toRational(sexp x)
 {
     Rat r;
@@ -804,6 +806,7 @@ Rat toRational(sexp x)
     return r;
 }
 
+// prepare operands for arithmetic
 Num toBignum(sexp x)
 {
     Num b;
@@ -816,11 +819,13 @@ Num toBignum(sexp x)
     return b;
 }
 
+// create appropriate sexp for arithmetic result
 sexp bignumResult(Num result)
 {
     int r; return result.can_convert_to_int(&r) ? newfixnum(r) : newbignum(result);
 }
 
+// create appropriate sexp for arithmetic result
 sexp rationalResult(Rat result)
 {
     result.reduce();
@@ -831,6 +836,7 @@ sexp rationalResult(Rat result)
     return newrational(result);
 }
 
+// numerator
 sexp numerator(sexp x)
 {
     if (isFixnum(x) || isBignum(x))
@@ -840,6 +846,7 @@ sexp numerator(sexp x)
     error("numerator: not rational");
 }
 
+// denominator
 sexp denominator(sexp x)
 {
     if (isFixnum(x) || isBignum(x))
@@ -2224,6 +2231,7 @@ sexp string_set(sexp s, sexp k, sexp c)
     char cy = *p;
     encodeUTF8(q, cx);
     *p = cy;
+
     return s;
 }
 
@@ -2273,14 +2281,13 @@ sexp append(sexp p, sexp q)
 sexp reverse(sexp x)
 {
     sexp t = 0;
-    if (x)
-        while (x)
-            if (isCons(x))
-            {
-                t = cons(car(x), t);
-                x = x->cdr;
-            } else
-                error("reverse!: not a proper list");
+    while (x)
+        if (isCons(x))
+        {
+            t = cons(car(x), t);
+            x = x->cdr;
+        } else
+            error("reverse!: not a proper list");
     return t;
 }
 
@@ -2631,18 +2638,22 @@ void displayString(Context& context, sexp exp)
         context.s << '"';
 }
 
-// atoms are not yet utf8
-
 void displayAtom(Context& context, sexp exp)
 {
     if (context.write && voida == exp) {
         context.s << "#void";
     } else {
-        for (char* p = atomText(exp); *p; ++p)
-            if (context.write && strchr("\007\b\t\n\r\"\\", *p))
-                context.s << '\\' << encodeEscape(*p);
-            else
-                context.s << *p;
+        for (char* p = atomText(exp); *p; )
+        {
+            uint32_t cx = read_utf8(p);
+            if (context.write && cx <= 0x7f && strchr("\007\b\t\n\r\"\\", cx)) {
+                context.s << '\\' << encodeEscape(cx);
+            } else {
+                char buf[5];
+                encodeUTF8(buf, cx);
+                context.s << buf;
+            }
+        }
     }
 }
 
@@ -2956,8 +2967,8 @@ void lookup_error(const char* msg, sexp p)
     error(errorBuffer);
 }
 
-// bound?
-sexp boundp(sexp p, sexp env)
+// defined?
+sexp definedp(sexp p, sexp env)
 {
     for (sexp q = env; q; q = q->cdr)
         if (p->cdr->car == q->car->car)
@@ -3066,7 +3077,7 @@ sexp evlis(sexp p, sexp env)
     return p ? lose(mark, cons(save(eval(p->car, env)), save(evlis(p->cdr, env)))) : 0;
 }
 
-// associate formal and actual parameters in an environment
+// associate names with values in an environment
 sexp assoc(sexp names, sexp values, sexp env)
 {
     sexp* mark = psp;
@@ -3427,7 +3438,7 @@ sexp apply(sexp fun, sexp args)
     sexp* mark = psp;
     save(fun, args);
 
-    if (true && f != tracing)
+    if (false && f != tracing)
         debug("apply", cons(fun, args));
 
     if (isFunct(fun))
@@ -3493,8 +3504,7 @@ sexp eval(sexp p, sexp env)
             {}
         else if (isAtom(p))
             p = get(p, env);
-        else
-        {
+        else {
             save(p, env);
             sexp fun = save(eval(p->car, env));
             if (isForm(fun))
@@ -3544,6 +3554,7 @@ sexp eval(sexp p, sexp env)
     }
 }
 
+// like eval, with error checking
 sexp xeval(sexp p, sexp env)
 {
     if (!(p && isCons(env) && isCons(env->car)))
@@ -3755,14 +3766,14 @@ sexp scans(std::istream& fin)
 
     (void)fin.get();
     if ('"' != c) {
-        // read an atom (not yet utf8)
+        // read an atom
         while (0 <= c && !strchr("( )[,]\t\r\n", c))
             c = accept(s, fin, c);
         fin.unget();
         return dynintern(strsave(s.str().c_str()));
     } else {
-        char bx[8];
-        // read a string (utf8)
+        char bx[5];
+        // read a string
         c = fin.get();
         while (0 <= c && c != '"')
         {
@@ -4123,7 +4134,7 @@ const struct FormTable {
 } formTable[] = {
     { "and",         andform },
     { "begin",       begin },
-    { "bound?",      boundp },
+    { "defined?",    definedp },
     { "case",        caseform },
     { "complex",     complexform },
     { "cond",        cond },
