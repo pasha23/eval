@@ -145,7 +145,7 @@
                  (simplest-rational x y))))
 
 (define (make-complex re im)
-        (cons 'rectangular (cons re (cons im '()))))
+        (cons 'complex (cons re (cons im '()))))
 
 (define (real-part x) (if (complex? x) (cadr x) x))
 
@@ -236,7 +236,7 @@
         (if (null? e) e
             (if (equal? a (caar e)) (car e) (memv a (cdr e)))))
 
-(define (fold f i s) (if (null? s) 1 (f (car s) (fold f i (cdr s)))))
+(define (fold f i s) (if (null? s) i (f (car s) (fold f i (cdr s)))))
 
 (define (iota n)
         (define (riota n)
@@ -302,6 +302,18 @@
             (cons (apply f (cars lists))
                   (apply map (cons f (cdrs lists))))
             '()))
+
+(define (any f . lists)
+        (if (and (pair? lists) (pair? (car lists)))
+            (or (apply f (cars lists))
+                (apply any (cons f (cdrs lists))))
+            #f))
+
+(define (every f . lists)
+        (if (and (pair? lists) (pair? (car lists)))
+            (and (apply f (cars lists))
+                 (apply every (cons f (cdrs lists))))
+            #t))
 
 ;; apply should be able to take any number of arguments
 ;; but ours only takes fun and args

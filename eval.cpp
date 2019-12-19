@@ -247,44 +247,43 @@ struct Context
 void mapCycles(Context& context, sexp exp);
 void display(Context& context, sexp p, int level);
 
-static inline int  shortType(const sexp p)  { return       (~MARK &  ((Stags*)p)->stags); }
-static inline int  arity(const sexp p)      { return                ((Funct*)p)->tags[2]; }
-static inline int  stringtag(const sexp p)  { return               ((String*)p)->tags[2]; }
-static inline bool isMarked(const sexp p)   { return       ( MARK & ((Tags*)p)->tags[0]); }
-static inline bool isCons(const sexp p)     { return p && !(OTHER & ((Tags*)p)->tags[0]); }
-static inline bool isAtom(const sexp p)     { return p &&       ATOM     == shortType(p); }
-static inline bool isString(const sexp p)   { return p &&       STRING   == shortType(p); }
-static inline bool isFunct(const sexp p)    { return p &&       FUNCT    == shortType(p); }
-static inline bool isForm(const sexp p)     { return p &&       FORM     == shortType(p); }
-static inline bool isFixnum(const sexp p)   { return p &&       FIXNUM   == shortType(p); }
-static inline bool isFloat(const sexp p)    { return p &&       FLOAT    == shortType(p); }
-static inline bool isDouble(const sexp p)   { return p &&       DOUBLE   == shortType(p); }
-static inline bool isChar(const sexp p)     { return p &&       CHAR     == shortType(p); }
-static inline bool isInPort(const sexp p)   { return p &&       INPORT   == shortType(p); }
-static inline bool isOutPort(const sexp p)  { return p &&       OUTPORT  == shortType(p); }
-static inline bool isVector(const sexp p)   { return p &&       VECTOR   == shortType(p); }
-static inline bool isBignum(const sexp p)   { return p &&       BIGNUM   == shortType(p); }
-static inline bool isRational(const sexp p) { return p &&       RATIONAL == shortType(p); }
-static inline bool isClosure(const sexp p)  { return p &&       CLOSURE  == shortType(p); }
-
-bool isFlonum(const sexp p)  { return isFloat(p) || isDouble(p); }
+static inline int  shortType(const sexp p)  { return (~MARK &   ((Stags*)p)->stags); }
+static inline int  arity(const sexp p)      { return           ((Funct*)p)->tags[2]; }
+static inline int  stringtag(const sexp p)  { return          ((String*)p)->tags[2]; }
+static inline bool isMarked(const sexp p)   { return ( MARK &  ((Tags*)p)->tags[0]); }
+static inline bool isCons(const sexp p)     { return !(OTHER & ((Tags*)p)->tags[0]); }
+static inline bool isAtom(const sexp p)     { return ATOM           == shortType(p); }
+static inline bool isString(const sexp p)   { return STRING         == shortType(p); }
+static inline bool isFunct(const sexp p)    { return FUNCT          == shortType(p); }
+static inline bool isForm(const sexp p)     { return FORM           == shortType(p); }
+static inline bool isFixnum(const sexp p)   { return FIXNUM         == shortType(p); }
+static inline bool isFloat(const sexp p)    { return FLOAT          == shortType(p); }
+static inline bool isDouble(const sexp p)   { return DOUBLE         == shortType(p); }
+static inline bool isChar(const sexp p)     { return CHAR           == shortType(p); }
+static inline bool isInPort(const sexp p)   { return INPORT         == shortType(p); }
+static inline bool isOutPort(const sexp p)  { return OUTPORT        == shortType(p); }
+static inline bool isVector(const sexp p)   { return VECTOR         == shortType(p); }
+static inline bool isBignum(const sexp p)   { return BIGNUM         == shortType(p); }
+static inline bool isRational(const sexp p) { return RATIONAL       == shortType(p); }
+static inline bool isClosure(const sexp p)  { return CLOSURE        == shortType(p); }
+static inline bool isFlonum(const sexp p)   { return isFloat(p) || isDouble(p);      }
 
 bool isPromise(sexp p)
 {
-    return isCons(p) && promise == p->car &&            // (promise
-           isCons(p = p->cdr) &&                        //  forced
-           isCons(p = p->cdr) &&                        //  value
-           isCons(p = p->cdr) &&                        //  exp
-           isCons(p = p->cdr) &&                        //  env)
+    return isCons(p) && promise == p->car &&        // (promise
+           (p = p->cdr) && isCons(p) &&             //  forced
+           (p = p->cdr) && isCons(p) &&             //  value
+           (p = p->cdr) && isCons(p) &&             //  exp
+           (p = p->cdr) && isCons(p) &&             //  env)
            !p->cdr;
 }
 
 bool isComplex(sexp p)
 {
-    return isCons(p) && complex == p->car &&            // (complex
-           isCons(p = p->cdr) &&                        //  real-part
-           isCons(p = p->cdr) &&                        //  imag-part
-           !p->cdr;                                     // )
+    return isCons(p) && complex == p->car &&   // (complex
+           (p = p->cdr) && isCons(p) &&        //  real-part
+           (p = p->cdr) && isCons(p) &&        //  imag-part
+           !p->cdr;                            // )
 }
 
 static inline sexp boolwrap(bool x) { return x ? t : f; }
@@ -293,28 +292,28 @@ static inline sexp boolwrap(bool x) { return x ? t : f; }
 sexp booleanp(sexp x) { return boolwrap(t == x || f == x); }
 
 // form?
-sexp formp(sexp p) { return boolwrap(isForm(p)); }
+sexp formp(sexp p) { return boolwrap(p && isForm(p)); }
 
 // function?
-sexp functionp(sexp p) { return boolwrap(isFunct(p)); }
+sexp functionp(sexp p) { return boolwrap(p && isFunct(p)); }
 
 // closure?
-sexp closurep(sexp s) { return boolwrap(isClosure(s)); }
+sexp closurep(sexp p) { return boolwrap(p && isClosure(p)); }
 
 // promise?
-sexp promisep(sexp s) { return boolwrap(isPromise(s)); }
+sexp promisep(sexp p) { return boolwrap(p && isPromise(p)); }
 
 // rational?
-sexp rationalp(sexp s) { return boolwrap(isRational(s)); }
+sexp rationalp(sexp p) { return boolwrap(p && isRational(p)); }
 
 // exact?
-sexp exactp(sexp x) { return boolwrap(isFixnum(x) || isRational(x) || isBignum(x)); }
+sexp exactp(sexp p) { return boolwrap(p && (isFixnum(p) || isRational(p) || isBignum(p))); }
 
 // inexact?
-sexp inexactp(sexp x) { return boolwrap(isFlonum(x)); }
+sexp inexactp(sexp p) { return boolwrap(p && isFlonum(p)); }
 
 // complex?
-sexp complexp(sexp s) { return boolwrap(isComplex(s)); }
+sexp complexp(sexp p) { return boolwrap(p && isComplex(p)); }
 
 // protection stack management
 
@@ -477,18 +476,19 @@ sexp gc(void)
     return voida;
 }
 
-void assertCons(sexp s)     { if (!isCons(s))     error("not pair"); }
-void assertAtom(sexp s)     { if (!isAtom(s))     error("not symbol"); }
-void assertChar(sexp s)     { if (!isChar(s))     error("not a character"); }
-void assertFixnum(sexp s)   { if (!isFixnum(s))   error("not an integer"); }
-void assertString(sexp s)   { if (!isString(s))   error("not a string"); }
-void assertInPort(sexp s)   { if (!isInPort(s))   error("not an input port"); }
-void assertOutPort(sexp s)  { if (!isOutPort(s))  error("not an output port"); }
-void assertComplex(sexp s)  { if (!isComplex(s))  error("not complex"); }
-void assertRational(sexp s) { if (!isRational(s)) error("not rational"); }
-void assertPromise(sexp s)  { if (!isPromise(s))  error("not a promise"); }
+void assertCons(sexp s)     { if (!s || !isCons(s))     error("not pair"); }
+void assertAtom(sexp s)     { if (!s || !isAtom(s))     error("not symbol"); }
+void assertChar(sexp s)     { if (!s || !isChar(s))     error("not a character"); }
+void assertFixnum(sexp s)   { if (!s || !isFixnum(s))   error("not an integer"); }
+void assertString(sexp s)   { if (!s || !isString(s))   error("not a string"); }
+void assertInPort(sexp s)   { if (!s || !isInPort(s))   error("not an input port"); }
+void assertOutPort(sexp s)  { if (!s || !isOutPort(s))  error("not an output port"); }
+void assertComplex(sexp s)  { if (!s || !isComplex(s))  error("not complex"); }
+void assertRational(sexp s) { if (!s || !isRational(s)) error("not rational"); }
+void assertPromise(sexp s)  { if (!s || !isPromise(s))  error("not a promise"); }
 
-void assertFlonum(sexp s)   { if (!isFlonum(s) && !isFixnum(s) && !isRational(s)) error("not a real number"); }
+void assertFlonum(sexp s)   { if (!s || !isFlonum(s) && !isFixnum(s) && !isRational(s) && !isBignum(s))
+                              error("not a real number"); }
 
 /*
  * allocate a cell from the freelist
@@ -601,16 +601,22 @@ sexp cons(sexp car, sexp cdr)
 }
 
 // car
-sexp car(sexp p) { if (!isCons(p)) error("error: car of non-pair"); return p->car; }
+sexp car(sexp p) { if (!p || !isCons(p)) error("error: car of non-pair"); return p->car; }
 
 // cdr
-sexp cdr(sexp p) { if (!isCons(p)) error("error: cdr of non-pair"); return p->cdr; }
+sexp cdr(sexp p) { if (!p || !isCons(p)) error("error: cdr of non-pair"); return p->cdr; }
 
 // set-car!
-sexp set_car(sexp p, sexp q) { if (!isCons(p)) error("error: set-car! of non-pair"); p->car = q; return voida; }
+sexp set_car(sexp p, sexp q)
+{
+    if (!p || !isCons(p)) error("error: set-car! of non-pair"); p->car = q; return voida;
+}
 
 // set-cdr!
-sexp set_cdr(sexp p, sexp q) { if (!isCons(p)) error("error: set-cdr! of non-pair"); p->cdr = q; return voida; }
+sexp set_cdr(sexp p, sexp q)
+{
+    if (!p || !isCons(p)) error("error: set-cdr! of non-pair"); p->cdr = q; return voida;
+}
 
 // and
 sexp andform(sexp p, sexp env)
@@ -656,15 +662,17 @@ static inline Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
 
 double asFlonum(sexp p)
 {
-    switch (shortType(p))
-    {
-    default:       error("asFlonum: not a flonum");
-    case FLOAT:    return ((Float*)p)->flonum;
-    case DOUBLE:   return ((Double*)p)->flonum;
-    case FIXNUM:   return (double) asFixnum(p);
-    case BIGNUM:   return ((Bignum*)p)->nump->to_double();
-    case RATIONAL: return ((Rational*)p)->ratp->to_double();
-    }
+    if (p)
+        switch (shortType(p))
+        {
+        default:       break;
+        case FLOAT:    return ((Float*)p)->flonum;
+        case DOUBLE:   return ((Double*)p)->flonum;
+        case FIXNUM:   return (double) asFixnum(p);
+        case BIGNUM:   return ((Bignum*)p)->nump->to_double();
+        case RATIONAL: return ((Rational*)p)->ratp->to_double();
+        }
+    error("asFlonum: not a flonum");
 }
 
 // supports labeling of cyclic structures
@@ -689,7 +697,8 @@ bool Context::labelCycles(sexp exp, bool last)
 // negative?
 sexp negativep(sexp x)
 {
-    return boolwrap(isRational(x) ? (asRational(x).num <  0 ?
+    return boolwrap(x &&
+                    isRational(x) ? (asRational(x).num <  0 ?
                                      asRational(x).den >= 0 :
                                      asRational(x).den <  0) :
                     isBignum(x)   ?  asBignum(x) < 0 :
@@ -699,7 +708,8 @@ sexp negativep(sexp x)
 // positive?
 sexp positivep(sexp x)
 {
-    return boolwrap(isRational(x) ? (asRational(x).den >= 0 ?
+    return boolwrap(x &&
+                    isRational(x) ? (asRational(x).den >= 0 ?
                                      asRational(x).num >  0 :
                                      asRational(x).num <  0) :
                     isBignum(x)   ?  asBignum(x) > 0 :
@@ -707,16 +717,16 @@ sexp positivep(sexp x)
 }
 
 // <
-sexp ltp(sexp x, sexp y) { return boolwrap(asFlonum(x) <  asFlonum(y)); }
+sexp ltp(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) <  asFlonum(y)); }
 
 // <=
-sexp lep(sexp x, sexp y) { return boolwrap(asFlonum(x) <= asFlonum(y)); }
+sexp lep(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) <= asFlonum(y)); }
 
 // >=
-sexp gep(sexp x, sexp y) { return boolwrap(asFlonum(x) >= asFlonum(y)); }
+sexp gep(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) >= asFlonum(y)); }
 
 // >
-sexp gtp(sexp x, sexp y) { return boolwrap(asFlonum(x) >  asFlonum(y)); }
+sexp gtp(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) >  asFlonum(y)); }
 
 sexp make_complex(sexp re, sexp im)
 {
@@ -775,48 +785,31 @@ static inline sexp real_part(sexp x) { return x->cdr->car; }
 static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
 // prepare operands for arithmetic
-double toDouble(sexp x)
-{
-    double d;
-    if (isFlonum(x))
-        d = asFlonum(x);
-    else if (isRational(x))
-        d = asRational(x).to_double();
-    else if (isBignum(x))
-        d = asBignum(x).to_double();
-    else if (isFixnum(x))
-        d = (double)asFixnum(x);
-    else
-        error("not a number");
-    return d;
-}
-
-// prepare operands for arithmetic
 Rat toRational(sexp x)
 {
-    Rat r;
-    if (isRational(x))
-        r = asRational(x);
-    else if (isBignum(x))
-        r = Rat(asBignum(x));
-    else if (isFixnum(x))
-        r = Rat(asFixnum(x));
-    else
-        error("not a number");
-    return r;
+    if (x)
+    {
+        if (isRational(x))
+            return asRational(x);
+        if (isBignum(x))
+            return Rat(asBignum(x));
+        if (isFixnum(x))
+            return Rat(asFixnum(x));
+    }
+    error("not a number");
 }
 
 // prepare operands for arithmetic
 Num toBignum(sexp x)
 {
-    Num b;
-    if (isBignum(x))
-        b = asBignum(x);
-    else if (isFixnum(x))
-        b = Num(asFixnum(x));
-    else
-        error("not an integer");
-    return b;
+    if (x)
+    {
+        if (isBignum(x))
+            return asBignum(x);
+        if (isFixnum(x))
+            return Num(asFixnum(x));
+    }
+    error("not an integer");
 }
 
 // create appropriate sexp for arithmetic result
@@ -839,20 +832,26 @@ sexp rationalResult(Rat result)
 // numerator
 sexp numerator(sexp x)
 {
-    if (isFixnum(x) || isBignum(x))
-        return x;
-    if (isRational(x))
-        return bignumResult(((Rational*)x)->ratp->num);
+    if (x)
+    {
+        if (isFixnum(x) || isBignum(x))
+            return x;
+        if (isRational(x))
+            return bignumResult(((Rational*)x)->ratp->num);
+    }
     error("numerator: not rational");
 }
 
 // denominator
 sexp denominator(sexp x)
 {
-    if (isFixnum(x) || isBignum(x))
-        return one;
-    if (isRational(x))
-        return bignumResult(((Rational*)x)->ratp->den);
+    if (x)
+    {
+        if (isFixnum(x) || isBignum(x))
+            return one;
+        if (isRational(x))
+            return bignumResult(((Rational*)x)->ratp->den);
+    }
     error("denominator: not rational");
 }
 
@@ -872,32 +871,43 @@ int igcd(int x, int y)
 // gcd
 sexp gcd(sexp x, sexp y)
 {
-    if (isFixnum(x) && isFixnum(y))
-        return newfixnum(igcd(asFixnum(x), asFixnum(y)));
-
-    return bignumResult(Num::gcd(toBignum(x), toBignum(y)));
+    if (x && y)
+    {
+        if (isFixnum(x) && isFixnum(y))
+            return newfixnum(igcd(asFixnum(x), asFixnum(y)));
+        return bignumResult(Num::gcd(toBignum(x), toBignum(y)));
+    }
+    error("gcd: operands");
 }
 
 // lcm
 sexp lcm(sexp x, sexp y)
 {
-    if (isFixnum(x) && isFixnum(y))
+    if (x && y)
     {
-        int g = igcd(asFixnum(x), asFixnum(y));
-        Num l((asFixnum(x) / g) * (asFixnum(y) / g));
+        if (isFixnum(x) && isFixnum(y))
+        {
+            int g = igcd(asFixnum(x), asFixnum(y));
+            Num l((asFixnum(x) / g) * (asFixnum(y) / g));
+            return bignumResult(l);
+        }
+
+        Num xb = toBignum(x);
+        Num yb = toBignum(y);
+        Num g = Num::gcd(xb, yb);
+        Num l = (xb / g) * (yb / g);
         return bignumResult(l);
     }
 
-    Num xb = toBignum(x);
-    Num yb = toBignum(y);
-    Num g = Num::gcd(xb, yb);
-    Num l = (xb / g) * (yb / g);
-    return bignumResult(l);
+    error("lcm: operands");
 }
 
 // x + y
 sexp sum(sexp x, sexp y)
 {
+    if (!x || !y)
+        error("sum: operands");
+
     if (isFixnum(x) && isFixnum(y))
     {
         if (unsafe_add(asFixnum(x), asFixnum(y)))
@@ -918,10 +928,10 @@ sexp sum(sexp x, sexp y)
         return lose(mark, make_complex(save(sum(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
-        return newflonum(asFlonum(x) + toDouble(y));
+        return newflonum(asFlonum(x) + asFlonum(y));
 
     if (isFlonum(y))
-        return newflonum(toDouble(x) + asFlonum(y));
+        return newflonum(asFlonum(x) + asFlonum(y));
 
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) + toRational(y));
@@ -932,6 +942,9 @@ sexp sum(sexp x, sexp y)
 // x - y
 sexp diff(sexp x, sexp y)
 {
+    if (!x || !y)
+        error("diff: operands");
+
     if (isFixnum(x) && isFixnum(y))
     {
         if (unsafe_sub(asFixnum(x), asFixnum(y)))
@@ -952,10 +965,10 @@ sexp diff(sexp x, sexp y)
         return lose(mark, make_complex(save(diff(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
-        return newflonum(asFlonum(x) - toDouble(y));
+        return newflonum(asFlonum(x) - asFlonum(y));
 
     if (isFlonum(y))
-        return newflonum(toDouble(x) - asFlonum(y));
+        return newflonum(asFlonum(x) - asFlonum(y));
 
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) - toRational(y));
@@ -966,6 +979,9 @@ sexp diff(sexp x, sexp y)
 // x * y
 sexp product(sexp x, sexp y)
 {
+    if (!x || !y)
+        error("product: operands");
+
     if (isFixnum(x) && isFixnum(y))
     {
         if (unsafe_mul(asFixnum(x), asFixnum(y)))
@@ -995,10 +1011,10 @@ sexp product(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-        return newflonum(asFlonum(x) * toDouble(y));
+        return newflonum(asFlonum(x) * asFlonum(y));
 
     if (isFlonum(y))
-        return newflonum(toDouble(x) * asFlonum(y));
+        return newflonum(asFlonum(x) * asFlonum(y));
 
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) * toRational(y));
@@ -1009,6 +1025,9 @@ sexp product(sexp x, sexp y)
 // x / y
 sexp quotientf(sexp x, sexp y)
 {
+    if (!x || !y)
+        error("quotient: operands");
+
     if (isFixnum(x) && isFixnum(y))
     {
         Rat result(Num(asFixnum(x)), Num(asFixnum(y)));
@@ -1039,10 +1058,10 @@ sexp quotientf(sexp x, sexp y)
     }
 
     if (isFlonum(x))
-        return newflonum(asFlonum(x) / toDouble(y));
+        return newflonum(asFlonum(x) / asFlonum(y));
 
     if (isFlonum(y))
-        return newflonum(toDouble(x) / asFlonum(y));
+        return newflonum(asFlonum(x) / asFlonum(y));
 
     if (isRational(x) || isRational(y))
         return rationalResult(toRational(x) / toRational(y));
@@ -1063,6 +1082,9 @@ int mod(int x, int y)
 // (modulo x y)
 sexp moduloff(sexp x, sexp y)
 {
+    if (!x || !y)
+        error("modulo: operands");
+
     if (isFixnum(x) && isFixnum(y))
         return newfixnum(mod(asFixnum(x), asFixnum(y)));
 
@@ -1083,10 +1105,10 @@ sexp moduloff(sexp x, sexp y)
         error("complex modulo not implemented");
 
     if (isFlonum(x))
-        return newflonum(fmod(asFlonum(x), toDouble(y)));
+        return newflonum(fmod(asFlonum(x), asFlonum(y)));
 
     if (isFlonum(y))
-        return newflonum(fmod(toDouble(x), asFlonum(y)));
+        return newflonum(fmod(asFlonum(x), asFlonum(y)));
 
     if (isRational(x) || isRational(y))
     {
@@ -1131,6 +1153,9 @@ double drem(double xd, double yd)
 // x % y
 sexp remainderff(sexp x, sexp y)
 {
+    if (!x || !y)
+        error("remainder: operands");
+
     if (isFixnum(x) && isFixnum(y))
         return newfixnum(rem(asFixnum(x), asFixnum(y)));
 
@@ -1151,10 +1176,10 @@ sexp remainderff(sexp x, sexp y)
         error("complex remainder not implemented");
 
     if (isFlonum(x))
-        return newflonum(drem(asFlonum(x), toDouble(y)));
+        return newflonum(drem(asFlonum(x), asFlonum(y)));
 
     if (isFlonum(y))
-        return newflonum(drem(toDouble(x), asFlonum(y)));
+        return newflonum(drem(asFlonum(x), asFlonum(y)));
 
     if (isRational(x) || isRational(y))
     {
@@ -1232,18 +1257,23 @@ sexp unineg(sexp x)
 {
     sexp* mark = psp;
 
-    if (isComplex(x))
-        return lose(mark, make_complex(save(unineg(x->cdr->car)), save(unineg(x->cdr->cdr->car))));
-
-    switch (shortType(x))
+    if (x)
     {
-    default:       error("neg: operand");
-    case FIXNUM:   return newfixnum(-   ((Fixnum*)x)->fixnum);
-    case FLOAT:    return newflonum(-   ((Float*)x)->flonum);
-    case DOUBLE:   return newflonum(-   ((Double*)x)->flonum);
-    case BIGNUM:   return newbignum(-   *((Bignum*)x)->nump);
-    case RATIONAL: return newrational(- *((Rational*)x)->ratp);
+        if (isComplex(x))
+            return lose(mark, make_complex(save(unineg(x->cdr->car)),
+                                           save(unineg(x->cdr->cdr->car))));
+
+        switch (shortType(x))
+        {
+        default:       break;
+        case FIXNUM:   return newfixnum(- ((Fixnum*)x)->fixnum);
+        case FLOAT:    return newflonum(- ((Float*)x)->flonum);
+        case DOUBLE:   return newflonum(- ((Double*)x)->flonum);
+        case BIGNUM:   return newbignum(- *((Bignum*)x)->nump);
+        case RATIONAL: return newrational(- *((Rational*)x)->ratp);
+        }
     }
+    error("neg: operand");
 }
 
 // - x0
@@ -1341,36 +1371,44 @@ sexp roundff(sexp x)    { return flintstub(round,    x); } // round
 
 sexp isqrtf(sexp x)
 {
-    if (isFixnum(x) && 0 <= asFixnum(x))
-        return newfixnum(isqrt(asFixnum(x)));
-    if (isBignum(x) && asBignum(x) >= 0)
-        return newbignum(asBignum(x).sqrt());
+    if (x)
+    {
+        if (isFixnum(x) && 0 <= asFixnum(x))
+            return newfixnum(isqrt(asFixnum(x)));
+        if (isBignum(x) && asBignum(x) >= 0)
+            return newbignum(asBignum(x).sqrt());
+    }
     error("isqrt: not a positive integer");
 }
 
 // sqrt
 sexp sqrtff(sexp x)
 {
-    if (isFixnum(x) && 0 <= asFixnum(x))
-        return newflonum(sqrt((double)asFixnum(x)));
-    double re, im = 0.0;
-    if (isComplex(x)) {
-        re = asFlonum(x->cdr->car);
-        im = asFlonum(x->cdr->cdr->car);
-    } else if (isFixnum(x))
-        re = (double)asFixnum(x);
-    else if (isFlonum(x))
-        re = asFlonum(x);
+    if (x)
+    {
+        if (isFixnum(x) && 0 <= asFixnum(x))
+            return newflonum(sqrt((double)asFixnum(x)));
+        double re, im = 0.0;
+        if (isComplex(x)) {
+            re = asFlonum(x->cdr->car);
+            im = asFlonum(x->cdr->cdr->car);
+        } else if (isFixnum(x))
+            re = (double)asFixnum(x);
+        else if (isFlonum(x))
+            re = asFlonum(x);
 
-    if (0.0 == im && 0.0 <= re)
-        return newflonum(sqrt(re));
+        if (0.0 == im && 0.0 <= re)
+            return newflonum(sqrt(re));
 
-    double r = sqrt(re*re + im*im);
-    double theta = atan2(im, re);
-    re = sqrt(r) * cos(0.5 * theta);
-    im = sqrt(r) * sin(0.5 * theta);
-    sexp* mark = psp;
-    return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
+        double r = sqrt(re*re + im*im);
+        double theta = atan2(im, re);
+        re = sqrt(r) * cos(0.5 * theta);
+        im = sqrt(r) * sin(0.5 * theta);
+        sexp* mark = psp;
+        return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
+    }
+
+    error("sqrt: operand");
 }
 
 // pow
@@ -1380,13 +1418,13 @@ sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(
 sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(atan2(asFlonum(x), asFlonum(y))); }
 
 // bignum?
-sexp bignump(sexp x) { return boolwrap(isBignum(x)); }
+sexp bignump(sexp x) { return boolwrap(x && isBignum(x)); }
 
 // integer?
-sexp integerp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) && (int)asFlonum(x) == asFlonum(x)); }
+sexp integerp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) && (int)asFlonum(x) == asFlonum(x))); }
 
 // real?
-sexp realp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) || isRational(x)); }
+sexp realp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) || isRational(x))); }
 
 // inexact->exact
 sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((int)asFlonum(x)); }
@@ -1394,7 +1432,7 @@ sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((int)asFlonum(x))
 // exact->inexact
 sexp exact_inexact(sexp x)
 {
-    if (isFixnum(x) || isRational(x) || isBignum(x))
+    if (x && (isFixnum(x) || isRational(x) || isBignum(x)))
         return newflonum((double)asFlonum(x));
     error("exact->inexact: not exact");
 }
@@ -1403,22 +1441,23 @@ sexp exact_inexact(sexp x)
 sexp lsh(sexp x, sexp y)
 {
     assertFixnum(y);
-    if (isFixnum(x) || isBignum(x))
+    if (x && (isFixnum(x) || isBignum(x)))
         return bignumResult(toBignum(x) << asFixnum(y));
-    else
-        error("<< non integer arguments");
+    error("<< non integer arguments");
 }
 
 // >>
 sexp rsh(sexp x, sexp y)
 {
     assertFixnum(y);
-    if (isFixnum(x))
-        return newfixnum(asFixnum(x) >> asFixnum(y));
-    else if (isBignum(x))
-        return bignumResult(asBignum(x) >> asFixnum(y));
-    else
-        error(">> non integer arguments");
+    if (x)
+    {
+        if (isFixnum(x))
+            return newfixnum(asFixnum(x) >> asFixnum(y));
+        if (isBignum(x))
+            return bignumResult(asBignum(x) >> asFixnum(y));
+    }
+    error(">> non integer arguments");
 }
 
 // not
@@ -1428,25 +1467,25 @@ sexp isnot(sexp x) { return boolwrap(f == x); }
 sexp nullp(sexp x) { return boolwrap(0 == x); }
 
 // list?
-sexp listp(sexp x) { return boolwrap(isCons(x) && f != listp(x->cdr)); }
+sexp listp(sexp x) { return boolwrap(x && isCons(x) && f != listp(x->cdr)); }
 
 // atom?
-sexp atomp(sexp x) { return boolwrap(!isCons(x)); }
+sexp atomp(sexp x) { return boolwrap(x && !isCons(x)); }
 
 // pair?
-sexp pairp(sexp x) { return boolwrap(isCons(x)); }
+sexp pairp(sexp x) { return boolwrap(x && isCons(x)); }
 
 // number?
-sexp numberp(sexp x) { return boolwrap(isFixnum(x) || isFlonum(x) || isRational(x) || isComplex(x)); }
+sexp numberp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) || isRational(x) || isComplex(x))); }
 
 // string?
-sexp stringp(sexp x) { return boolwrap(isString(x)); }
+sexp stringp(sexp x) { return boolwrap(x && isString(x)); }
 
 // symbol?
-sexp symbolp(sexp x) { return boolwrap(isAtom(x)); }
+sexp symbolp(sexp x) { return boolwrap(x && isAtom(x)); }
 
 // procedure?
-sexp procedurep(sexp p) { return boolwrap(isFunct(p) || isClosure(p)); }
+sexp procedurep(sexp p) { return boolwrap(p && (isFunct(p) || isClosure(p))); }
 
 static const u_int32_t offsetsFromUTF8[6] =
 {
@@ -1618,12 +1657,12 @@ int encodedLength(uint32_t ch)
 // make-string
 sexp make_string(sexp args)
 {
-    if (!args || !isFixnum(args->car))
+    if (!args || !args->car || !isFixnum(args->car))
         error("make-string: args expected");
 
     char cb[5];
     int l = asFixnum(args->car);
-    uint32_t cx = args->cdr && isChar(args->cdr->car) ? ((Char*)(args->cdr->car))->ch : ' ';
+    uint32_t cx = args->cdr && args->cdr->car && isChar(args->cdr->car) ? ((Char*)(args->cdr->car))->ch : ' ';
     int cl = encodeUTF8(cb, cx);
     char* b = new char[(l*cl)+1];
     char* q = b;
@@ -1650,7 +1689,7 @@ sexp string_append(sexp args)
     int length = 0;
     for (sexp p = args; p; p = p->cdr)
     {
-        if (!isString(p->car))
+        if (!p->car || !isString(p->car))
             error("string-append: not a string");
         String* string = (String*)p->car;
         length += strlen(string->text);
@@ -1864,7 +1903,7 @@ sexp write_to_string(sexp args)
 }
 
 // vector?
-sexp vectorp(sexp v) { return boolwrap(isVector(v)); }
+sexp vectorp(sexp v) { return boolwrap(v && isVector(v)); }
 
 sexp newvector(int len, sexp fill)
 {
@@ -1976,7 +2015,7 @@ sexp vector_set(sexp vector, sexp index, sexp value)
 // these only work on ascii data
 
 // char-alphabetic?
-sexp char_alphabeticp(sexp c) { return boolwrap(isChar(c) && isalpha(((Char*)c)->ch)); }
+sexp char_alphabeticp(sexp c) { return boolwrap(c && isChar(c) && isalpha(((Char*)c)->ch)); }
 
 // char->integer
 sexp char_integer(sexp c) { assertChar(c); return newfixnum(((Char*)c)->ch); }
@@ -2012,7 +2051,7 @@ sexp char_lep(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((
 sexp char_ltp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((Char*)p)->ch <  ((Char*)q)->ch); }
 
 // character?
-sexp charp(sexp c) { return boolwrap(isChar(c)); }
+sexp charp(sexp c) { return boolwrap(c && isChar(c)); }
 
 // char-downcase
 sexp char_downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
@@ -2021,19 +2060,19 @@ sexp char_downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)
 sexp integer_char(sexp c) { assertFixnum(c); return newcharacter(asFixnum(c)); }
 
 // char-lowercase?
-sexp char_lower_casep(sexp c) { return boolwrap(isChar(c) && islower(((Char*)c)->ch)); }
+sexp char_lower_casep(sexp c) { return boolwrap(c && isChar(c) && islower(((Char*)c)->ch)); }
 
 // char-numeric?
-sexp char_numericp(sexp c) { return boolwrap(isChar(c) && isdigit(((Char*)c)->ch)); }
+sexp char_numericp(sexp c) { return boolwrap(c && isChar(c) && isdigit(((Char*)c)->ch)); }
 
 // char-upcase
 sexp char_upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)); }
 
 // char-uppercase?
-sexp char_upper_casep(sexp c) { return boolwrap(isChar(c) && isupper(((Char*)c)->ch)); }
+sexp char_upper_casep(sexp c) { return boolwrap(c && isChar(c) && isupper(((Char*)c)->ch)); }
 
 // char-whitespace?
-sexp char_whitespacep(sexp c) { return boolwrap(isChar(c) && isspace(((Char*)c)->ch)); }
+sexp char_whitespacep(sexp c) { return boolwrap(c && isChar(c) && isspace(((Char*)c)->ch)); }
 
 // save the original termios then modify it for cbreak style input. return success
 bool setTermios(struct termios& original, int vmin)
@@ -2155,34 +2194,34 @@ sexp write_char(sexp args)
 // these only work on ascii data
 
 // string<=?
-sexp string_lep(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) <= 0); }
+sexp string_lep(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) <= 0); }
 
 // string<?
-sexp string_ltp(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) <  0); }
+sexp string_ltp(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) <  0); }
 
 // string=?
-sexp string_eqp(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) == 0); }
+sexp string_eqp(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) == 0); }
 
 // string>=?
-sexp string_gep(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) >= 0); }
+sexp string_gep(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) >= 0); }
 
 // string>?
-sexp string_gtp(sexp p, sexp q) { return boolwrap(strcmp(stringText(p), stringText(q)) >  0); }
+sexp string_gtp(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) >  0); }
 
 // string-ci-<=?
-sexp string_cilep(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) <= 0); }
+sexp string_cilep(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) <= 0); }
 
 // string-ci<?
-sexp string_ciltp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) <  0); }
+sexp string_ciltp(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) <  0); }
 
 // string-ci=?
-sexp string_cieqp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) == 0); }
+sexp string_cieqp(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) == 0); }
 
 // string-ci>=?
-sexp string_cigep(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) >= 0); }
+sexp string_cigep(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) >= 0); }
 
 // string-ci>?
-sexp string_cigtp(sexp p, sexp q) { return boolwrap(strcasecmp(stringText(p), stringText(q)) >  0); }
+sexp string_cigtp(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) >  0); }
 
 // string-ref
 sexp string_ref(sexp s, sexp i)
@@ -2238,19 +2277,19 @@ sexp string_set(sexp s, sexp k, sexp c)
 // substring
 sexp substringf(sexp args)
 {
-    if (!args || !isString(args->car))
+    if (!args || !args->car || !isString(args->car))
         error("substring: no string");
 
     sexp s = args->car;
 
-    if (!(args = args->cdr) || !isFixnum(args->car))
+    if (!(args = args->cdr) || !args->car || !isFixnum(args->car))
         error("substring: bad start index");
 
     int i = asFixnum(args->car);
     String* string = (String*)s;
     int j = stringlen(string);
 
-    if ((args = args->cdr) && isFixnum(args->car))
+    if ((args = args->cdr) && args->car && isFixnum(args->car))
         j = asFixnum(args->car);
 
     if (i < 0 || j < i)
@@ -2283,7 +2322,7 @@ sexp reverse(sexp x)
 {
     sexp t = 0;
     while (x)
-        if (isCons(x))
+        if (x && isCons(x))
         {
             t = cons(car(x), t);
             x = x->cdr;
@@ -2298,53 +2337,64 @@ sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
 // = numeric equality
 sexp eqnp(sexp x, sexp y)
 {
-    if (isRational(x) && isRational(y))
-        return boolwrap(asRational(x) == asRational(y));
- 
-    if (isComplex(x) && isComplex(y))
+    if (x && y)
     {
-        x = x->cdr; y = y->cdr;
-        return boolwrap(asFlonum(x->car) == asFlonum(y->car) &&
-                        asFlonum(x->cdr->car) == asFlonum(y->cdr->car));
-    }
+        if (isRational(x) && isRational(y))
+            return boolwrap(asRational(x) == asRational(y));
+     
+        if (isComplex(x) && isComplex(y))
+        {
+            x = x->cdr; y = y->cdr;
+            return boolwrap(asFlonum(x->car) == asFlonum(y->car) &&
+                            asFlonum(x->cdr->car) == asFlonum(y->cdr->car));
+        }
 
-    return boolwrap(asFlonum(x) == asFlonum(y));
+        return boolwrap(asFlonum(x) == asFlonum(y));
+    }
+    error("numeric equality: operands");
 }
 
 // zero?
 sexp zerop(sexp x)
 {
-    if (isDouble(x))
+    if (x)
     {
-        double xf = ((Double*)x)->flonum;
-        return boolwrap(-DBL_MIN < xf && xf < DBL_MIN);
+        if (isDouble(x))
+        {
+            double xf = ((Double*)x)->flonum;
+            return boolwrap(-DBL_MIN < xf && xf < DBL_MIN);
+        }
+        if (isFloat(x))
+        {
+            float xf = ((Float*)x)->flonum;
+            return boolwrap(-FLT_MIN < xf && xf < FLT_MIN);
+        }
+        return eqnp(zero, x);
     }
-    if (isFloat(x))
-    {
-        float xf = ((Float*)x)->flonum;
-        return boolwrap(-FLT_MIN < xf && xf < FLT_MIN);
-    }
-    return eqnp(zero, x);
+    error("zero?: operand");
 }
 
 // odd?
 sexp oddp(sexp x)
 {
-    if (isFixnum(x))
-        return boolwrap(asFixnum(x) & 1);
-    if (isBignum(x))
-        return boolwrap(asBignum(x).get_bit(0));
+    if (x)
+    {
+        if (isFixnum(x))
+            return boolwrap(asFixnum(x) & 1);
+        if (isBignum(x))
+            return boolwrap(asBignum(x).get_bit(0));
+    }
     error("odd?: not an integer");
 }
 
 // ~ x
-sexp complement(sexp x) { return isFixnum(x) ? newfixnum(~asFixnum(x)) : f; }
+sexp complement(sexp x) { return x && isFixnum(x) ? newfixnum(~asFixnum(x)) : f; }
 
 // all arguments must be fixnums for these logical operations
 void assertAllFixnums(sexp args)
 {
     for (sexp p = args; p; p = p->cdr)
-        if (!isFixnum(p->car))
+        if (!p->car || !isFixnum(p->car))
             error("bitwise ops require fixnum arguments");
 }
 
@@ -2382,7 +2432,7 @@ sexp xorf(sexp args)
 
 sexp lfsr_shift(sexp r, sexp p)
 {
-    if (isFixnum(r) && isFixnum(p))
+    if (r && p && isFixnum(r) && isFixnum(p))
     {
         int rf = asFixnum(r);
 
@@ -2412,7 +2462,7 @@ sexp delayform(sexp exp, sexp env)
 // force
 sexp force(sexp p)
 {
-    if (!isPromise(p))
+    if (!p || !isPromise(p))
         error("force: not a promise");
     if (!(p = p->cdr)->car)
     {
@@ -2426,7 +2476,7 @@ sexp force(sexp p)
 // promise_forced?
 sexp promise_forcedp(sexp p)
 {
-    if (!isPromise(p))
+    if (!p || !isPromise(p))
         error("promise-forced?: not a promise");
     return p->cdr->car;
 }
@@ -2434,7 +2484,7 @@ sexp promise_forcedp(sexp p)
 // promise-value
 sexp promise_value(sexp p)
 {
-    if (!isPromise(p))
+    if (!p || !isPromise(p))
         error("promise-value: not a promise");
     if (!(p = p->cdr)->car)
         error("promise not forced yet");
@@ -2696,23 +2746,23 @@ void displayRational(Context& context, sexp exp)
             context.s.put(c);
 }
 
-void mapCycles(Context& context, sexp exp)
+void mapCycles(Context& context, sexp p)
 {
-    if (isCons(exp)) {
-        if (0 == context.seenMap[exp]) {
-            context.seenMap[exp] = f;
-            mapCycles(context, exp->car);
-            mapCycles(context, exp->cdr);
+    if (p && isCons(p)) {
+        if (0 == context.seenMap[p]) {
+            context.seenMap[p] = f;
+            mapCycles(context, p->car);
+            mapCycles(context, p->cdr);
         } else
-            context.seenMap[exp] = t;
-    } else if (isVector(exp)) {
-        if (0 == context.seenMap[exp]) {
-            context.seenMap[exp] = f;
-            Vector* v = (Vector*)exp;
+            context.seenMap[p] = t;
+    } else if (p && isVector(p)) {
+        if (0 == context.seenMap[p]) {
+            context.seenMap[p] = f;
+            Vector* v = (Vector*)p;
             for (int i = 0; i < v->l; ++i)
                 mapCycles(context, v->e[i]);
         } else
-            context.seenMap[exp] = t;
+            context.seenMap[p] = t;
     }
 }
 
@@ -2738,7 +2788,7 @@ void display(Context& context, sexp exp, int level)
 
     if (isCons(exp)) {
         bool quoted = false;
-        if (isCons(exp->cdr))
+        if (exp && exp->cdr && isCons(exp->cdr))
         {
             quoted = true;
             sexp p = exp->car;
@@ -2910,7 +2960,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     {
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
     case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
-    case STRING:   return 0 == strcmp(stringText(x), stringText(y));    // UTF8
+    case STRING:   return 0 == strcmp(stringText(x), stringText(y));
     case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
     case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
     case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
@@ -3242,10 +3292,20 @@ sexp unquoteform(sexp exp, sexp env)
 sexp quasiquoteform(sexp exp, sexp env) { return unquoteform(exp->cdr->car, env); }
 
 // read
-sexp readf(sexp args) { sexp port = inport; if (args) assertInPort(port = args->car); return ((InPort*)port)->s->read(); }
+sexp readf(sexp args)
+{
+    sexp port = inport;
+    if (args) assertInPort(port = args->car);
+    return ((InPort*)port)->s->read();
+}
 
 // scan
-sexp scanff(sexp args) { sexp port = inport; if (args) assertInPort(port = args->car); return ((InPort*)port)->s->scan(); }
+sexp scanff(sexp args)
+{
+    sexp port = inport;
+    if (args) assertInPort(port = args->car);
+    return ((InPort*)port)->s->scan();
+}
 
 /*
  * (if predicate consequent alternative)
@@ -3323,9 +3383,9 @@ sexp caseform(sexp exp, sexp env)
 sexp setform(sexp exp, sexp env)
 {
     exp = exp->cdr;
-    if (!isAtom(exp->car))
+    if (!exp || !isAtom(exp->car))
         error("set!: variable must be a symbol");
-    if (!exp || !exp->cdr)
+    if (!exp->cdr)
         error("set!: missing operands");
     return lose(set(exp->car, save(eval(exp->cdr->car, env)), env));
 }
@@ -3439,48 +3499,50 @@ sexp doform(sexp exp, sexp env)
 // apply
 sexp apply(sexp fun, sexp args)
 {
-    sexp* mark = psp;
-    save(fun, args);
-
-    if (false && f != tracing)
-        debug("apply", cons(fun, args));
-
-    if (isFunct(fun))
+    if (fun)
     {
-        int a = arity(fun);
-        if (0 == a)
-            return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
-        sexp arg0 = save(args ? args->car : voida);
-        if (1 == a)
-            return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
-        sexp arg1 = save(args && (args = args->cdr) ? args->car : voida);
-        if (2 == a)
-            return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
-        sexp arg2 = save(args && (args = args->cdr) ? args->car : voida);
-        if (3 == a)
-            return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
-        error("apply: unsupported arity");
-    }
+        sexp* mark = psp;
+        save(fun, args);
 
-    if (isClosure(fun))
-    {
-        Closure* clo = (Closure*)fun;
-        sexp env     = clo->expenv->cdr;
-        sexp fcc     = clo->expenv->car->cdr;
+        if (false && f != tracing)
+            debug("apply", cons(fun, args));
 
-        if (!fcc->car) {
-            // (lambda () foo)
-        } else if (isAtom(fcc->car)) {
-            // (lambda s foo)
-            env = replace(cons(save(cons(fcc->car, args)), env));
-        } else {
-            // (lambda (n) (car x))
-            env = save(assoc(fcc->car, args, env));
+        if (isFunct(fun))
+        {
+            int a = arity(fun);
+            if (0 == a)
+                return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(args));
+            sexp arg0 = save(args ? args->car : voida);
+            if (1 == a)
+                return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
+            sexp arg1 = save(args && (args = args->cdr) ? args->car : voida);
+            if (2 == a)
+                return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
+            sexp arg2 = save(args && (args = args->cdr) ? args->car : voida);
+            if (3 == a)
+                return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
+            error("apply: unsupported arity");
         }
 
-        return lose(mark, tailforms(fcc->cdr, env));
-    }
+        if (isClosure(fun))
+        {
+            Closure* clo = (Closure*)fun;
+            sexp env     = clo->expenv->cdr;
+            sexp fcc     = clo->expenv->car->cdr;
 
+            if (!fcc->car) {
+                // (lambda () foo)
+            } else if (isAtom(fcc->car)) {
+                // (lambda s foo)
+                env = replace(cons(save(cons(fcc->car, args)), env));
+            } else {
+                // (lambda (n) (car x))
+                env = save(assoc(fcc->car, args, env));
+            }
+
+            return lose(mark, tailforms(fcc->cdr, env));
+        }
+    }
     error("apply bad function");
 }
 
@@ -3533,37 +3595,41 @@ sexp eval(sexp p, sexp env)
         save(p, env);
         sexp fun = save(eval(p->car, env));
 
-        if (isForm(fun))
-            return lose(mark, (*((Form*)fun)->formp)(p, env));
-
-        if (isFunct(fun))
+        if (fun)
         {
-            // this is probably better than calling evlis/apply
-            int a = arity(fun);
-            if (0 == a)
-                return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(save(evlis(p->cdr, env))));
-            sexp arg0 = save((p = p->cdr) ? eval(p->car, env) : voida);
-            if (1 == a)
-                return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
-            sexp arg1 = save(p && (p = p->cdr) ? eval(p->car, env) : voida);
-            if (2 == a)
-                return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
-            sexp arg2 = save(p && (p = p->cdr) ? eval(p->car, env) : voida);
-            if (3 == a)
-                return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
-            error("eval: unsupported arity");
-        }
+            if (isForm(fun))
+                return lose(mark, (*((Form*)fun)->formp)(p, env));
 
-        return lose(mark, apply(fun, save(evlis(p->cdr, env))));
+            if (isFunct(fun))
+            {
+                // this is probably better than calling evlis/apply
+                int a = arity(fun);
+                if (0 == a)
+                    return lose(mark, (*(Varargp)((Funct*)fun)->funcp)(save(evlis(p->cdr, env))));
+                sexp arg0 = save((p = p->cdr) ? eval(p->car, env) : voida);
+                if (1 == a)
+                    return lose(mark, (*(Oneargp)((Funct*)fun)->funcp)(arg0));
+                sexp arg1 = save(p && (p = p->cdr) ? eval(p->car, env) : voida);
+                if (2 == a)
+                    return lose(mark, (*(Twoargp)((Funct*)fun)->funcp)(arg0, arg1));
+                sexp arg2 = save(p && (p = p->cdr) ? eval(p->car, env) : voida);
+                if (3 == a)
+                    return lose(mark, (*(Threeargp)((Funct*)fun)->funcp)(arg0, arg1, arg2));
+                error("eval: unsupported arity");
+            }
+
+            return lose(mark, apply(fun, save(evlis(p->cdr, env))));
+        }
     }
+    error("eval: null function");
 }
 
 // like eval, with error checking
 sexp xeval(sexp p, sexp env)
 {
-    if (!(p && isCons(env) && isCons(env->car)))
-        error("eval: bad environment");
-    return eval(p, env);
+    if (env && isCons(env) && env->car && isCons(env->car))
+        return eval(p, env);
+    error("eval: bad environment");
 }
 
 // ignore white space and comments
