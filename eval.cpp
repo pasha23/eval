@@ -2757,27 +2757,13 @@ void display(Context& context, sexp exp, int level)
         else if (isPromise(exp))
             displayNamed(context, "promise", exp);
         else if (isComplex(exp)) {
-            if (isRational(exp->cdr->car))
-                displayRational(context, exp->cdr->car);
-            else if (isBignum(exp->cdr->car))
-                displayBignum(context, exp->cdr->car);
-            else if (isFixnum(exp->cdr->car))
-                context.s << asFixnum(exp->cdr->car);
-            else
-                displayFlonum(context, exp->cdr->car);
+            display(context, exp->cdr->car, level);
             double im = asFlonum(exp->cdr->cdr->car);
             if (im > 0.0)
                 context.s << '+';
             if (im)
             {
-                if (isRational(exp->cdr->cdr->car))
-                    displayRational(context, exp->cdr->cdr->car);
-                else if (isBignum(exp->cdr->cdr->car))
-                    displayBignum(context, exp->cdr->cdr->car);
-                else if (isFixnum(exp->cdr->cdr->car))
-                    context.s << asFixnum(exp->cdr->cdr->car);
-                else
-                    displayFlonum(context, exp->cdr->cdr->car);
+                display(context, exp->cdr->cdr->car, level);
                 context.s << 'i';
             }
         } else
