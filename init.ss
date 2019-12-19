@@ -2,8 +2,6 @@
 ; miscellaneous utilities and demos
 ;
 
-(define (list? s) (or (null? s) (and (pair? s) (list? (cdr s)))))
-
 (define (caar x) (car (car x)))
 
 (define (cadr x) (car (cdr x)))
@@ -197,6 +195,8 @@
 
 (define (list . s) s)
 
+(define (list? s) (or (null? s) (and (pair? s) (list? (cdr s)))))
+
 (define (alist? s)
         (or (null? s) (and (pair? s) (pair? (car s)) (alist? (cdr s)))))
 
@@ -303,7 +303,8 @@
                   (apply map (cons f (cdrs lists))))
             '()))
 
-;; the cons should not be here...
+;; apply should be able to take any number of arguments
+;; but ours only takes fun and args
 (define (matrix-multiply matrix1 matrix2)
         (map (lambda (row)
              (apply map
@@ -473,7 +474,7 @@
                     (set! l (cdr l)))
              n))
 
-(define (timer thunk) (let ((start (time))) (thunk) (- (time) start)))
+(define (timer thunk) (let ((start (cputime))) (thunk) (- (cputime) start)))
 
 (define (tmt) (timer (lambda () (fib 30))))
 

@@ -282,8 +282,8 @@ bool isPromise(sexp p)
 bool isComplex(sexp p)
 {
     return isCons(p) && complex == p->car &&            // (complex
-           isCons(p = p->cdr) && isFlonum(p->car) &&    //  real-part
-           isCons(p = p->cdr) && isFlonum(p->car) &&    //  imag-part
+           isCons(p = p->cdr) &&                        //  real-part
+           isCons(p = p->cdr) &&                        //  imag-part
            !p->cdr;                                     // )
 }
 
@@ -640,8 +640,8 @@ sexp trace(sexp arg)
     return r;
 }
 
-// time
-sexp timeff(sexp args)
+// cputime
+sexp cputime(sexp args)
 {
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
@@ -2759,6 +2759,10 @@ void display(Context& context, sexp exp, int level)
         else if (isComplex(exp)) {
             if (isRational(exp->cdr->car))
                 displayRational(context, exp->cdr->car);
+            else if (isBignum(exp->cdr->car))
+                displayBignum(context, exp->cdr->car);
+            else if (isFixnum(exp->cdr->car))
+                context.s << asFixnum(exp->cdr->car);
             else
                 displayFlonum(context, exp->cdr->car);
             double im = asFlonum(exp->cdr->cdr->car);
@@ -2768,6 +2772,10 @@ void display(Context& context, sexp exp, int level)
             {
                 if (isRational(exp->cdr->cdr->car))
                     displayRational(context, exp->cdr->cdr->car);
+                else if (isBignum(exp->cdr->cdr->car))
+                    displayBignum(context, exp->cdr->cdr->car);
+                else if (isFixnum(exp->cdr->cdr->car))
+                    context.s << asFixnum(exp->cdr->cdr->car);
                 else
                     displayFlonum(context, exp->cdr->cdr->car);
                 context.s << 'i';
@@ -3725,24 +3733,29 @@ sexp scans(std::istream& fin)
 
         sexp real, imag;
 
-        if (RATIO == rstatus)
-        {
+        if (RATIO == rstatus) {
             std::string realdata = cdata.substr(0, split);
             int realdiv = realdata.find_first_of('/');
             real = save(newrational(Num(realdata.substr(0,realdiv).c_str()),
                                     Num(realdata.substr(realdiv+1).c_str())));
+        } else if (FIXED == rstatus) {
+            std::string n = cdata.substr(0, split);
+            Num num(n.c_str()); real = save(bignumResult(num));
         } else
             { double re; s >> re; real = save(newflonum(re)); }
 
         c = cdata.at(split);
 
-        if (RATIO == istatus)
-        {
+        if (RATIO == istatus) {
             std::string imagdata = cdata.substr(split+1);
             imagdata = imagdata.substr(0, imagdata.length()-1);
             int imagdiv = imagdata.find_first_of('/');
             imag = save(newrational(Num(imagdata.substr(0,imagdiv).c_str()),
                                     Num(imagdata.substr(imagdiv+1).c_str())));
+        } else if (FIXED == istatus) {
+            std::string n = cdata.substr(split+1);
+            n = n.substr(0, n.length()-1);
+            Num num(n.c_str()); imag = save(bignumResult(num));
         } else
             { double im; s >> im; imag = save(newflonum(im)); }
 
@@ -4014,6 +4027,7 @@ const struct FuncTable {
     { "cons",                              2, (void*)cons },
     { "cos",                               1, (void*)cosff },
     { "cosh",                              1, (void*)coshff },
+    { "cputime",                           0, (void*)cputime },
     { "current-input-port",                0, (void*)current_input_port },
     { "current-output-port",               0, (void*)current_output_port },
     { "cyclic?",                           1, (void*)cyclicp },
@@ -4119,7 +4133,6 @@ const struct FuncTable {
     { "symbol->string",                    1, (void*)symbol_string },
     { "tan",                               1, (void*)tanff },
     { "tanh",                              1, (void*)tanhff },
-    { "time",                              1, (void*)timeff },
     { "trace",                             1, (void*)trace },
     { "truncate",                          1, (void*)truncateff },
     { "unbox",                             1, (void*)unbox },
