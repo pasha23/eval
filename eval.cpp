@@ -1022,11 +1022,11 @@ sexp product(sexp x, sexp y)
     return bignumResult(toBignum(x) * toBignum(y));
 }
 
-// x / y
-sexp quotientf(sexp x, sexp y)
+// divide
+sexp divide(sexp x, sexp y)
 {
     if (!x || !y)
-        error("quotient: operands");
+        error("divide: operands");
 
     if (isFixnum(x) && isFixnum(y))
     {
@@ -1051,10 +1051,10 @@ sexp quotientf(sexp x, sexp y)
     {
         sexp* mark = psp;
         sexp d = save(sum(save(product(yr, yr)), save(product(yi, yi))));
-        return lose(mark, make_complex(save(quotientf(save(sum(save(product(xr, yr)),
-                                                               save(product(xi, yi)))), d)),
-                                       save(quotientf(save(diff(save(product(xi, yr)),
-                                                                save(product(xr, yi)))), d))));
+        return lose(mark, make_complex(save(divide(save(sum(save(product(xr, yr)),
+                                                            save(product(xi, yi)))), d)),
+                                       save(divide(save(diff(save(product(xi, yr)),
+                                                             save(product(xr, yi)))), d))));
     }
 
     if (isFlonum(x))
@@ -1071,6 +1071,26 @@ sexp quotientf(sexp x, sexp y)
     return rationalResult(result);
 }
 
+// quotient
+sexp quotientf(sexp x, sexp y)
+{
+    if (x && y)
+    {
+        if (isFixnum(x)) {
+            if (isFixnum(y))
+                return newfixnum(asFixnum(x) / asFixnum(y));
+            else if (isBignum(y))
+                return bignumResult(Num::div(toBignum(x), asBignum(y)));
+        } else if (isBignum(x)) {
+            if (isFixnum(y))
+                return bignumResult(Num::div(asBignum(x), toBignum(y)));
+            else if (isBignum(y))
+                return bignumResult(Num::div(asBignum(x), toBignum(y)));
+        }
+    }
+    error("quotient: operands");
+}
+
 int mod(int x, int y)
 {
     int r = x % y;
@@ -1082,44 +1102,21 @@ int mod(int x, int y)
 // (modulo x y)
 sexp moduloff(sexp x, sexp y)
 {
-    if (!x || !y)
-        error("modulo: operands");
-
-    if (isFixnum(x) && isFixnum(y))
-        return newfixnum(mod(asFixnum(x), asFixnum(y)));
-
-    bool cpx = false;
-    sexp xr, xi, yr, yi;
-
-    if (isComplex(x))
-        { cpx = true; xr = real_part(x); xi = imag_part(x); }
-    else
-        { xr = x; xi = zero; }
-
-    if (isComplex(y))
-        { cpx = true; yr = real_part(y); yi = imag_part(y); }
-    else
-        { yr = y; yi = zero; }
-
-    if (cpx)
-        error("complex modulo not implemented");
-
-    if (isFlonum(x))
-        return newflonum(fmod(asFlonum(x), asFlonum(y)));
-
-    if (isFlonum(y))
-        return newflonum(fmod(asFlonum(x), asFlonum(y)));
-
-    if (isRational(x) || isRational(y))
+    if (x && y)
     {
-        Rat xrat = toRational(x);
-        Rat yrat = toRational(y);
-        Rat result(Num::mod(xrat.num * yrat.den,
-                            yrat.num * xrat.den),
-                   xrat.den * yrat.den);
+        if (isFixnum(x)) {
+            if (isFixnum(y))
+                return newfixnum(mod(asFixnum(x), asFixnum(y)));
+            else if (isBignum(y))
+                return bignumResult(Num::mod(toBignum(x), asBignum(y)));
+        } else if (isBignum(x)) {
+            if (isFixnum(y))
+                return bignumResult(Num::mod(asBignum(x), toBignum(y)));
+            else if (isBignum(y))
+                return bignumResult(Num::mod(asBignum(x), toBignum(y)));
+        }
     }
-
-    return bignumResult(Num::mod(toBignum(x), toBignum(y)));
+    error("modulo: operands");
 }
 
 int rem(int x, int y)
@@ -1150,70 +1147,9 @@ double drem(double xd, double yd)
     return rd;
 }
 
-// x % y
-sexp remainderff(sexp x, sexp y)
+// fix remainder result
+sexp remainderNum(const Num& xb, const Num& yb)
 {
-    if (!x || !y)
-        error("remainder: operands");
-
-    if (isFixnum(x) && isFixnum(y))
-        return newfixnum(rem(asFixnum(x), asFixnum(y)));
-
-    bool cpx = false;
-    sexp xr, xi, yr, yi;
-
-    if (isComplex(x))
-        { cpx = true; xr = real_part(x); xi = imag_part(x); }
-    else
-        { xr = x; xi = zero; }
-
-    if (isComplex(y))
-        { cpx = true; yr = real_part(y); yi = imag_part(y); }
-    else
-        { yr = y; yi = zero; }
-
-    if (cpx)
-        error("complex remainder not implemented");
-
-    if (isFlonum(x))
-        return newflonum(drem(asFlonum(x), asFlonum(y)));
-
-    if (isFlonum(y))
-        return newflonum(drem(asFlonum(x), asFlonum(y)));
-
-    if (isRational(x) || isRational(y))
-    {
-        Rat xrat = toRational(x);
-        Rat yrat = toRational(y);
-        Rat result(Num::mod(xrat.num * yrat.den,
-                            yrat.num * xrat.den),
-                   xrat.den * yrat.den);
-
-        if (result > 0)
-        {
-            if (xrat < 0)
-            {
-                if (yrat < 0)
-                    result += yrat;
-                else
-                    result -= yrat;
-            }
-        } else if (result < 0) {
-            if (xrat > 0)
-            {
-                if (yrat < 0)
-                    result -= yrat;
-                else
-                    result += yrat;
-            }
-        }
-
-        return rationalResult(result);
-    }
-
-    Num xb = toBignum(x);
-    Num yb = toBignum(y);
-
     Num result(Num::mod(xb, yb));
 
     if (result > 0)
@@ -1236,6 +1172,26 @@ sexp remainderff(sexp x, sexp y)
     }
 
     return bignumResult(result);
+}
+
+// x % y
+sexp remainderff(sexp x, sexp y)
+{
+    if (x && y)
+    {
+        if (isFixnum(x)) {
+            if (isFixnum(y))
+                return newfixnum(rem(asFixnum(x), asFixnum(y)));
+            else if (isBignum(y))
+                return remainderNum(toBignum(x), asBignum(y));
+        } else if (isBignum(x)) {
+            if (isFixnum(y))
+                return remainderNum(asBignum(x), toBignum(y));
+            else if (isBignum(y))
+                return remainderNum(asBignum(x), toBignum(y));
+        }
+    }
+    error("remainder: operands");
 }
 
 // x0 + x1 + x2 ...
@@ -1321,7 +1277,7 @@ sexp unidiv(sexp l)
 
     while (l)
     {
-        result = replace(quotientf(result, l->car));
+        result = replace(divide(result, l->car));
         l = l->cdr;
     }
 
@@ -2788,7 +2744,7 @@ void display(Context& context, sexp exp, int level)
 
     if (isCons(exp)) {
         bool quoted = false;
-        if (exp && exp->cdr && isCons(exp->cdr))
+        if (exp->cdr && isCons(exp->cdr))
         {
             quoted = true;
             sexp p = exp->car;
@@ -4083,9 +4039,10 @@ const struct FuncTable {
     { "current-input-port",                0, (void*)current_input_port },
     { "current-output-port",               0, (void*)current_output_port },
     { "cyclic?",                           1, (void*)cyclicp },
+    { "denominator",                       1, (void*)denominator },
     { "diff",                              2, (void*)diff },
     { "display",                           0, (void*)displayf },
-    { "denominator",                       1, (void*)denominator },
+    { "divide",                            2, (void*)divide },
     { "eof-object?",                       1, (void*)eof_objectp },
     { "eq?",                               2, (void*)eqp },
     { "equal?",                            2, (void*)equalp },
