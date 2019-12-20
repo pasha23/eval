@@ -1079,12 +1079,12 @@ sexp quotientf(sexp x, sexp y)
         if (isFixnum(x)) {
             if (isFixnum(y))
                 return newfixnum(asFixnum(x) / asFixnum(y));
-            else if (isBignum(y))
+            if (isBignum(y))
                 return bignumResult(Num::div(toBignum(x), asBignum(y)));
         } else if (isBignum(x)) {
             if (isFixnum(y))
                 return bignumResult(Num::div(asBignum(x), toBignum(y)));
-            else if (isBignum(y))
+            if (isBignum(y))
                 return bignumResult(Num::div(asBignum(x), toBignum(y)));
         }
     }
@@ -1107,12 +1107,12 @@ sexp moduloff(sexp x, sexp y)
         if (isFixnum(x)) {
             if (isFixnum(y))
                 return newfixnum(mod(asFixnum(x), asFixnum(y)));
-            else if (isBignum(y))
+            if (isBignum(y))
                 return bignumResult(Num::mod(toBignum(x), asBignum(y)));
         } else if (isBignum(x)) {
             if (isFixnum(y))
                 return bignumResult(Num::mod(asBignum(x), toBignum(y)));
-            else if (isBignum(y))
+            if (isBignum(y))
                 return bignumResult(Num::mod(asBignum(x), toBignum(y)));
         }
     }
@@ -1182,12 +1182,12 @@ sexp remainderff(sexp x, sexp y)
         if (isFixnum(x)) {
             if (isFixnum(y))
                 return newfixnum(rem(asFixnum(x), asFixnum(y)));
-            else if (isBignum(y))
+            if (isBignum(y))
                 return remainderNum(toBignum(x), asBignum(y));
         } else if (isBignum(x)) {
             if (isFixnum(y))
                 return remainderNum(asBignum(x), toBignum(y));
-            else if (isBignum(y))
+            if (isBignum(y))
                 return remainderNum(asBignum(x), toBignum(y));
         }
     }
@@ -1368,16 +1368,27 @@ sexp sqrtff(sexp x)
 }
 
 // pow
-sexp powff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(pow(asFlonum(x), asFlonum(y))); }
+sexp powff(sexp x, sexp y)
+{
+    assertFlonum(x); assertFlonum(y);
+    return newflonum(pow(asFlonum(x), asFlonum(y)));
+}
 
 // atan2
-sexp atan2ff(sexp x, sexp y) { assertFlonum(x); assertFlonum(y); return newflonum(atan2(asFlonum(x), asFlonum(y))); }
+sexp atan2ff(sexp x, sexp y)
+{
+    assertFlonum(x); assertFlonum(y);
+    return newflonum(atan2(asFlonum(x), asFlonum(y)));
+}
 
 // bignum?
 sexp bignump(sexp x) { return boolwrap(x && isBignum(x)); }
 
 // integer?
-sexp integerp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) && (int)asFlonum(x) == asFlonum(x))); }
+sexp integerp(sexp x)
+{
+    return boolwrap(x && (isFixnum(x) || isFlonum(x) && (int)asFlonum(x) == asFlonum(x)));
+}
 
 // real?
 sexp realp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) || isRational(x))); }
@@ -1683,10 +1694,22 @@ sexp string_fill(sexp s, sexp c)
 }
 
 // close-input-port
-sexp close_input_port(sexp p) { assertInPort(p); if (inport == p) inport = 0; deleteinport(p); return voida; }
+sexp close_input_port(sexp p)
+{
+    assertInPort(p);
+    if (inport == p) inport = 0;
+    deleteinport(p);
+    return voida;
+}
 
 // close-output-port
-sexp close_output_port(sexp p) { assertOutPort(p); if (outport == p) outport = 0; deleteoutport(p); return voida; }
+sexp close_output_port(sexp p)
+{
+    assertOutPort(p);
+    if (outport == p) outport = 0;
+    deleteoutport(p);
+    return voida;
+}
 
 // current-input-port
 sexp current_input_port(sexp p) { return inport; }
@@ -1977,34 +2000,74 @@ sexp char_alphabeticp(sexp c) { return boolwrap(c && isChar(c) && isalpha(((Char
 sexp char_integer(sexp c) { assertChar(c); return newfixnum(((Char*)c)->ch); }
 
 // char-ci=?
-sexp char_cieqp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch)); }
+sexp char_cieqp(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch));
+}
 
 // char-ci>=?
-sexp char_cigep(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch)); }
+sexp char_cigep(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch));
+}
 
 // char-ci>?
-sexp char_cigtp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch)); }
+sexp char_cigtp(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch));
+}
 
 // char-ci<=?
-sexp char_cilep(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch)); }
+sexp char_cilep(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch));
+}
 
 // char-ci<?
-sexp char_ciltp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch)); }
+sexp char_ciltp(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch));
+}
 
 // char=?
-sexp char_eqp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((Char*)p)->ch == ((Char*)q)->ch); }
+sexp char_eqp(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(((Char*)p)->ch == ((Char*)q)->ch);
+}
 
 // char>=?
-sexp char_gep(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((Char*)p)->ch >= ((Char*)q)->ch); }
+sexp char_gep(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(((Char*)p)->ch >= ((Char*)q)->ch);
+}
 
 // char>?
-sexp char_gtp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((Char*)p)->ch >  ((Char*)q)->ch); }
+sexp char_gtp(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(((Char*)p)->ch >  ((Char*)q)->ch);
+}
 
 // char<=?
-sexp char_lep(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((Char*)p)->ch <= ((Char*)q)->ch); }
+sexp char_lep(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(((Char*)p)->ch <= ((Char*)q)->ch);
+}
 
 // char<?
-sexp char_ltp(sexp p, sexp q) { assertChar(p); assertChar(q); return boolwrap(((Char*)p)->ch <  ((Char*)q)->ch); }
+sexp char_ltp(sexp p, sexp q)
+{
+    assertChar(p); assertChar(q);
+    return boolwrap(((Char*)p)->ch <  ((Char*)q)->ch);
+}
 
 // character?
 sexp charp(sexp c) { return boolwrap(c && isChar(c)); }
@@ -2150,34 +2213,74 @@ sexp write_char(sexp args)
 // these only work on ascii data
 
 // string<=?
-sexp string_lep(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) <= 0); }
+sexp string_lep(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcmp(stringText(p), stringText(q)) <= 0);
+}
 
 // string<?
-sexp string_ltp(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) <  0); }
+sexp string_ltp(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcmp(stringText(p), stringText(q)) <  0);
+}
 
 // string=?
-sexp string_eqp(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) == 0); }
+sexp string_eqp(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcmp(stringText(p), stringText(q)) == 0);
+}
 
 // string>=?
-sexp string_gep(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) >= 0); }
+sexp string_gep(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcmp(stringText(p), stringText(q)) >= 0);
+}
 
 // string>?
-sexp string_gtp(sexp p, sexp q) { return boolwrap(p && q && strcmp(stringText(p), stringText(q)) >  0); }
+sexp string_gtp(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcmp(stringText(p), stringText(q)) >  0);
+}
 
 // string-ci-<=?
-sexp string_cilep(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) <= 0); }
+sexp string_cilep(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcasecmp(stringText(p), stringText(q)) <= 0);
+}
 
 // string-ci<?
-sexp string_ciltp(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) <  0); }
+sexp string_ciltp(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcasecmp(stringText(p), stringText(q)) <  0);
+}
 
 // string-ci=?
-sexp string_cieqp(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) == 0); }
+sexp string_cieqp(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcasecmp(stringText(p), stringText(q)) == 0);
+}
 
 // string-ci>=?
-sexp string_cigep(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) >= 0); }
+sexp string_cigep(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcasecmp(stringText(p), stringText(q)) >= 0);
+}
 
 // string-ci>?
-sexp string_cigtp(sexp p, sexp q) { return boolwrap(p && q && strcasecmp(stringText(p), stringText(q)) >  0); }
+sexp string_cigtp(sexp p, sexp q)
+{
+	assertString(p); assertString(q);
+	return boolwrap(strcasecmp(stringText(p), stringText(q)) >  0);
+}
 
 // string-ref
 sexp string_ref(sexp s, sexp i)
@@ -2914,6 +3017,7 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
 
     switch (shortType(x)) 
     {
+    default:       return 0;
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
     case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
     case STRING:   return 0 == strcmp(stringText(x), stringText(y));
@@ -2922,7 +3026,6 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
     case RATIONAL: return *((Rational*)x)->ratp == *((Rational*)y)->ratp;
     case VECTOR:   return cmpv(seenx, seeny, x, y);
-    default:       return 0;
     }
 }
 
