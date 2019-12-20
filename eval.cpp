@@ -6,7 +6,7 @@
  */
 #define PSIZE   65536
 #define CELLS   262144
-#undef  BROKEN
+#define BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -681,7 +681,7 @@ bool Context::labelCycles(sexp exp, bool last)
     if (cyclic)
     {
         sexp value = seenMap[exp];
-        if (isFixnum(value)) {
+        if (value && isFixnum(value)) {
             if (last)
                 s << ". ";
             s << '#' << asFixnum(value) << '#';
