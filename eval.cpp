@@ -6,7 +6,7 @@
  */
 #define PSIZE   65536
 #define CELLS   262144
-#define BROKEN
+#undef  BROKEN
 
 #define UNW_LOCAL_ONLY
 #ifdef  UNWIND
@@ -621,21 +621,17 @@ sexp set_cdr(sexp p, sexp q)
 // and
 sexp andform(sexp p, sexp env)
 {
-    sexp* mark = psp;
     sexp q = t;
-    save(env, p, q);
-    while ((p = p->cdr) && f != (q = replace(eval(p->car, env)))) {}
-    return lose(mark, q);
+    while ((p = p->cdr) && f != (q = eval(p->car, env))) {}
+    return q;
 }
 
 // or
 sexp orform(sexp p, sexp env)
 {
-    sexp* mark = psp;
     sexp q = f;
-    save(env, p, q);
-    while ((p = p->cdr) && f == (q = replace(eval(p->car, env)))) {}
-    return lose(mark, q);
+    while ((p = p->cdr) && f == (q = eval(p->car, env))) {}
+    return q;
 }
 
 // trace
@@ -1264,7 +1260,6 @@ sexp unimul(sexp l)
 sexp unidiv(sexp l)
 {
     sexp* mark = psp;
-
     sexp result;
     if (l && l->cdr)
     {
@@ -1272,15 +1267,12 @@ sexp unidiv(sexp l)
         l = l->cdr;
     } else
         result = one;
-
     save(l, result);
-
     while (l)
     {
         result = replace(divide(result, l->car));
         l = l->cdr;
     }
-
     return lose(mark, result);
 }
 
@@ -2667,7 +2659,9 @@ void displayList(Context& context, sexp exp, int level)
         return;
     context.s << '(';
     sexp p = exp;
-    level += displayLength(p->car) + 2;
+    int dl = displayLength(p->car) + 2;
+    if (dl > 9) dl = 1;
+    level += dl;
     while (p)
     {
         if (first && context.labelCycles(p, true))

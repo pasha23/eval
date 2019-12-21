@@ -244,16 +244,6 @@
                       ((positive? n) (cons n (riota (+ n -1))))
                       (else (cons 0 '())))) (reverse! (cdr (riota n))))
 
-(define (pairs a b)
-        (if (null? b)
-            b
-            (cons (cons a (cons (car b) '())) (pairs a (cdr b)))))
-
-(define (cross a b)
-        (if (null? a)
-            a
-            (cons (pairs (car a) b) (cross (cdr a) b))))
-
 (define (abs x) (if (negative? x) (neg x) x))
 
 (define (max . l)
@@ -315,14 +305,34 @@
                  (apply every (cons f (cdrs lists))))
             #t))
 
-;; apply should be able to take any number of arguments
-;; but ours only takes fun and args
-(define (matrix-multiply matrix1 matrix2)
+(define (cross op a b)
+
+        (define (each op a b)
+                (if (null? b)
+                    b
+                    (cons (op a (car b)) (each op a (cdr b)))))
+
+        (if (null? a)
+            a
+            (cons (each op (car a) b) (cross op (cdr a) b))))
+
+(define (matrix-identity n)
+        (cross (lambda (x y) (if (= x y) 1 0))
+               (iota n)
+               (iota n)))
+
+(define (matrix-multiply m1 m2)
         (map (lambda (row)
-             (apply map
-                    (cons (lambda column (apply + (map * row column)))
-                          matrix2)))
-             matrix1))
+                     (apply map
+                            (cons (lambda column
+                                          (apply + (map * row column)))
+                                  m2)))
+             m1))
+
+(define (matrix-transpose m)
+        (if (pair? (car m))
+            (cons (cars m) (matrix-transpose (cdrs m)))
+            '()))
 
 (define (make-counter)
         (let ((n 0)) (lambda () (begin (set! n (+ n 1)) n))))
