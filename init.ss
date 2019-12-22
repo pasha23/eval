@@ -124,6 +124,8 @@
 
 (define (even? x) (not (odd? x)))
 
+(define (square x) (* x x))
+
 (define (debug l s) (display l) (display ": ") (display s) (newline) s)
 
 ;; adapted from stklos
@@ -197,6 +199,19 @@
 
 (define (list? s) (or (null? s) (and (pair? s) (list? (cdr s)))))
 
+(define (make-list n v)
+    (let ((l '()))
+         (while (> n 0)
+                (set! n (- n 1))
+                (set! l (cons v l)))
+         l))
+
+(define (list-set! l i v)
+        (while (> i 0)
+               (set! i (- i 1))
+               (set! l (cdr l)))
+        (set-car! l v))
+
 (define (alist? s)
         (or (null? s) (and (pair? s) (pair? (car s)) (alist? (cdr s)))))
 
@@ -217,9 +232,12 @@
             (if (eqv? a (caar e)) (cdr e)
                 (cons (car e) (del-assv a (cdr e))))))
 
-(define (assoc a e)
-        (if (null? e) e
-            (if (equal? a (caar e)) (car e) (assoc a (cdr e)))))
+(define (assoc a e p)
+        (if (null? e)
+            e
+            (if (eq? void p)
+                (if (equal? a (caar e)) (car e) (assoc a (cdr e) p))
+                (if (p      a (caar e)) (car e) (assoc a (cdr e) p)))))
 
 (define (del-assoc a e)
         (if (null? e) e
@@ -232,9 +250,12 @@
 (define (memv a e)
         (if (null? e) e (if (eqv? a (caar e)) (car e) (memv a (cdr e)))))
 
-(define (member a e)
-        (if (null? e) e
-            (if (equal? a (caar e)) (car e) (memv a (cdr e)))))
+(define (member a e p)
+        (if (null? e)
+            e
+            (if (eq? void p)
+                (if (equal? a (car e)) e (member a (cdr e) p))
+                (if (p      a (car e)) e (member a (cdr e) p)))))
 
 (define (fold f i s) (if (null? s) i (f (car s) (fold f i (cdr s)))))
 
@@ -478,16 +499,14 @@
 
 (define (hexin s)
 
-        (define (decimal c) (and (char<=? #\0 c) (char<=? c #\9)))
-
+        (define (decimal c)  (and (char<=? #\0 c) (char<=? c #\9)))
         (define (smallhex c) (and (char<=? #\a c) (char<=? c #\f)))
-
-        (define (bighex c) (and (char<=? #\A c) (char<=? c #\F)))
+        (define (bighex c)   (and (char<=? #\A c) (char<=? c #\F)))
 
         (define (hexi c)
-                (cond ((decimal c) (- (char->integer c) 48))
+                (cond ((decimal c)  (- (char->integer c) 48))
                       ((smallhex c) (- (char->integer c) 87))
-                      ((bighex c) (- (char->integer c) 55))))
+                      ((bighex c)   (- (char->integer c) 55))))
 
         (let ((l (string->list s))
               (n 0))

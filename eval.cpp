@@ -104,9 +104,9 @@ sexp *psp;          		// protection stack pointer
 sexp *psend;            	// protection stack end
 sexp *protect;      		// protection stack
 
-sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda;
-sexp lbracket, lparen, minus, one, promise, qchar, quasiquote, quote;
-sexp rbracket, rparen, t, tick, unquote, unquotesplicing, voida, zero;
+sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda, lbracket;
+sexp lparen, minus, one, plus, promise, qchar, quasiquote, quote, rbracket;
+sexp rparen, t, tick, unquote, unquotesplicing, voida, zero;
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
@@ -308,6 +308,9 @@ sexp rationalp(sexp p) { return boolwrap(p && isRational(p)); }
 
 // exact?
 sexp exactp(sexp p) { return boolwrap(p && (isFixnum(p) || isRational(p) || isBignum(p))); }
+
+// exact-integer?
+sexp exact_integerp(sexp p) { return boolwrap(p && (isFixnum(p) || isBignum(p))); }
 
 // inexact?
 sexp inexactp(sexp p) { return boolwrap(p && isFlonum(p)); }
@@ -713,16 +716,64 @@ sexp positivep(sexp x)
 }
 
 // <
-sexp ltp(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) <  asFlonum(y)); }
+sexp ltp(sexp args)
+{
+    if (!args)
+        error("<: no arguments");
+    sexp x = args->car;
+    while (args = args->cdr)
+    {
+        if (asFlonum(x) >= asFlonum(args->car))
+            return f;
+        x = args->car;
+    }
+    return t;
+}
 
 // <=
-sexp lep(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) <= asFlonum(y)); }
+sexp lep(sexp args)
+{
+    if (!args)
+        error("<=: no arguments");
+    sexp x = args->car;
+    while (args = args->cdr)
+    {
+        if (asFlonum(x) > asFlonum(args->car))
+            return f;
+        x = args->car;
+    }
+    return t;
+}
 
 // >=
-sexp gep(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) >= asFlonum(y)); }
+sexp gep(sexp args)
+{
+    if (!args)
+        error(">=: no arguments");
+    sexp x = args->car;
+    while (args = args->cdr)
+    {
+        if (asFlonum(x) < asFlonum(args->car))
+            return f;
+        x = args->car;
+    }
+    return t;
+}
 
 // >
-sexp gtp(sexp x, sexp y) { return boolwrap(x && y && asFlonum(x) >  asFlonum(y)); }
+sexp gtp(sexp args)
+{
+    if (!args)
+        error(">: no arguments");
+    sexp x = args->car;
+    while (args = args->cdr)
+    {
+        if (asFlonum(x) <= asFlonum(args->car))
+            return f;
+        x = args->car;
+    }
+    return t;
+}
 
 sexp make_complex(sexp re, sexp im)
 {
@@ -1443,6 +1494,36 @@ sexp stringp(sexp x) { return boolwrap(x && isString(x)); }
 // symbol?
 sexp symbolp(sexp x) { return boolwrap(x && isAtom(x)); }
 
+// symbol=?
+sexp symbol_eqp(sexp x)
+{
+    if (!x)
+        error("symbol=?: no arguments");
+    sexp a = x->car;
+    do {
+        if (!isAtom(x->car))
+            error("symbol=?: not a symbol");
+        if (a != x->car)
+            return f;
+    } while (x = x->cdr);
+    return t;
+}
+
+// boolean=?
+sexp boolean_eqp(sexp x)
+{
+    if (!x)
+        error("boolean=?: no arguments");
+    sexp a = x->car;
+    do {
+        if (f != x->car && t != x->car)
+            error("boolean=?: not a boolean");
+        if (a != x->car)
+            return f;
+    } while (x = x->cdr);
+    return t;
+}
+
 // procedure?
 sexp procedurep(sexp p) { return boolwrap(p && (isFunct(p) || isClosure(p))); }
 
@@ -1635,11 +1716,38 @@ sexp make_string(sexp args)
 }
 
 // string-copy
-sexp string_copy(sexp s)
+sexp string_copy(sexp args)
 {
-    assertString(s);
+    if (!args || !args->car || !isString(args->car))
+        error("string-copy: no string");
+
+    sexp s = args->car;
+    int i = 0;
+
+    if ((args = args->cdr) && args->car && isFixnum(args->car))
+        i = asFixnum(args->car);
+
     String* string = (String*)s;
-    return dynstring(strsave(string->text));
+    int j = stringlen(string);
+
+    if (args && (args = args->cdr) && args->car && isFixnum(args->car))
+        j = asFixnum(args->car);
+
+    if (i < 0 || j < i)
+        error("string-copy: start negative or end before start");
+
+    char* q;
+    char* p = string->text;
+    for (int k = 0; k < j; ++k)
+    {
+        if (i == k)
+            q = p;
+        read_utf8(p);
+    }
+    char* b = new char[p-q+1];
+    memcpy(b, q, p-q);
+    b[p-q] = 0;
+    return dynstring(b);
 }
 
 // string-append
@@ -1666,23 +1774,48 @@ sexp string_append(sexp args)
     return dynstring(b);
 }
 
-// string-fill
-// this is slightly broken because not all chars are the same length
-sexp string_fill(sexp s, sexp c)
+// (string-fill! string char begin end)
+// but not all chars are the same length
+sexp string_fill(sexp args)
 {
-    assertChar(c);
-    assertString(s);
-    String* string = (String*)s;
-    if (!isMutable(string))
-        error("string-fill!: immutable string");
-    int length = stringlen(string);
-    uint32_t k = ((Char*)c)->ch;
-    int kl = encodedLength(k);
-    char* p = string->text;
-    while (p+kl <= string->text + length)
-        p += encodeUTF8(p, k);
-    *p++ = 0;
-    return s;
+    if (args)
+    {
+        sexp string = args->car;
+        if ((args = args->cdr) && args->car && isChar(args->car))
+        {
+            String* s = (String*)string;
+            sexp fill = args->car;
+            uint32_t fc = ((Char*)fill)->ch;
+            int i = 0;
+            int l = stringlen(s);
+            int j = l;
+            if (args && (args = args->cdr) && args->car && isFixnum(args->car))
+            {
+                i = asFixnum(args->car);
+                if (args && (args = args->cdr) && args->car && isFixnum(args->car))
+                    j = asFixnum(args->car);
+            }
+            if (!string || !isString(string) || !isMutable(s) ||
+                !fill || !isChar(fill) || i < 0 || j < i || j > l)
+                error("string-fill: arguments");
+            int kl = encodedLength(fc);
+            char* p = s->text;
+            for (int ix = 0; ix < j; ++ix)
+                if (i <= ix)
+                {
+                    char* q = p;
+                    uint32_t cx = read_utf8(p);
+                    if (encodedLength(cx) != kl)
+                        error("string-fill!: encoded length differs");
+                    char c = *p;
+                    q += encodeUTF8(q, fc);
+                    *p = c;
+                }
+            return string;
+        }
+        error("string-fill!: bad fill");
+    }
+    error("string-fill!: no arguments");
 }
 
 // close-input-port
@@ -1788,7 +1921,7 @@ sexp open_input_string(sexp args)
 
     String* string = (String*)s;
     int j = stringlen(string);
-    if (args = args->cdr)
+    if (args && (args = args->cdr))
     {
         assertFixnum(args->car);
         j = asFixnum(args->car);
@@ -1915,28 +2048,149 @@ sexp list_vector(sexp list)
 void assertVector(sexp v) { if (!isVector(v)) error("not a vector"); }
 
 // vector->list
-sexp vector_list(sexp vector)
+sexp vector_list(sexp args)
 {
-    sexp* mark = psp;
-    assertVector(vector);
-    save(vector);
-    Vector* v = (Vector*)vector;
-    int index = v->l;
-    sexp list = save(0);
-    while (index > 0)
-        replace(list = cons(v->e[--index], list));
-    return lose(mark, list);
+    if (args)
+    {
+        sexp* mark = psp;
+        save(args);
+        sexp vector = args->car;
+        assertVector(vector);
+        Vector* v = (Vector*)vector;
+        int begin = 0;
+        int end = v->l;
+        if ((args = args->cdr) && isFixnum(args->car))
+        {
+            begin = asFixnum(args->car);
+            if (args && (args = args->cdr) && isFixnum(args->car))
+                end = asFixnum(args->car);
+        }
+        if (0 <= begin && begin <= end && end <= v->l)
+        {
+            sexp list = save(0);
+            for (int index = end; index > begin; )
+                replace(list = cons(v->e[--index], list));
+            return lose(mark, list);
+        }
+    }
+    error("vector->list: arguments");
 }
 
-// vector-fill
-sexp vector_fill(sexp vector, sexp value)
+// vector->string
+sexp vector_string(sexp args)
 {
-    assertVector(vector);
-    Vector* v = (Vector*)vector;
-    int index = v->l;
-    while (index > 0)
-        v->e[--index] = value;
-    return vector;
+    if (args)
+    {
+        sexp vector = args->car;
+        assertVector(vector);
+        Vector* v = (Vector*)vector;
+        int begin = 0;
+        int end = v->l;
+        if ((args = args->cdr) && isFixnum(args->car))
+        {
+            begin = asFixnum(args->car);
+            if (args && (args = args->cdr) && isFixnum(args->car))
+                end = asFixnum(args->car);
+        }
+        if (0 <= begin && begin <= end && end <= v->l)
+        {
+            int len = 0;
+            for (int index = begin; index < end; ++index)
+            {
+                sexp ch = v->e[index];
+                assertChar(ch);
+                len += encodedLength(((Char*)ch)->ch);
+            }
+            char* b = new char[len+1];
+            char* p = b;
+            for (int index = begin; index < end; ++index)
+                p += encodeUTF8(p, ((Char*)(v->e[index]))->ch);
+            return dynstring(b);
+        }
+    }
+    error("vector->string: arguments");
+}
+
+// vector-append
+sexp vector_append(sexp args)
+{
+    int j = 0;
+    for (sexp p = args; p; p = p->cdr)
+    {
+        assertVector(p->car);
+        j += ((Vector*)(p->car))->l;
+    }
+    sexp* mark = psp;
+    sexp nv = save(newvector(j, 0));
+    j = 0;
+    for (sexp p = args; p; p = p->cdr)
+    {
+        Vector* v = (Vector*)p->car;
+        for (int i = 0; i < v->l; ++i)
+            ((Vector*)nv)->e[j++] = v->e[i];
+    }
+    return lose(nv);
+}
+
+// vector-copy
+sexp vector_copy(sexp args)
+{
+    if (args)
+    {
+        sexp* mark = psp;
+        save(args);
+        sexp vector = args->car;
+        assertVector(vector);
+        Vector* v = (Vector*)vector;
+        int begin = 0;
+        int end = v->l;
+        if ((args = args->cdr) && isFixnum(args->car))
+        {
+            begin = asFixnum(args->car);
+            if (args && (args = args->cdr) && isFixnum(args->car))
+                end = asFixnum(args->car);
+        }
+        if (0 <= begin && begin <= end && end <= v->l)
+        {
+            sexp nv = save(newvector(end-begin, 0));
+            for (int index = begin; index < end; ++index)
+                ((Vector*)nv)->e[index-begin] = v->e[index];
+            return lose(mark, nv);
+        }
+    }
+    error("vector-copy: arguments");
+}
+
+// (vector-fill! vector value begin end)
+sexp vector_fill(sexp args)
+{
+    if (args)
+    {
+        sexp* mark = psp;
+        save(args);
+        sexp vector = args->car;
+        assertVector(vector);
+        Vector* v = (Vector*)vector;
+        if (args = args->cdr)
+        {
+            int begin = 0;
+            int end = v->l;
+            sexp fill = args->car;
+            if (args && (args = args->cdr) && isFixnum(args->car))
+            {
+                begin = asFixnum(args->car);
+                if (args && (args = args->cdr) && isFixnum(args->car))
+                    end = asFixnum(args->car);
+            }
+            if (0 <= begin && begin <= end && end <= v->l)
+            {
+                for (int index = begin; index < end; ++index)
+                    v->e[index] = fill;
+                return lose(mark, vector);
+            }
+        }
+    }
+    error("vector-fill!: arguments");
 }
 
 // vector-length
@@ -1992,73 +2246,173 @@ sexp char_alphabeticp(sexp c) { return boolwrap(c && isChar(c) && isalpha(((Char
 sexp char_integer(sexp c) { assertChar(c); return newfixnum(((Char*)c)->ch); }
 
 // char-ci=?
-sexp char_cieqp(sexp p, sexp q)
+sexp char_cieqp(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(tolower(((Char*)p)->ch) == tolower(((Char*)q)->ch));
+    if (!args)
+        error("char-ci=?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (tolower(((Char*)x)->ch) != tolower(((Char*)(args->car))->ch))
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char-ci>=?
-sexp char_cigep(sexp p, sexp q)
+sexp char_cigep(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(tolower(((Char*)p)->ch) >= tolower(((Char*)q)->ch));
+    if (!args)
+        error("char-ci>=?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (tolower(((Char*)x)->ch) < tolower(((Char*)(args->car))->ch))
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char-ci>?
-sexp char_cigtp(sexp p, sexp q)
+sexp char_cigtp(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(tolower(((Char*)p)->ch) >  tolower(((Char*)q)->ch));
+    if (!args)
+        error("char-ci>?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (tolower(((Char*)x)->ch) <= tolower(((Char*)(args->car))->ch))
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char-ci<=?
-sexp char_cilep(sexp p, sexp q)
+sexp char_cilep(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(tolower(((Char*)p)->ch) <= tolower(((Char*)q)->ch));
+    if (!args)
+        error("char-ci<=?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (tolower(((Char*)x)->ch) > tolower(((Char*)(args->car))->ch))
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char-ci<?
-sexp char_ciltp(sexp p, sexp q)
+sexp char_ciltp(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(tolower(((Char*)p)->ch) <  tolower(((Char*)q)->ch));
+    if (!args)
+        error("char-ci<?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (tolower(((Char*)x)->ch) >= tolower(((Char*)(args->car))->ch))
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char=?
-sexp char_eqp(sexp p, sexp q)
+sexp char_eqp(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(((Char*)p)->ch == ((Char*)q)->ch);
+    if (!args)
+        error("char=?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (((Char*)x)->ch != ((Char*)(args->car))->ch)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char>=?
-sexp char_gep(sexp p, sexp q)
+sexp char_gep(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(((Char*)p)->ch >= ((Char*)q)->ch);
+    if (!args)
+        error("char>=?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (((Char*)x)->ch < ((Char*)(args->car))->ch)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char>?
-sexp char_gtp(sexp p, sexp q)
+sexp char_gtp(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(((Char*)p)->ch >  ((Char*)q)->ch);
+    if (!args)
+        error("char>?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (((Char*)x)->ch <= ((Char*)(args->car))->ch)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char<=?
-sexp char_lep(sexp p, sexp q)
+sexp char_lep(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(((Char*)p)->ch <= ((Char*)q)->ch);
+    if (!args)
+        error("char<=?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (((Char*)x)->ch > ((Char*)(args->car))->ch)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // char<?
-sexp char_ltp(sexp p, sexp q)
+sexp char_ltp(sexp args)
 {
-    assertChar(p); assertChar(q);
-    return boolwrap(((Char*)p)->ch <  ((Char*)q)->ch);
+    if (!args)
+        error("char<?: no arguments");
+    sexp x = args->car;
+    assertChar(x);
+    while (args = args->cdr)
+    {
+        assertChar(args->car);
+        if (((Char*)x)->ch >= ((Char*)(args->car))->ch)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // character?
@@ -2066,6 +2420,9 @@ sexp charp(sexp c) { return boolwrap(c && isChar(c)); }
 
 // char-downcase
 sexp char_downcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
+
+// char-foldcase
+sexp char_foldcase(sexp c) { assertChar(c); return newcharacter(tolower(((Char*)c)->ch)); }
 
 // integer->char
 sexp integer_char(sexp c) { assertFixnum(c); return newcharacter(asFixnum(c)); }
@@ -2075,6 +2432,18 @@ sexp char_lower_casep(sexp c) { return boolwrap(c && isChar(c) && islower(((Char
 
 // char-numeric?
 sexp char_numericp(sexp c) { return boolwrap(c && isChar(c) && isdigit(((Char*)c)->ch)); }
+
+// digit-value
+sexp digit_value(sexp c)
+{ 
+    if (c && isChar(c))
+    {
+        int ch = ((Char*)c)->ch;
+        if ('0' <= ch && ch <= '9')
+            return newfixnum(ch-'0');
+    }
+    return f;
+}
 
 // char-upcase
 sexp char_upcase(sexp c) { assertChar(c); return newcharacter(toupper(((Char*)c)->ch)); }
@@ -2205,73 +2574,173 @@ sexp write_char(sexp args)
 // these only work on ascii data
 
 // string<=?
-sexp string_lep(sexp p, sexp q)
+sexp string_lep(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcmp(stringText(p), stringText(q)) <= 0);
+    if (!args)
+        error("string<=?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcmp(((String*)x)->text, ((String*)(args->car))->text) > 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string<?
-sexp string_ltp(sexp p, sexp q)
+sexp string_ltp(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcmp(stringText(p), stringText(q)) <  0);
+    if (!args)
+        error("string<?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcmp(((String*)x)->text, ((String*)(args->car))->text) >= 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string=?
-sexp string_eqp(sexp p, sexp q)
+sexp string_eqp(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcmp(stringText(p), stringText(q)) == 0);
+    if (!args)
+        error("string=?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcmp(((String*)x)->text, ((String*)(args->car))->text) != 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string>=?
-sexp string_gep(sexp p, sexp q)
+sexp string_gep(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcmp(stringText(p), stringText(q)) >= 0);
+    if (!args)
+        error("string>=?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcmp(((String*)x)->text, ((String*)(args->car))->text) < 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string>?
-sexp string_gtp(sexp p, sexp q)
+sexp string_gtp(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcmp(stringText(p), stringText(q)) >  0);
+    if (!args)
+        error("string>?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcmp(((String*)x)->text, ((String*)(args->car))->text) <= 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string-ci-<=?
-sexp string_cilep(sexp p, sexp q)
+sexp string_cilep(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcasecmp(stringText(p), stringText(q)) <= 0);
+    if (!args)
+        error("string-ci<=?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcasecmp(((String*)x)->text, ((String*)(args->car))->text) > 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string-ci<?
-sexp string_ciltp(sexp p, sexp q)
+sexp string_ciltp(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcasecmp(stringText(p), stringText(q)) <  0);
+    if (!args)
+        error("string-ci<?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcasecmp(((String*)x)->text, ((String*)(args->car))->text) >= 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string-ci=?
-sexp string_cieqp(sexp p, sexp q)
+sexp string_cieqp(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcasecmp(stringText(p), stringText(q)) == 0);
+    if (!args)
+        error("string-ci=?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcasecmp(((String*)x)->text, ((String*)(args->car))->text) != 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string-ci>=?
-sexp string_cigep(sexp p, sexp q)
+sexp string_cigep(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcasecmp(stringText(p), stringText(q)) >= 0);
+    if (!args)
+        error("string-ci>=?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcasecmp(((String*)x)->text, ((String*)(args->car))->text) < 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string-ci>?
-sexp string_cigtp(sexp p, sexp q)
+sexp string_cigtp(sexp args)
 {
-	assertString(p); assertString(q);
-	return boolwrap(strcasecmp(stringText(p), stringText(q)) >  0);
+    if (!args)
+        error("string-ci>?: no arguments");
+    sexp x = args->car;
+    assertString(x);
+    while (args = args->cdr)
+    {
+        assertString(args->car);
+        if (strcasecmp(((String*)x)->text, ((String*)(args->car))->text) <= 0)
+            return f;
+        x = args->car;
+    }
+    return t;
 }
 
 // string-ref
@@ -2382,27 +2851,36 @@ sexp reverse(sexp x)
     return t;
 }
 
-// eq?
-sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
-
 // = numeric equality
-sexp eqnp(sexp x, sexp y)
+sexp eqnp(sexp args)
 {
-    if (x && y)
-    {
-        if (isRational(x) && isRational(y))
-            return boolwrap(asRational(x) == asRational(y));
-     
-        if (isComplex(x) && isComplex(y))
-        {
-            x = x->cdr; y = y->cdr;
-            return boolwrap(asFlonum(x->car) == asFlonum(y->car) &&
-                            asFlonum(x->cdr->car) == asFlonum(y->cdr->car));
-        }
+    if (!args)
+        error("=: no arguments");
 
-        return boolwrap(asFlonum(x) == asFlonum(y));
+    sexp x = args->car;
+
+    while (args = args->cdr)
+    {
+        if (isFixnum(x) && isFixnum(args->car) && asFixnum(x) != asFixnum(args->car))
+            return f;
+        else if (isRational(x) && isRational(args->car) && asRational(x) != asRational(args->car))
+            return f;
+        else if (isBignum(x) && isBignum(args->car) && asBignum(x) != asBignum(args->car))
+            return f;
+        else if (isComplex(x) && isComplex(args->car))
+        {
+            sexp* mark = psp;
+            sexp y = args->car;
+            if (f == eqnp(save(cons(x->cdr->car, save(cons(y->cdr->car, 0))))) ||
+                f == eqnp(save(cons(x->cdr->cdr->car, save(cons(y->cdr->cdr->car, 0))))))
+                return lose(mark, f);
+            else
+                psp = mark;
+        } else if (asFlonum(x) != asFlonum(args->car))
+            return f;
     }
-    error("numeric equality: operands");
+
+    return t;
 }
 
 // zero?
@@ -2420,7 +2898,12 @@ sexp zerop(sexp x)
             float xf = ((Float*)x)->flonum;
             return boolwrap(-FLT_MIN < xf && xf < FLT_MIN);
         }
-        return eqnp(zero, x);
+        if (isFixnum(x))
+            return boolwrap(0 == ((Fixnum*)x)->fixnum);
+        if (isRational(x))
+            return boolwrap(asRational(x) == 0);
+        if (isBignum(x))
+            return boolwrap(asBignum(x) == 0);
     }
     error("zero?: operand");
 }
@@ -2866,7 +3349,10 @@ void display(Context& context, sexp exp, int level)
                 context.s << '+';
             if (im)
             {
-                display(context, exp->cdr->cdr->car, level);
+                if (im == -1)
+                    context.s << '-';
+                else if (im != 1)
+                    display(context, exp->cdr->cdr->car, level);
                 context.s << 'i';
             }
         } else
@@ -2934,17 +3420,65 @@ sexp string_number(sexp exp)
 }
 
 // string->list
-sexp string_list(sexp x)
+sexp string_list(sexp args)
 {
-    sexp* mark = psp;
-    assertString(x);
-    String* string = (String*)x;
-    char* r = string->text;
-    uint32_t wc;
-    sexp p = save(0);
-    while ((wc = read_utf8(r)))
-        p = replace(cons(save(newcharacter(wc)), p));
-    return lose(mark, reverse(p));
+    if (args)
+    {
+        sexp* mark = psp;
+        save(args);
+        sexp string = args->car;
+        assertString(string);
+        String* s = (String*)string;
+        int begin = 0;
+        int end = stringlen(s);
+        if ((args = args->cdr) && isFixnum(args->car))
+        {
+            begin = asFixnum(args->car);
+            if (args && (args = args->cdr) && isFixnum(args->car))
+                end = asFixnum(args->car);
+        }
+        sexp list = save(0);
+        char* q = s->text;
+        for (int i = 0; i < end; ++i)
+        {
+            uint32_t ch = read_utf8(q);
+            if (begin <= i && i < end)
+                replace(list = cons(newcharacter(ch), list));
+        }
+        return lose(mark, reverse(list));
+    }
+    error("string->list: arguments");
+}
+
+// string->vector
+sexp string_vector(sexp args)
+{
+    if (args)
+    {
+        sexp* mark = psp;
+        save(args);
+        sexp string = args->car;
+        assertString(string);
+        String* s = (String*)string;
+        int begin = 0;
+        int end = stringlen(s);
+        if ((args = args->cdr) && isFixnum(args->car))
+        {
+            begin = asFixnum(args->car);
+            if (args && (args = args->cdr) && isFixnum(args->car))
+                end = asFixnum(args->car);
+        }
+        sexp nv = save(newvector(end-begin, 0));
+        char* q = s->text;
+        for (int i = 0; i < end; ++i)
+        {
+            uint32_t ch = read_utf8(q);
+            if (begin <= i && i < end)
+                ((Vector*)nv)->e[i] = newcharacter(ch);
+        }
+        return lose(mark, nv);
+    }
+    error("string->vector: arguments");
 }
 
 // list->string
@@ -2972,24 +3506,8 @@ sexp list_string(sexp s)
 // string
 sexp string(sexp args) { return list_string(args); }
 
-bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
-
-bool cmpv(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp p, sexp q)
-{
-    Vector* pv = (Vector*)p;
-    Vector* qv = (Vector*)q;
-
-    if (pv->l != qv->l)
-        return false;
-
-    for (int i = pv->l; --i >= 0; )
-        if (!eqvb(seenx, seeny, pv->e[i], qv->e[i]))
-            return false;
-
-    return true;
-}
-
-bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
+// should take an arbitrary number of arguments
+bool eqvb(sexp x, sexp y)
 {
     if (x == y)
         return true;
@@ -2997,14 +3515,8 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     if (!x || !y || isAtom(x) || isAtom(y))
         return false;
 
-    if (isCons(x) && isCons(y))
-    {
-        if (seenx.find(x) != seenx.end() && seeny.find(y) != seeny.end())
-            return true;
-        seenx.insert(x);
-        seeny.insert(y);
-        return eqvb(seenx, seeny, x->car, y->car) && eqvb(seenx, seeny, x->cdr, y->cdr);
-    }
+    if (isCons(x) || isCons(y))
+        return false;
 
     if (shortType(x) != shortType(y))
         return false;
@@ -3019,15 +3531,65 @@ bool eqvb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
     case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
     case RATIONAL: return *((Rational*)x)->ratp == *((Rational*)y)->ratp;
-    case VECTOR:   return cmpv(seenx, seeny, x, y);
     }
 }
 
-// eqv?
-sexp eqvp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return boolwrap(eqvb(seenx, seeny, x, y)); }
+// eqv? should take an arbitrary number of arguments
+sexp eqvp(sexp x, sexp y) { return boolwrap(eqvb(x, y)); }
 
-// equal?
-sexp equalp(sexp x, sexp y) { std::set<sexp> seenx; std::set<sexp> seeny; return boolwrap(eqvb(seenx, seeny, x, y)); }
+// eq? should take an arbitrary number of arguments
+sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
+
+bool equalb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
+
+bool cmpv(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp p, sexp q)
+{
+    Vector* pv = (Vector*)p;
+    Vector* qv = (Vector*)q;
+
+    if (pv->l != qv->l)
+        return false;
+
+    for (int i = pv->l; --i >= 0; )
+        if (!equalb(seenx, seeny, pv->e[i], qv->e[i]))
+            return false;
+
+    return true;
+}
+
+bool equalb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
+{
+    if (x == y)
+        return true;
+
+    if (!x || !y || isAtom(x) || isAtom(y))
+        return false;
+
+    if (isCons(x) && isCons(y))
+    {
+        if (seenx.find(x) != seenx.end() && seeny.find(y) != seeny.end())
+            return true;
+        seenx.insert(x);
+        seeny.insert(y);
+        return equalb(seenx, seeny, x->car, y->car) && equalb(seenx, seeny, x->cdr, y->cdr);
+    }
+
+    if (shortType(x) != shortType(y))
+        return false;
+
+    if (isVector(x))
+        return cmpv(seenx, seeny, x, y);
+
+    return eqvb(x, y);
+}
+
+// equal? should take an arbitrary number of arguments
+sexp equalp(sexp x, sexp y)
+{
+    std::set<sexp> seenx;
+    std::set<sexp> seeny;
+    return boolwrap(equalb(seenx, seeny, x, y));
+}
 
 // show bindings since ref, for debugging
 sexp envhead(sexp env, sexp ref)
@@ -3174,8 +3736,6 @@ sexp evlis(sexp p, sexp env)
     save(p, env);
     if (!p)
         return p;
-    if (!isCons(p))
-        error("evlis: not a pair");
     return lose(mark, cons(save(eval(p->car, env)), save(evlis(p->cdr, env))));
 }
 
@@ -3462,7 +4022,7 @@ sexp let(sexp exp, sexp env)
     save(exp);
     sexp e = save(env);
     exp = exp->cdr;
-    if (isAtom(exp->car))
+    if (exp->car && isAtom(exp->car))
     {
         // (let name ((var val) (var val) ..) body )
         sexp l = replace(cons(lambda, replace(cons(save(names(exp->cdr->car)), exp->cdr->cdr))));
@@ -3719,7 +4279,7 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
     status = NON_NUMERIC;
     while (isspace(c))
         c = fin.get();
-    if ('-' == c)
+    if ('-' == c || '+' == c)
         c = accept(s, fin, c);
     while (isdigit(c))
         { status = FIXED; c = accept(s, fin, c); }
@@ -3731,9 +4291,7 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
     {
         status = NON_NUMERIC;
         c = accept(s, fin, c);
-        if ('-' == c)
-            c = accept(s, fin, c);
-        else if ('+' == c)
+        if ('-' == c || '+' == c)
             c = accept(s, fin, c);
         while (isdigit(c))
         {
@@ -3745,8 +4303,6 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
     if (status == FIXED && '/' == c)
     {
         c = accept(s, fin, c);
-        if ('-' == c)
-            c = accept(s, fin, c);
         while (isdigit(c))
             { status = RATIO; c = accept(s, fin, c); }
     }
@@ -3802,11 +4358,20 @@ sexp scans(std::istream& fin)
                             return newcharacter(*character_table[i]);
                     return newcharacter(*buf);
                 }
+
+    case '+':   c = fin.get();
+                if ('.' == c || 'i' == c || isdigit(c))
+                    s.put('+');
+                else
+                    { fin.unget(); return plus; }
+                break;
+
     case '-':   c = fin.get();
-                if ('.' == c || isdigit(c))
+                if ('.' == c || 'i' == c || isdigit(c))
                     s.put('-');
                 else
                     { fin.unget(); return minus; } 
+                break;
     }
 
     fin.unget();
@@ -3817,7 +4382,7 @@ sexp scans(std::istream& fin)
 
     size_t split = s.tellp();
 
-    if (NON_NUMERIC < rstatus && ('+' == c || '-' == c)) {
+    if ('+' == c || '-' == c) {
         s << (char)fin.get();
         c = scanNumber(s, fin, istatus);
         if ('i' == c)
@@ -3838,7 +4403,9 @@ sexp scans(std::istream& fin)
 
         sexp real, imag;
 
-        if (RATIO == rstatus) {
+        if (NON_NUMERIC == rstatus) {
+            real = zero;
+        } else if (RATIO == rstatus) {
             std::string realdata = cdata.substr(0, split);
             int realdiv = realdata.find_first_of('/');
             real = save(newrational(Num(realdata.substr(0,realdiv).c_str()),
@@ -3851,7 +4418,9 @@ sexp scans(std::istream& fin)
 
         c = cdata.at(split);
 
-        if (RATIO == istatus) {
+        if (NON_NUMERIC == istatus) {
+            imag = one;
+        } else if (RATIO == istatus) {
             std::string imagdata = cdata.substr(split+1);
             imagdata = imagdata.substr(0, imagdata.length()-1);
             int imagdiv = imagdata.find_first_of('/');
@@ -4079,12 +4648,12 @@ const struct FuncTable {
     { "-",                                 0, (void*)unisub },
     { "^",                                 0, (void*)xorf },
     { "~",                                 1, (void*)complement },
-    { "=",                                 2, (void*)eqnp },
-    { ">=",                                2, (void*)gep },
-    { ">",                                 2, (void*)gtp },
-    { "<=",                                2, (void*)lep },
+    { "=",                                 0, (void*)eqnp },
+    { ">=",                                0, (void*)gep },
+    { ">",                                 0, (void*)gtp },
+    { "<=",                                0, (void*)lep },
     { "<<",                                2, (void*)lsh },
-    { "<",                                 2, (void*)ltp },
+    { "<",                                 0, (void*)ltp },
     { ">>",                                2, (void*)rsh },
     { "acos",                              1, (void*)acosff },
     { "angle",                             1, (void*)angle },
@@ -4098,6 +4667,7 @@ const struct FuncTable {
     { "atoms",                             0, (void*)atomsf },
     { "bignum?",                           1, (void*)bignump },
     { "boolean?",                          1, (void*)booleanp },
+    { "boolean=?",                         0, (void*)boolean_eqp },
     { "call-with-input-file",              2, (void*)call_with_input_file },
     { "call-with-output-file",             2, (void*)call_with_output_file },
     { "call-with-output-string",           1, (void*)call_with_output_string },
@@ -4106,18 +4676,19 @@ const struct FuncTable {
     { "cdr",                               1, (void*)cdr },
     { "ceiling",                           1, (void*)ceilingff },
     { "char?",                             1, (void*)charp },
-    { "char=?",                            2, (void*)char_eqp },
-    { "char>=?",                           2, (void*)char_gep },
-    { "char>?",                            2, (void*)char_gtp },
-    { "char<=?",                           2, (void*)char_lep },
-    { "char<?",                            2, (void*)char_ltp },
+    { "char=?",                            0, (void*)char_eqp },
+    { "char>=?",                           0, (void*)char_gep },
+    { "char>?",                            0, (void*)char_gtp },
+    { "char<=?",                           0, (void*)char_lep },
+    { "char<?",                            0, (void*)char_ltp },
     { "char-alphabetic?",                  1, (void*)char_alphabeticp },
-    { "char-ci=?",                         2, (void*)char_cieqp },
-    { "char-ci>=?",                        2, (void*)char_cigep },
-    { "char-ci>?",                         2, (void*)char_cigtp },
-    { "char-ci<=?",                        2, (void*)char_cilep },
-    { "char-ci<?",                         2, (void*)char_ciltp },
+    { "char-ci=?",                         0, (void*)char_cieqp },
+    { "char-ci>=?",                        0, (void*)char_cigep },
+    { "char-ci>?",                         0, (void*)char_cigtp },
+    { "char-ci<=?",                        0, (void*)char_cilep },
+    { "char-ci<?",                         0, (void*)char_ciltp },
     { "char-downcase",                     1, (void*)char_downcase },
+    { "char-foldcase",                     1, (void*)char_foldcase },
     { "char->integer",                     1, (void*)char_integer },
     { "char-lower-case?",                  1, (void*)char_lower_casep },
     { "char-numeric?",                     1, (void*)char_numericp },
@@ -4138,6 +4709,7 @@ const struct FuncTable {
     { "cyclic?",                           1, (void*)cyclicp },
     { "denominator",                       1, (void*)denominator },
     { "diff",                              2, (void*)diff },
+    { "digit-value",                       1, (void*)digit_value },
     { "display",                           0, (void*)displayf },
     { "divide",                            2, (void*)divide },
     { "eof-object?",                       1, (void*)eof_objectp },
@@ -4147,6 +4719,7 @@ const struct FuncTable {
     { "eval",                              2, (void*)xeval },
     { "evlis",                             2, (void*)evlis },
     { "exact?",                            1, (void*)exactp },
+    { "exact-integer?",                    1, (void*)exact_integerp },
     { "exact->inexact",                    1, (void*)exact_inexact },
     { "exp",                               1, (void*)expff },
     { "floor",                             1, (void*)floorff },
@@ -4214,28 +4787,30 @@ const struct FuncTable {
     { "sqrt",                              1, (void*)sqrtff },
     { "string",                            0, (void*)string },
     { "string?",                           1, (void*)stringp },
-    { "string=?",                          2, (void*)string_eqp },
-    { "string>=?",                         2, (void*)string_gep },
-    { "string>?",                          2, (void*)string_gtp },
-    { "string<=?",                         2, (void*)string_lep },
-    { "string<?",                          2, (void*)string_ltp },
+    { "string=?",                          0, (void*)string_eqp },
+    { "string>=?",                         0, (void*)string_gep },
+    { "string>?",                          0, (void*)string_gtp },
+    { "string<=?",                         0, (void*)string_lep },
+    { "string<?",                          0, (void*)string_ltp },
     { "string-append",                     0, (void*)string_append },
-    { "string-ci=?",                       2, (void*)string_cieqp },
-    { "string-ci>=?",                      2, (void*)string_cigep },
-    { "string-ci>?",                       2, (void*)string_cigtp },
-    { "string-ci<=?",                      2, (void*)string_cilep },
-    { "string-ci<?",                       2, (void*)string_ciltp },
-    { "string-copy",                       1, (void*)string_copy },
-    { "string-fill!",                      2, (void*)string_fill },
+    { "string-ci=?",                       0, (void*)string_cieqp },
+    { "string-ci>=?",                      0, (void*)string_cigep },
+    { "string-ci>?",                       0, (void*)string_cigtp },
+    { "string-ci<=?",                      0, (void*)string_cilep },
+    { "string-ci<?",                       0, (void*)string_ciltp },
+    { "string-copy",                       0, (void*)string_copy },
+    { "string-fill!",                      0, (void*)string_fill },
     { "string-length",                     1, (void*)string_length },
-    { "string->list",                      1, (void*)string_list },
+    { "string->list",                      0, (void*)string_list },
     { "string->number",                    1, (void*)string_number },
     { "string-ref",                        2, (void*)string_ref },
     { "string-set!",                       3, (void*)string_set },
     { "string->symbol",                    1, (void*)string_symbol },
+    { "string->vector",                    0, (void*)string_vector },
     { "substring",                         0, (void*)substringf },
     { "sum",                               2, (void*)sum },
     { "symbol?",                           1, (void*)symbolp },
+    { "symbol=?",                          0, (void*)symbol_eqp },
     { "symbol->string",                    1, (void*)symbol_string },
     { "tan",                               1, (void*)tanff },
     { "tanh",                              1, (void*)tanhff },
@@ -4245,9 +4820,12 @@ const struct FuncTable {
     { "undefine",                          1, (void*)undefine },
     { "vector",                            0, (void*)vector },
     { "vector?",                           1, (void*)vectorp },
-    { "vector-fill!",                      2, (void*)vector_fill },
+    { "vector-append",                     0, (void*)vector_append },
+    { "vector-copy",                       0, (void*)vector_copy },
+    { "vector-fill!",                      0, (void*)vector_fill },
     { "vector-length",                     1, (void*)vector_length },
-    { "vector->list",                      1, (void*)vector_list },
+    { "vector->list",                      0, (void*)vector_list },
+    { "vector->string",                    0, (void*)vector_string },
     { "vector-ref",                        2, (void*)vector_ref },
     { "vector-set!",                       3, (void*)vector_set },
     { "with-input-from-file",              2, (void*)with_input_from_file },
@@ -4331,6 +4909,7 @@ int main(int argc, char **argv, char **envp)
     lbracket        = staintern("[");
     lparen          = staintern("(");
     minus           = staintern("-");
+    plus            = staintern("+");
     promise         = staintern("promise");
     qchar           = staintern("'");
     quasiquote      = staintern("quasiquote");
