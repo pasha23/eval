@@ -178,13 +178,13 @@
 
 (define (test s)
         (unless (eq? #t (eval s (environment)))
-            (begin (display 'fail) (space) (display s) (newline)))
+            (begin (display 'fail) (space) (write s) (newline)))
         (gc))
 
 ;; (define (test s)
 ;;         (if (eq? #t (eval s (environment)))
-;;             (begin (display 'pass) (space) (display s) (newline))
-;;             (begin (display 'fail) (space) (display s) (newline)))
+;;             (begin (display 'pass) (space) (write s) (newline))
+;;             (begin (display 'fail) (space) (write s) (newline)))
 ;;         (gc))
 
 (test '(equal? '((-7 -6 11) (-17 -20 25))

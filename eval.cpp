@@ -1572,7 +1572,7 @@ int stringlen(String *s)
 {
     int len = 0;
     char* p = s->text;
-    while (read_utf8(p))
+    while (*p && read_utf8(p))
         ++len;
     return len;
 }
@@ -2864,9 +2864,12 @@ sexp eqnp(sexp args)
     {
         if (isFixnum(x) && isFixnum(args->car) && asFixnum(x) != asFixnum(args->car))
             return f;
-        else if (isRational(x) && isRational(args->car) && asRational(x) != asRational(args->car))
-            return f;
-        else if (isBignum(x) && isBignum(args->car) && asBignum(x) != asBignum(args->car))
+        else if (isRational(x) && isRational(args->car)) {
+            Rat xr = asRational(x);         xr.reduce();
+            Rat yr = asRational(args->car); yr.reduce();
+            if (xr != yr)
+                return f;
+        } else if (isBignum(x) && isBignum(args->car) && asBignum(x) != asBignum(args->car))
             return f;
         else if (isComplex(x) && isComplex(args->car))
         {
@@ -3534,89 +3537,113 @@ bool eqa(sexp x, sexp y)
     }
 }
 
-bool eqvb(sexp args)
+// eqv?
+sexp eqvp(sexp args)
 {
     if (!args)
         error("eqv?: no arguments");
     sexp x = args->car;
     while (args = args->cdr)
         if (!eqa(x, args->car))
-            return false;
-    return true;
+            return f;
+    return t;
 }
 
-bool eqb(sexp args)
+// eq?
+sexp eqp(sexp args)
 {
     if (!args)
         error("eq?: no arguments");
     sexp x = args->car;
     while (args = args->cdr)
         if (x != args->car)
-            return false;
-    return true;
+            return f;
+    return t;
 }
 
-// eqv? should take an arbitrary number of arguments
-sexp eqvp(sexp args)
+bool equalb(std::set<sexp>& seen, sexp args)
 {
-    return boolwrap(eqvb(args));
-}
+    if (!args)
+        error("equal?: no arguments");
 
-// eq? should take an arbitrary number of arguments
-sexp eqp(sexp args)
-{
-    return boolwrap(eqb(args));
-}
+    sexp x = args->car;
 
-bool equalb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
-
-bool cmpv(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp p, sexp q)
-{
-    Vector* pv = (Vector*)p;
-    Vector* qv = (Vector*)q;
-
-    if (pv->l != qv->l)
-        return false;
-
-    for (int i = pv->l; --i >= 0; )
-        if (!equalb(seenx, seeny, pv->e[i], qv->e[i]))
-            return false;
-
-    return true;
-}
-
-bool equalb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
-{
-    if (x == y)
-        return true;
-
-    if (!x || !y || isAtom(x) || isAtom(y))
-        return false;
-
-    if (isCons(x) && isCons(y))
+    while (args = args->cdr)
     {
-        if (seenx.find(x) != seenx.end() && seeny.find(y) != seeny.end())
-            return true;
-        seenx.insert(x);
-        seeny.insert(y);
-        return equalb(seenx, seeny, x->car, y->car) && equalb(seenx, seeny, x->cdr, y->cdr);
+        sexp y = args->car;
+
+        if (x == y)
+            continue;
+
+        if (!x || !y || isAtom(x) || isAtom(y))
+            return false;
+
+        if (isCons(x) && isCons(y))
+        {
+            if (seen.find(x) != seen.end())
+                continue;
+
+            seen.insert(x);
+
+            if (seen.find(y) != seen.end())
+                continue;
+
+            seen.insert(y);
+
+            sexp* mark = psp;
+            sexp r0 = replace(cons(x->car, save(cons(y->car, 0))));
+            if (equalb(seen, r0)) {
+                sexp r1 = replace(cons(x->cdr, save(cons(y->cdr, 0))));
+                if (equalb(seen, r1)) {
+                    psp = mark;
+                    continue;
+                }
+            }
+
+            psp = mark;
+            return false;
+        }
+
+        if (shortType(x) != shortType(y))
+            return false;
+
+        if (isVector(x))
+        {
+            Vector* xv = (Vector*)x;
+            Vector* yv = (Vector*)y;
+
+            if (xv->l != yv->l)
+                return false;
+
+            for (int i = xv->l; --i >= 0; )
+            {
+                sexp* mark = psp;
+                sexp r2 = replace(cons(xv->e[i], save(cons(yv->e[i], 0))));
+                if (!equalb(seen, r2))
+                {
+                    psp = mark;
+                    return false;
+                }
+                psp = mark;
+            }
+
+            continue;
+        }
+
+        if (eqa(x, y))
+            continue;
+        else
+            return false;
     }
 
-    if (shortType(x) != shortType(y))
-        return false;
-
-    if (isVector(x))
-        return cmpv(seenx, seeny, x, y);
-
-    return eqa(x, y);
+    return true;
 }
 
-// equal? should take an arbitrary number of arguments
-sexp equalp(sexp x, sexp y)
+// equal?
+sexp equalp(sexp args)
 {
-    std::set<sexp> seenx;
-    std::set<sexp> seeny;
-    return boolwrap(equalb(seenx, seeny, x, y));
+    std::set<sexp> seen;
+    return boolwrap(equalb(seen, args));
 }
 
 // show bindings since ref, for debugging
@@ -4742,7 +4769,7 @@ const struct FuncTable {
     { "divide",                            2, (void*)divide },
     { "eof-object?",                       1, (void*)eof_objectp },
     { "eq?",                               0, (void*)eqp },
-    { "equal?",                            2, (void*)equalp },
+    { "equal?",                            0, (void*)equalp },
     { "eqv?",                              0, (void*)eqvp },
     { "eval",                              2, (void*)xeval },
     { "evlis",                             2, (void*)evlis },
