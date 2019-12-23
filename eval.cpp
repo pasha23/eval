@@ -3200,13 +3200,19 @@ void displayChar(Context& context, sexp exp)
 {
     char buf[5];
     int c = ((Char*)exp)->ch;
-    for (int i = 0; character_table[i]; ++i)
-        if (c == *character_table[i]) {
-            context.s << "#\\" << 1+character_table[i];
-            return;
-        }
-    encodeUTF8(buf, ((Char*)exp)->ch);
-    context.s << "#\\" << buf;
+    if (context.write)
+    {
+        for (int i = 0; character_table[i]; ++i)
+            if (c == *character_table[i]) {
+                context.s << "#\\" << 1+character_table[i];
+                return;
+            }
+        encodeUTF8(buf, ((Char*)exp)->ch);
+        context.s << "#\\" << buf;
+    } else {
+        encodeUTF8(buf, ((Char*)exp)->ch);
+        context.s << buf;
+    }
 }
 
 void displayString(Context& context, sexp exp)

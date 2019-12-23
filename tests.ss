@@ -194,6 +194,22 @@
 (set-cdr! (cdddr test1) test1)
 (test '(not (equal? test0 test1)))
 
+(test '(equal? "(#0=(abc def A foo) #0#)"
+               (let* ((x '(abc def A foo))
+                      (y (list x x))
+                      (out (open-output-string)))
+                 (display y out)
+                 (get-output-string out))))
+
+(test '(equal? "(#0=(abc def A foo) #0#)(abc def A foo)(\"abc\" \"def\" #\\A foo)"
+      (let* ((x '("abc" "def" #\A foo))
+             (y (list x x))
+             (out (open-output-string)))
+        (display y out)
+        (display x out)
+        (write   x out)
+        (get-output-string out))))
+
 (test '(equal? '((-7 -6 11) (-17 -20 25))
              (matrix-multiply '((1 2) (3 4)) '((-3 -8 3) (-2 1 4)))))
 
