@@ -1750,6 +1750,50 @@ sexp string_copy(sexp args)
     return dynstring(b);
 }
 
+// write-string
+sexp write_string(sexp args)
+{
+    if (!args || !args->car || !isString(args->car))
+        error("write-string: no string");
+
+    sexp s = args->car;
+    sexp port = outport;
+    if (args && (args = args->cdr) && isOutPort(args->car))
+        port = args->car;
+    else
+        error("write-string: not an output port");
+
+    int i = 0;
+
+    if (args && (args = args->cdr) && args->car && isFixnum(args->car))
+        i = asFixnum(args->car);
+
+    String* string = (String*)s;
+    int j = stringlen(string);
+
+    if (args && (args = args->cdr) && args->car && isFixnum(args->car))
+        j = asFixnum(args->car);
+
+    if (i < 0 || j < i)
+        error("write-string: start negative or end before start");
+
+    char* q;
+    char* p = string->text;
+    for (int k = 0; k < j; ++k)
+    {
+        if (i == k)
+            q = p;
+        read_utf8(p);
+    }
+    char* b = (char*)alloca(p-q+1);
+    memcpy(b, q, p-q);
+    b[p-q] = 0;
+
+    Context context(0, true, true, true);
+    ((OutPort*)port)->s->write(b, p-q);
+    return voida;
+}
+
 // string-append
 sexp string_append(sexp args)
 {
@@ -3078,7 +3122,7 @@ sexp newline(sexp args)
 sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 
 // display
-sexp displayf(sexp args)
+sexp display_shared(sexp args)
 {
     Context context(0, false, true, true);
     sexp port = args->cdr ? args->cdr->car : outport;
@@ -3089,10 +3133,32 @@ sexp displayf(sexp args)
     return voida;
 }
 
+sexp display_simple(sexp args)
+{
+    Context context(0, false, true, false);
+    sexp port = args->cdr ? args->cdr->car : outport;
+    assertOutPort(port);
+    mapCycles(context, args->car);
+    display(context, args->car, 0);
+    ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
+    return voida;
+}
+
 // write
-sexp writef(sexp args)
+sexp write_shared(sexp args)
 {
     Context context(0, true, true, true);
+    sexp port = args->cdr ? args->cdr->car : outport;
+    assertOutPort(port);
+    mapCycles(context, args->car);
+    display(context, args->car, 0);
+    ((OutPort*)port)->s->write(context.s.str().c_str(), context.s.str().length());
+    return voida;
+}
+
+sexp write_simple(sexp args)
+{
+    Context context(0, true, true, false);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -4748,7 +4814,9 @@ const struct FuncTable {
     { "denominator",                       1, (void*)denominator },
     { "diff",                              2, (void*)diff },
     { "digit-value",                       1, (void*)digit_value },
-    { "display",                           0, (void*)displayf },
+    { "display",                           0, (void*)display_shared },
+    { "display-shared",                    0, (void*)display_shared },
+    { "display-simple",                    0, (void*)display_simple },
     { "divide",                            2, (void*)divide },
     { "eof-object?",                       1, (void*)eof_objectp },
     { "eq?",                               0, (void*)eqp },
@@ -4868,8 +4936,11 @@ const struct FuncTable {
     { "vector-set!",                       3, (void*)vector_set },
     { "with-input-from-file",              2, (void*)with_input_from_file },
     { "with-output-to-file",               2, (void*)with_output_to_file },
-    { "write",                             0, (void*)writef },
+    { "write",                             0, (void*)write_shared },
+    { "write-shared",                      0, (void*)write_shared },
+    { "write-simple",                      0, (void*)write_simple },
     { "write-char",                        0, (void*)write_char },
+    { "write-string",                      0, (void*)write_string },
     { "write-to-string",                   0, (void*)write_to_string },
     { "zero?",                             1, (void*)zerop },
     { 0,                                   0, 0 }

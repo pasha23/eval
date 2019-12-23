@@ -206,9 +206,24 @@
              (y (list x x))
              (out (open-output-string)))
         (display y out)
-        (display x out)
-        (write   x out)
+        (display-simple x out)
+        (write-simple   x out)
         (get-output-string out))))
+
+(test '(equal? "abc def"
+               (let ((out (open-output-string)))
+                    (write-string "abc def" out)
+                    (get-output-string out))))
+
+(test '(equal? "def"
+               (let ((out (open-output-string)))
+                    (write-string "abc def" out 4)
+                    (get-output-string out))))
+
+(test '(equal? "c d"
+               (let ((out (open-output-string)))
+                    (write-string "abc def" out 2 5)
+                    (get-output-string out))))
 
 (test '(equal? '((-7 -6 11) (-17 -20 25))
              (matrix-multiply '((1 2) (3 4)) '((-3 -8 3) (-2 1 4)))))
