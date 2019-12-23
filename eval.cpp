@@ -1801,8 +1801,7 @@ sexp string_fill(sexp args)
             int kl = encodedLength(fc);
             char* p = s->text;
             for (int ix = 0; ix < j; ++ix)
-                if (i <= ix)
-                {
+                if (i <= ix) {
                     char* q = p;
                     uint32_t cx = read_utf8(p);
                     if (encodedLength(cx) != kl)
@@ -1810,7 +1809,8 @@ sexp string_fill(sexp args)
                     char c = *p;
                     q += encodeUTF8(q, fc);
                     *p = c;
-                }
+                } else
+                    read_utf8(p);
             return string;
         }
         error("string-fill!: bad fill");
@@ -2103,6 +2103,7 @@ sexp vector_string(sexp args)
             }
             char* b = new char[len+1];
             char* p = b;
+            *p = 0;
             for (int index = begin; index < end; ++index)
                 p += encodeUTF8(p, ((Char*)(v->e[index]))->ch);
             return dynstring(b);
@@ -3474,7 +3475,7 @@ sexp string_vector(sexp args)
         {
             uint32_t ch = read_utf8(q);
             if (begin <= i && i < end)
-                ((Vector*)nv)->e[i] = newcharacter(ch);
+                ((Vector*)nv)->e[i-begin] = newcharacter(ch);
         }
         return lose(mark, nv);
     }
