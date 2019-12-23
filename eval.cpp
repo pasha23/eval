@@ -3507,8 +3507,7 @@ sexp list_string(sexp s)
 // string
 sexp string(sexp args) { return list_string(args); }
 
-// should take an arbitrary number of arguments
-bool eqvb(sexp x, sexp y)
+bool eqa(sexp x, sexp y)
 {
     if (x == y)
         return true;
@@ -3524,7 +3523,7 @@ bool eqvb(sexp x, sexp y)
 
     switch (shortType(x)) 
     {
-    default:       return 0;
+    default:       return false;
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
     case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
     case STRING:   return 0 == strcmp(stringText(x), stringText(y));
@@ -3535,11 +3534,39 @@ bool eqvb(sexp x, sexp y)
     }
 }
 
+bool eqvb(sexp args)
+{
+    if (!args)
+        error("eqv?: no arguments");
+    sexp x = args->car;
+    while (args = args->cdr)
+        if (!eqa(x, args->car))
+            return false;
+    return true;
+}
+
+bool eqb(sexp args)
+{
+    if (!args)
+        error("eq?: no arguments");
+    sexp x = args->car;
+    while (args = args->cdr)
+        if (x != args->car)
+            return false;
+    return true;
+}
+
 // eqv? should take an arbitrary number of arguments
-sexp eqvp(sexp x, sexp y) { return boolwrap(eqvb(x, y)); }
+sexp eqvp(sexp args)
+{
+    return boolwrap(eqvb(args));
+}
 
 // eq? should take an arbitrary number of arguments
-sexp eqp(sexp x, sexp y) { return boolwrap(x == y); }
+sexp eqp(sexp args)
+{
+    return boolwrap(eqb(args));
+}
 
 bool equalb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y);
 
@@ -3581,7 +3608,7 @@ bool equalb(std::set<sexp>& seenx, std::set<sexp>& seeny, sexp x, sexp y)
     if (isVector(x))
         return cmpv(seenx, seeny, x, y);
 
-    return eqvb(x, y);
+    return eqa(x, y);
 }
 
 // equal? should take an arbitrary number of arguments
@@ -3984,7 +4011,7 @@ sexp caseform(sexp exp, sexp env)
             return tailforms(exp->cdr, env);
 
         for (sexp p = exp->car->car; p; p = p->cdr)
-            if (f != eqvp(key, p->car))
+            if (eqa(key, p->car))
                 return tailforms(exp->car->cdr, env);
     }
 
@@ -4714,9 +4741,9 @@ const struct FuncTable {
     { "display",                           0, (void*)displayf },
     { "divide",                            2, (void*)divide },
     { "eof-object?",                       1, (void*)eof_objectp },
-    { "eq?",                               2, (void*)eqp },
+    { "eq?",                               0, (void*)eqp },
     { "equal?",                            2, (void*)equalp },
-    { "eqv?",                              2, (void*)eqvp },
+    { "eqv?",                              0, (void*)eqvp },
     { "eval",                              2, (void*)xeval },
     { "evlis",                             2, (void*)evlis },
     { "exact?",                            1, (void*)exactp },
