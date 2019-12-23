@@ -3571,14 +3571,11 @@ bool equalb(std::set<sexp>& seen, sexp x, sexp y)
 
     if (isCons(x) && isCons(y))
     {
-        if (seen.find(x) != seen.end())
+        if (seen.find(x) != seen.end() &&
+            seen.find(y) != seen.end())
             return true;
 
         seen.insert(x);
-
-        if (seen.find(y) != seen.end())
-            return true;
-
         seen.insert(y);
 
         return equalb(seen, x->car, y->car) && equalb(seen, x->cdr, y->cdr);

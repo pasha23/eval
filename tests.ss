@@ -187,6 +187,13 @@
 ;;             (begin (display 'fail) (space) (write s) (newline)))
 ;;         (gc))
 
+;; (test '(not (equal? '#0=(a b a . #0#) '#1=(a b a b . #1#))))
+(define test0 '(a b a))
+(set-cdr! (cddr test0) test0)
+(define test1 '(a b a b))
+(set-cdr! (cdddr test1) test1)
+(test '(not (equal? test0 test1)))
+
 (test '(equal? '((-7 -6 11) (-17 -20 25))
              (matrix-multiply '((1 2) (3 4)) '((-3 -8 3) (-2 1 4)))))
 
@@ -395,7 +402,6 @@
 (test '(eq? 'd (cadddr '(a b c d))))
 (test '(equal? '(0 1 2) (let ((a 0) (b 1) (c 2)) (list a b c))))
 (test '(equal? '(0 1 2) (let* ((a 0) (b (+ a 1)) (c (+ b 1))) (list a b c))))
-;; (test '(equal? '#0=(a b . #0#) '#1=(a b a b . #1#)))
 (test '(equal? '(1 1/2 1/3 1/4 1/5 1/6 1/7 1/8 1/9) (map / (cdr (iota 10)))))
 (test '(equal? '(1 1/2 1/6 1/24 1/120 1/720 1/5040 1/40320 1/362880) (map (lambda (x) (/ (fac x))) (cdr (iota 10)))))
 (test '(equal? '(1 2 3) '(1 2 3)))
@@ -514,7 +520,6 @@
 (test '(not (char-whitespace? #\_)))
 (test '(not (char-whitespace? #\a)))
 (test '(not (eq? (list 'a) (list 'a))))
-;; (test '(not (equal? '#0=(a b a . #0#) '#1=(a b a b . #1#))))
 ;; (test '(not (eqv? 0.0 +nan.0)))
 (test '(not (eqv? 2 2.0)))
 (test '(not (eqv? 'a 'b)))
