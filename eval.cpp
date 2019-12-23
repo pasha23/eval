@@ -3561,6 +3561,50 @@ sexp eqp(sexp args)
     return t;
 }
 
+bool equalb(std::set<sexp>& seen, sexp x, sexp y)
+{
+    if (x == y)
+        return true;
+
+    if (!x || !y || isAtom(x) || isAtom(y))
+        return false;
+
+    if (isCons(x) && isCons(y))
+    {
+        if (seen.find(x) != seen.end())
+            return true;
+
+        seen.insert(x);
+
+        if (seen.find(y) != seen.end())
+            return true;
+
+        seen.insert(y);
+
+        return equalb(seen, x->car, y->car) && equalb(seen, x->cdr, y->cdr);
+    }
+
+    if (shortType(x) != shortType(y))
+        return false;
+
+    if (isVector(x))
+    {
+        Vector* xv = (Vector*)x;
+        Vector* yv = (Vector*)y;
+
+        if (xv->l != yv->l)
+            return false;
+
+        for (int i = xv->l; --i >= 0; )
+            if (!equalb(seen, xv->e[i], yv->e[i]))
+                return false;
+
+        return true;
+    }
+
+    return eqa(x, y);
+}
+
 bool equalb(std::set<sexp>& seen, sexp args)
 {
     if (!args)
@@ -3569,72 +3613,8 @@ bool equalb(std::set<sexp>& seen, sexp args)
     sexp x = args->car;
 
     while (args = args->cdr)
-    {
-        sexp y = args->car;
-
-        if (x == y)
-            continue;
-
-        if (!x || !y || isAtom(x) || isAtom(y))
+        if (!equalb(seen, x, args->car))
             return false;
-
-        if (isCons(x) && isCons(y))
-        {
-            if (seen.find(x) != seen.end())
-                continue;
-
-            seen.insert(x);
-
-            if (seen.find(y) != seen.end())
-                continue;
-
-            seen.insert(y);
-
-            sexp* mark = psp;
-            sexp r0 = replace(cons(x->car, save(cons(y->car, 0))));
-            if (equalb(seen, r0)) {
-                sexp r1 = replace(cons(x->cdr, save(cons(y->cdr, 0))));
-                if (equalb(seen, r1)) {
-                    psp = mark;
-                    continue;
-                }
-            }
-
-            psp = mark;
-            return false;
-        }
-
-        if (shortType(x) != shortType(y))
-            return false;
-
-        if (isVector(x))
-        {
-            Vector* xv = (Vector*)x;
-            Vector* yv = (Vector*)y;
-
-            if (xv->l != yv->l)
-                return false;
-
-            for (int i = xv->l; --i >= 0; )
-            {
-                sexp* mark = psp;
-                sexp r2 = replace(cons(xv->e[i], save(cons(yv->e[i], 0))));
-                if (!equalb(seen, r2))
-                {
-                    psp = mark;
-                    return false;
-                }
-                psp = mark;
-            }
-
-            continue;
-        }
-
-        if (eqa(x, y))
-            continue;
-        else
-            return false;
-    }
 
     return true;
 }
