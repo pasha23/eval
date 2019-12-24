@@ -199,7 +199,7 @@
                (let* ((x '(abc def A foo))
                       (y (list x x))
                       (out (open-output-string)))
-                 (display y out)
+                 (write-shared y out)
                  (get-output-string out))))
 
 (test '(equal? "(#0=(abc def A foo) #0#)(abc def A foo)(\"abc\" \"def\" #\\A foo)"
@@ -225,6 +225,22 @@
                (let ((out (open-output-string)))
                     (write-string "abc def" out 2 5)
                     (get-output-string out))))
+
+(test '(equal?
+      "((a b c d) (a b c d))"
+      (let* ((x '(a b c d))
+             (y (list x x))
+             (out (open-output-string)))
+          (write-simple y out)
+          (get-output-string out))))
+
+(test '(equal?
+      "(#0=(a b c d) #0#)"
+      (let* ((x '(a b c d))
+             (y (list x x))
+             (out (open-output-string)))
+        (write-shared y out)
+        (get-output-string out))))
 
 (test '(equal? '((-7 -6 11) (-17 -20 25))
              (matrix-multiply '((1 2) (3 4)) '((-3 -8 3) (-2 1 4)))))
