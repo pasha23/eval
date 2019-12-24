@@ -1765,18 +1765,19 @@ sexp string_copy_(sexp args)
     sexp from = args->car;
 
     int start = 0;
-    int end = stringlen(((String*)from));
+    int len = stringlen(((String*)from));
+    int end = len;
     if ((args = args->cdr) && args->car && isFixnum(args->car)) {
         start = asFixnum(args->car);
         if ((args = args->cdr) && args->car && isFixnum(args->car))
             end = asFixnum(args->car);
     }
 
-    if (start < 0 || end < start)
+    if (!(0 <= start && start <= end && end <= len))
         error("string-copy!: start negative or end before start");
 
-    char* q;
-    char* p = ((String*)from)->text;
+    char* q = ((String*)from)->text;
+    char* p = q;
     for (int k = 0; k < end; ++k)
     {
         if (start == k)
@@ -1784,8 +1785,8 @@ sexp string_copy_(sexp args)
         read_utf8(p);
     }
 
-    char* r;
-    char* s = ((String*)to)->text;
+    char* r = ((String*)to)->text;
+    char* s = r;
     for (int k = 0; k < at+end-start; ++k)
     {
         if (at == k)
@@ -1793,8 +1794,8 @@ sexp string_copy_(sexp args)
         read_utf8(s);
     }
 
-    if (p-q != s-r)
-        error("string-copy!: implementation incomplete");
+    if ((p-q) != (s-r))
+        error("string-copy!: bad parameters or implementation incomplete");
 
     memmove(r, q, end-start);
 
