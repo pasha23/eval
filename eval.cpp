@@ -291,6 +291,16 @@ bool isComplex(sexp p)
            !p->cdr;                            // )
 }
 
+bool isReal(sexp x)
+{
+    return isFixnum(x) || isFlonum(x) || isRational(x);
+}
+
+bool isNumber(sexp x)
+{
+    return isFixnum(x) || isFlonum(x) || isRational(x) || isComplex(x);
+}
+
 static inline sexp boolwrap(bool x) { return x ? t : f; }
 
 // boolean?
@@ -677,11 +687,36 @@ static inline sexp real_part(sexp x) { return x->cdr->car; }
 
 static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
+// zero?
+sexp zerop(sexp x)
+{
+    if (x)
+    {
+        if (isDouble(x))
+        {
+            double xf = ((Double*)x)->flonum;
+            return boolwrap(-DBL_MIN < xf && xf < DBL_MIN);
+        }
+        if (isFloat(x))
+        {
+            float xf = ((Float*)x)->flonum;
+            return boolwrap(-FLT_MIN < xf && xf < FLT_MIN);
+        }
+        if (isFixnum(x))
+            return boolwrap(0 == ((Fixnum*)x)->fixnum);
+        if (isRational(x))
+            return boolwrap(asRational(x) == 0);
+        if (isBignum(x))
+            return boolwrap(asBignum(x) == 0);
+    }
+    error("zero?: operand");
+}
+
 double asFlonum(sexp p)
 {
     if (p)
     {
-        if (isComplex(p) && 0.0 == asFlonum(imag_part(p)))
+        if (isComplex(p) && f != zerop(imag_part(p)))
             p = real_part(p);
         switch (shortType(p))
         {
@@ -1452,7 +1487,7 @@ sexp integerp(sexp x)
 }
 
 // real?
-sexp realp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) || isRational(x))); }
+sexp realp(sexp x) { return boolwrap(x && isReal(x)); }
 
 // inexact->exact
 sexp inexact_exact(sexp x) { assertFlonum(x); return newfixnum((int)asFlonum(x)); }
@@ -1504,7 +1539,7 @@ sexp atomp(sexp x) { return boolwrap(x && !isCons(x)); }
 sexp pairp(sexp x) { return boolwrap(x && isCons(x)); }
 
 // number?
-sexp numberp(sexp x) { return boolwrap(x && (isFixnum(x) || isFlonum(x) || isRational(x) || isComplex(x))); }
+sexp numberp(sexp x) { return boolwrap(x && isNumber(x)); }
 
 // string?
 sexp stringp(sexp x) { return boolwrap(x && isString(x)); }
@@ -3012,6 +3047,68 @@ sexp reverse_(sexp x)
     return t;
 }
 
+bool eqnb(sexp x, sexp y)
+{
+    if (isFixnum(x) && isFixnum(y))
+        return asFixnum(x) == asFixnum(y);
+
+    if (isRational(x) || isRational(y))
+    {
+        Rat xr = toRational(x); xr.reduce();
+        Rat yr = toRational(y); yr.reduce();
+        return xr == yr;
+    }
+    
+    if (isBignum(x) || isBignum(y))
+    {
+        Num xb = toBignum(x);
+        Num yb = toBignum(y);
+        return xb == yb;
+    }
+
+    if (isComplex(x)) {
+        if (isComplex(y))
+            return eqnb(real_part(x), real_part(y)) && eqnb(imag_part(x), imag_part(y));
+        else
+            return eqnb(real_part(x), y) && f != zerop(imag_part(x));
+    } else if (isComplex(y))
+        return eqnb(x, real_part(y)) && f != zerop(imag_part(y));
+
+    return asFlonum(x) == asFlonum(y);
+}
+
+bool eqa(sexp x, sexp y)
+{
+    if (x == y)
+        return true;
+
+    if (!x || !y || isAtom(x) || isAtom(y))
+        return false;
+
+    if (isComplex(x) && isComplex(y))
+        return eqa(real_part(x), real_part(y)) && eqa(imag_part(x), imag_part(y));
+
+    if (isCons(x) || isCons(y))
+        return false;
+
+    if (shortType(x) != shortType(y))
+        return false;
+
+    switch (shortType(x)) 
+    {
+    default:       return false;
+    case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
+    case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
+    case STRING:   return 0 == strcmp(stringText(x), stringText(y));
+    case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
+    case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
+    case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
+    case RATIONAL: { Rat xr = asRational(x); xr.reduce();
+                     Rat yr = asRational(y); yr.reduce();
+                     return xr == yr; }
+    }
+}
+
 // = numeric equality
 sexp eqnp(sexp args)
 {
@@ -3022,54 +3119,11 @@ sexp eqnp(sexp args)
 
     while (args = args->cdr)
     {
-        if (isFixnum(x) && isFixnum(args->car) && asFixnum(x) != asFixnum(args->car))
-            return f;
-        else if (isRational(x) && isRational(args->car)) {
-            Rat xr = asRational(x);         xr.reduce();
-            Rat yr = asRational(args->car); yr.reduce();
-            if (xr != yr)
-                return f;
-        } else if (isBignum(x) && isBignum(args->car) && asBignum(x) != asBignum(args->car))
-            return f;
-        else if (isComplex(x) && isComplex(args->car))
-        {
-            sexp* mark = psp;
-            sexp y = args->car;
-            if (f == eqnp(save(cons(x->cdr->car, save(cons(y->cdr->car, 0))))) ||
-                f == eqnp(save(cons(x->cdr->cdr->car, save(cons(y->cdr->cdr->car, 0))))))
-                return lose(mark, f);
-            else
-                psp = mark;
-        } else if (asFlonum(x) != asFlonum(args->car))
+        sexp y = args->car;
+        if (!eqnb(x, y))
             return f;
     }
-
     return t;
-}
-
-// zero?
-sexp zerop(sexp x)
-{
-    if (x)
-    {
-        if (isDouble(x))
-        {
-            double xf = ((Double*)x)->flonum;
-            return boolwrap(-DBL_MIN < xf && xf < DBL_MIN);
-        }
-        if (isFloat(x))
-        {
-            float xf = ((Float*)x)->flonum;
-            return boolwrap(-FLT_MIN < xf && xf < FLT_MIN);
-        }
-        if (isFixnum(x))
-            return boolwrap(0 == ((Fixnum*)x)->fixnum);
-        if (isRational(x))
-            return boolwrap(asRational(x) == 0);
-        if (isBignum(x))
-            return boolwrap(asBignum(x) == 0);
-    }
-    error("zero?: operand");
 }
 
 // odd?
@@ -3704,33 +3758,6 @@ sexp list_string(sexp s)
 
 // string
 sexp string(sexp args) { return list_string(args); }
-
-bool eqa(sexp x, sexp y)
-{
-    if (x == y)
-        return true;
-
-    if (!x || !y || isAtom(x) || isAtom(y))
-        return false;
-
-    if (isCons(x) || isCons(y))
-        return false;
-
-    if (shortType(x) != shortType(y))
-        return false;
-
-    switch (shortType(x)) 
-    {
-    default:       return false;
-    case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
-    case DOUBLE:   return ((Double*)x)->flonum == ((Double*)y)->flonum;
-    case STRING:   return 0 == strcmp(stringText(x), stringText(y));
-    case FIXNUM:   return ((Fixnum*)x)->fixnum  == ((Fixnum*)y)->fixnum;
-    case CHAR:     return ((Char*)x)->ch        == ((Char*)y)->ch;
-    case BIGNUM:   return *((Bignum*)x)->nump   == *((Bignum*)y)->nump;
-    case RATIONAL: return *((Rational*)x)->ratp == *((Rational*)y)->ratp;
-    }
-}
 
 // eqv?
 sexp eqvp(sexp args)
