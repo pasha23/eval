@@ -281,7 +281,7 @@
 (test '(= 1 (exp 0)))
 (test '(= 1 (floor 1.5)))
 (test '(= 1 (sin (asin 1))))
-(test '(= -1+0i (square 0+1i)))
+(test '(= -1 (square 0+1i)))
 (test '(= -1 (truncate -1.5)))
 (test '(= 2.0 (+ 2.0 (epsilon))))
 (test '(= 2.0 (exact->inexact 2)))

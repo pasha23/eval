@@ -673,9 +673,16 @@ static inline Num asBignum(sexp x) { return *((Bignum*)x)->nump; }
 
 static inline Rat asRational(sexp x) { return *((Rational*)x)->ratp; }
 
+static inline sexp real_part(sexp x) { return x->cdr->car; }
+
+static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
+
 double asFlonum(sexp p)
 {
     if (p)
+    {
+        if (isComplex(p) && 0.0 == asFlonum(imag_part(p)))
+            p = real_part(p);
         switch (shortType(p))
         {
         default:       break;
@@ -685,6 +692,7 @@ double asFlonum(sexp p)
         case BIGNUM:   return ((Bignum*)p)->nump->to_double();
         case RATIONAL: return ((Rational*)p)->ratp->to_double();
         }
+    }
     error("asFlonum: not a flonum");
 }
 
@@ -840,10 +848,6 @@ uint32_t isqrt(uint64_t v)
          r = r >> 1;
    return (uint32_t)r;
 }
-
-static inline sexp real_part(sexp x) { return x->cdr->car; }
-
-static inline sexp imag_part(sexp x) { return x->cdr->cdr->car; }
 
 // prepare operands for arithmetic
 Rat toRational(sexp x)
