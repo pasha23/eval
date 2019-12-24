@@ -1742,12 +1742,13 @@ sexp string_copy(sexp args)
         i = asFixnum(args->car);
 
     String* string = (String*)s;
-    int j = stringlen(string);
+    int len = stringlen(string);
+    int j = len;
 
     if (args && (args = args->cdr) && args->car && isFixnum(args->car))
         j = asFixnum(args->car);
 
-    if (i < 0 || j < i)
+    if (i < 0 || j < i || j > len)
         error("string-copy: start negative or end before start");
 
     char* q;
