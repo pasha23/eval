@@ -188,6 +188,7 @@
 ;;         (gc))
 
 ;; (test '(not (equal? '#0=(a b a . #0#) '#1=(a b a b . #1#))))
+
 (define test0 '(a b a))
 (set-cdr! (cddr test0) test0)
 (define test1 '(a b a b))
@@ -233,8 +234,6 @@
 
 (test '(equal? (triples 100)
              '((3 4 5) (5 12 13) (8 15 17) (7 24 25) (20 21 29) (12 35 37) (9 40 41))))
-
-(test '(string=? "#0=(#1=(b) #1# #1# #1# #1# . #0#)" (write-to-string aaaaa)))
 
 (test '(equal? '(1 2 4 5 7 8) (sort < '(1 4 2 8 5 7))))
 
@@ -629,6 +628,43 @@
 ;; (test '(symbol=? '|A| (string->symbol "A")))
 (test '(vector? (list->vector (list 1 2 3))))
 (test '(vector? (make-vector 3)))
+
+(test '(string=? "a"))
+(test '(string=? "a" "a" "a" "a"))
+(test '(not (string=? "a" "a" "A" "a")))
+(test '(string-ci=? "a"))
+(test '(string-ci=? "a" "a" "a" "a"))
+(test '(string-ci=? "a" "a" "A" "a"))
+(test '(not (string-ci=? "a" "a" "A" "b")))
+(test '(string<? "a"))
+(test '(string<? "a" "b" "c" "d"))
+(test '(not (string<? "a" "B" "c" "D")))
+(test '(not (string<? "a" "a" "A" "b")))
+(test '(string-ci<? "a"))
+(test '(string-ci<? "a" "b" "c" "d"))
+(test '(string-ci<? "a" "B" "c" "D"))
+(test '(not (string-ci<? "a" "a" "A" "b")))
+
+(test '(equal? '(#\a #\b #\c #\d #\e #\f) (string->list "abcdef")))
+(test '(equal? '(#\c #\d #\e #\f) (string->list "abcdef" 2)))
+(test '(equal? '(#\c #\d #\e) (string->list "abcdef" 2 5)))
+
+(test '(equal? "abcdef" (string-copy "abcdef")))
+(test '(equal? "cdef" (string-copy "abcdef" 2)))
+(test '(equal? "cde" (string-copy "abcdef" 2 5)))
+
+(test '(equal? "abc12f" (let ((s (string-copy "abcdef"))) (string-copy! s 3 "12") s)))
+(test '(equal? "a23def" (let ((s (string-copy "abcdef"))) (string-copy! s 1 "123" 1) s)))
+(test '(equal? "a23def" (let ((s (string-copy "abcdef"))) (string-copy! s 1 "123" 1) s)))
+(test '(equal? "a3cdef" (let ((s (string-copy "abcdef"))) (string-copy! s 1 "123" 2) s)))
+
+(test '(equal? "a12def" (let ((s (string-copy "abcdef"))) (string-copy! s 1 "123" 0 2) s)))
+(test '(equal? "a123ef" (let ((s (string-copy "abcdef"))) (string-copy! s 1 "123" 0 3) s)))
+(test '(equal? "ababcfg" (let ((s (string-copy "abcdefg")))   (string-copy! s 2 s 0 3) s)))
+(test '(equal? "efcdefg" (let ((s (string-copy "abcdefg")))   (string-copy! s 0 s 4 6) s)))
+(test '(equal? "abcde" (let ((x (string-copy "abcde"))) (string-fill! x #\1 2 2) x)))
+(test '(equal? "ab11e" (let ((x (string-copy "abcde"))) (string-fill! x #\1 2 4) x)))
+(test '(equal? "ab111" (let ((x (string-copy "abcde"))) (string-fill! x #\1 2 5) x)))
 
 (test '(equal? [1,2,smash,smash,5]
     (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'smash 2 4) vec)))

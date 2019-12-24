@@ -610,13 +610,13 @@ sexp car(sexp p) { if (!p || !isCons(p)) error("error: car of non-pair"); return
 sexp cdr(sexp p) { if (!p || !isCons(p)) error("error: cdr of non-pair"); return p->cdr; }
 
 // set-car!
-sexp set_car(sexp p, sexp q)
+sexp set_car_(sexp p, sexp q)
 {
     if (!p || !isCons(p)) error("error: set-car! of non-pair"); p->car = q; return voida;
 }
 
 // set-cdr!
-sexp set_cdr(sexp p, sexp q)
+sexp set_cdr_(sexp p, sexp q)
 {
     if (!p || !isCons(p)) error("error: set-cdr! of non-pair"); p->cdr = q; return voida;
 }
@@ -1750,6 +1750,57 @@ sexp string_copy(sexp args)
     return dynstring(b);
 }
 
+// (string-copy! to at from [ start [ end ]])
+sexp string_copy_(sexp args)
+{
+    if (!args || !args->car || !isString(args->car) ||
+        !args->cdr || !isFixnum(args->cdr->car) ||
+        !args->cdr->cdr || !isString(args->cdr->cdr->car))
+        error("string-copy!: arguments");
+
+    sexp to = args->car;
+    args = args->cdr;
+    int at = asFixnum(args->car);
+    args = args->cdr;
+    sexp from = args->car;
+
+    int start = 0;
+    int end = stringlen(((String*)from));
+    if ((args = args->cdr) && args->car && isFixnum(args->car)) {
+        start = asFixnum(args->car);
+        if ((args = args->cdr) && args->car && isFixnum(args->car))
+            end = asFixnum(args->car);
+    }
+
+    if (start < 0 || end < start)
+        error("string-copy!: start negative or end before start");
+
+    char* q;
+    char* p = ((String*)from)->text;
+    for (int k = 0; k < end; ++k)
+    {
+        if (start == k)
+            q = p;
+        read_utf8(p);
+    }
+
+    char* r;
+    char* s = ((String*)to)->text;
+    for (int k = 0; k < at+end-start; ++k)
+    {
+        if (at == k)
+            r = s;
+        read_utf8(s);
+    }
+
+    if (p-q != s-r)
+        error("string-copy!: implementation incomplete");
+
+    memmove(r, q, end-start);
+
+    return newfixnum(at+end-start);
+}
+
 // write-string
 sexp write_string(sexp args)
 {
@@ -1820,7 +1871,7 @@ sexp string_append(sexp args)
 
 // (string-fill! string char begin end)
 // but not all chars are the same length
-sexp string_fill(sexp args)
+sexp string_fill_(sexp args)
 {
     if (args)
     {
@@ -1839,9 +1890,11 @@ sexp string_fill(sexp args)
                 if (args && (args = args->cdr) && args->car && isFixnum(args->car))
                     j = asFixnum(args->car);
             }
+
             if (!string || !isString(string) || !isMutable(s) ||
                 !fill || !isChar(fill) || i < 0 || j < i || j > l)
                 error("string-fill: arguments");
+
             int kl = encodedLength(fc);
             char* p = s->text;
             for (int ix = 0; ix < j; ++ix)
@@ -2207,7 +2260,7 @@ sexp vector_copy(sexp args)
 }
 
 // (vector-fill! vector value begin end)
-sexp vector_fill(sexp args)
+sexp vector_fill_(sexp args)
 {
     if (args)
     {
@@ -2272,8 +2325,8 @@ sexp vector(sexp args)
     return lose(mark, (sexp)v);
 }
 
-// vector-set
-sexp vector_set(sexp vector, sexp index, sexp value)
+// vector-set!
+sexp vector_set_(sexp vector, sexp index, sexp value)
 {
     assertFixnum(index);
     assertVector(vector);
@@ -2806,7 +2859,7 @@ sexp string_ref(sexp s, sexp i)
 }
 
 // string-set!
-sexp string_set(sexp s, sexp k, sexp c)
+sexp string_set_(sexp s, sexp k, sexp c)
 {
     assertString(s);
     assertFixnum(k);
@@ -2883,7 +2936,7 @@ sexp append(sexp p, sexp q)
 }
 
 // reverse!
-sexp reverse(sexp x)
+sexp reverse_(sexp x)
 {
     sexp t = 0;
     while (x)
@@ -3506,22 +3559,27 @@ sexp string_list(sexp args)
         assertString(string);
         String* s = (String*)string;
         int begin = 0;
-        int end = stringlen(s);
+        int len = stringlen(s);
+        int end = len;
         if ((args = args->cdr) && isFixnum(args->car))
         {
             begin = asFixnum(args->car);
             if (args && (args = args->cdr) && isFixnum(args->car))
                 end = asFixnum(args->car);
         }
-        sexp list = save(0);
-        char* q = s->text;
-        for (int i = 0; i < end; ++i)
+
+        if (0 <= begin && begin <= end && end <= len)
         {
-            uint32_t ch = read_utf8(q);
-            if (begin <= i && i < end)
-                replace(list = cons(newcharacter(ch), list));
+            sexp list = save(0);
+            char* q = s->text;
+            for (int i = 0; i < end; ++i)
+            {
+                uint32_t ch = read_utf8(q);
+                if (begin <= i && i < end)
+                    replace(list = cons(newcharacter(ch), list));
+            }
+            return lose(mark, reverse_(list));
         }
-        return lose(mark, reverse(list));
     }
     error("string->list: arguments");
 }
@@ -3537,22 +3595,27 @@ sexp string_vector(sexp args)
         assertString(string);
         String* s = (String*)string;
         int begin = 0;
-        int end = stringlen(s);
+        int len = stringlen(s);
+        int end = len;
         if ((args = args->cdr) && isFixnum(args->car))
         {
             begin = asFixnum(args->car);
             if (args && (args = args->cdr) && isFixnum(args->car))
                 end = asFixnum(args->car);
         }
-        sexp nv = save(newvector(end-begin, 0));
-        char* q = s->text;
-        for (int i = 0; i < end; ++i)
+
+        if (0 <= begin && begin <= end && end <= len)
         {
-            uint32_t ch = read_utf8(q);
-            if (begin <= i && i < end)
-                ((Vector*)nv)->e[i-begin] = newcharacter(ch);
+            sexp nv = save(newvector(end-begin, 0));
+            char* q = s->text;
+            for (int i = 0; i < end; ++i)
+            {
+                uint32_t ch = read_utf8(q);
+                if (begin <= i && i < end)
+                    ((Vector*)nv)->e[i-begin] = newcharacter(ch);
+            }
+            return lose(mark, nv);
         }
-        return lose(mark, nv);
     }
     error("string->vector: arguments");
 }
@@ -3788,7 +3851,7 @@ sexp undefine(sexp p)
 }
 
 // set!
-sexp set(sexp p, sexp r, sexp env)
+sexp set_(sexp p, sexp r, sexp env)
 {
     value_put(p, 0);
     for (sexp q = env; q; q = q->cdr)
@@ -4104,7 +4167,7 @@ sexp setform(sexp exp, sexp env)
         error("set!: variable must be a symbol");
     if (!exp->cdr)
         error("set!: missing operands");
-    return lose(set(exp->car, save(eval(exp->cdr->car, env)), env));
+    return lose(set_(exp->car, save(eval(exp->cdr->car, env)), env));
 }
 
 // accumulates names from a let expression
@@ -4171,7 +4234,7 @@ sexp letrec(sexp exp, sexp env)
         if (!v->car->cdr || v->car->cdr->cdr)
             error("letrec: malformed expression");
         else
-            set(v->car->car, save(eval(v->car->cdr->car, e)), e);
+            set_(v->car->car, save(eval(v->car->cdr->car, e)), e);
     return lose(mark, tailforms(exp->cdr, e));
 }
 
@@ -4209,7 +4272,7 @@ sexp doform(sexp exp, sexp env)
         // step each variable
         for (sexp v = exp->car; v; v = v->cdr)
             if (v->car->cdr->cdr)
-                set(v->car->car, eval(v->car->cdr->cdr->car, e), e);
+                set_(v->car->car, eval(v->car->cdr->cdr->car, e), e);
     }
 }
 
@@ -4659,7 +4722,7 @@ sexp readVector(std::istream& fin, int level)
         if (comma != s)
             error("comma expected in vector");
     }
-    return lose(mark, list_vector(save(reverse(q))));
+    return lose(mark, list_vector(save(reverse_(q))));
 }
 
 /*
@@ -4882,11 +4945,11 @@ const struct FuncTable {
     { "read-char",                         0, (void*)read_char },
     { "real?",                             1, (void*)realp },
     { "remainder",                         2, (void*)remainderff },
-    { "reverse!",                          1, (void*)reverse },
+    { "reverse!",                          1, (void*)reverse_ },
     { "round",                             1, (void*)roundff },
     { "scan",                              0, (void*)scanff },
-    { "set-car!",                          2, (void*)set_car },
-    { "set-cdr!",                          2, (void*)set_cdr },
+    { "set-car!",                          2, (void*)set_car_ },
+    { "set-cdr!",                          2, (void*)set_cdr_ },
     { "sin",                               1, (void*)sinff },
     { "sinh",                              1, (void*)sinhff },
     { "space",                             0, (void*)space },
@@ -4905,12 +4968,13 @@ const struct FuncTable {
     { "string-ci<=?",                      0, (void*)string_cilep },
     { "string-ci<?",                       0, (void*)string_ciltp },
     { "string-copy",                       0, (void*)string_copy },
-    { "string-fill!",                      0, (void*)string_fill },
+    { "string-copy!",                      0, (void*)string_copy_ },
+    { "string-fill!",                      0, (void*)string_fill_ },
     { "string-length",                     1, (void*)string_length },
     { "string->list",                      0, (void*)string_list },
     { "string->number",                    1, (void*)string_number },
     { "string-ref",                        2, (void*)string_ref },
-    { "string-set!",                       3, (void*)string_set },
+    { "string-set!",                       3, (void*)string_set_ },
     { "string->symbol",                    1, (void*)string_symbol },
     { "string->vector",                    0, (void*)string_vector },
     { "substring",                         0, (void*)substringf },
@@ -4928,12 +4992,12 @@ const struct FuncTable {
     { "vector?",                           1, (void*)vectorp },
     { "vector-append",                     0, (void*)vector_append },
     { "vector-copy",                       0, (void*)vector_copy },
-    { "vector-fill!",                      0, (void*)vector_fill },
+    { "vector-fill!",                      0, (void*)vector_fill_ },
     { "vector-length",                     1, (void*)vector_length },
     { "vector->list",                      0, (void*)vector_list },
     { "vector->string",                    0, (void*)vector_string },
     { "vector-ref",                        2, (void*)vector_ref },
-    { "vector-set!",                       3, (void*)vector_set },
+    { "vector-set!",                       3, (void*)vector_set_ },
     { "with-input-from-file",              2, (void*)with_input_from_file },
     { "with-output-to-file",               2, (void*)with_output_to_file },
     { "write",                             0, (void*)write_shared },
