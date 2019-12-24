@@ -1794,7 +1794,7 @@ sexp string_copy_(sexp args)
         read_utf8(s);
     }
 
-    if ((p-q) != (s-r))
+    if ((p-q) != (s-r) || at+end-start > len)
         error("string-copy!: bad parameters or implementation incomplete");
 
     memmove(r, q, end-start);
