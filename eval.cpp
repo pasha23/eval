@@ -4848,11 +4848,28 @@ const int NUMBER_INEXACT = -2;
 
 sexp readNumber(std::istream& fin, int radix)
 {
+    int c = fin.get();
     Num::word base = radix;
     if (NUMBER_EXACT == radix || NUMBER_INEXACT == radix)
+    {
         base = 10;
+        if ('#' == c)
+            switch (c = fin.get())
+            {
+            default:  fin.unget();              break;
+            case 'b': base =  2; c = fin.get(); break;
+            case 'o': base =  8; c = fin.get(); break;
+            case 'd': base = 10; c = fin.get(); break;
+            case 'x': base = 16; c = fin.get(); break;
+        }
+    } else if ('#' == c)
+        switch (c = fin.get())
+        {
+        default:  fin.unget();                           break;
+        case 'e': radix = NUMBER_EXACT;   c = fin.get(); break;
+        case 'i': radix = NUMBER_INEXACT; c = fin.get(); break;
+        }
 
-    int c = fin.get();
     Num num(0);
     if ('+' == c)
         {}
@@ -4861,18 +4878,18 @@ sexp readNumber(std::istream& fin, int radix)
     else
         fin.unget();
 
-    double scale = 0.0;
+    int scale = 0;
+    bool dotseen = false;
     while (c = fin.get())
     {
         if (c < 0)
             return eof;
-        if (0.0 == scale) {
-            if ('.' == c) {
-                scale = 1.0 / radix;
-                continue;
-            }
-        } else
-            scale *= radix;
+        if (dotseen)
+            ++scale;
+        else if ('.' == c) {
+            dotseen = true;
+            c = fin.get();
+        }
         Num::word b = num.char_to_word(c);
         if (b >= base)
             break;
@@ -4880,10 +4897,18 @@ sexp readNumber(std::istream& fin, int radix)
         num.add_word(b);
     }
     fin.unget();
-    if (scale)
-        return newflonum(num.to_double() / scale);
-    else
-        return bignumResult(num);
+    if (NUMBER_EXACT == radix)
+    {
+        if (scale)
+            return rationalResult(Rat(num, Num(10).pow(scale)));
+        else
+            return bignumResult(num);
+    } else {
+        if (scale)
+            return newflonum(num.to_double() * pow(10.0, -scale));
+        else
+            return newflonum(num.to_double());
+    }
 }
 
 // finish reading a # token
@@ -4901,10 +4926,8 @@ sexp readHash(std::istream& fin, int level)
     case 'o':   return readNumber(fin, 8);
     case 'd':   return readNumber(fin, 10);
     case 'x':   return readNumber(fin, 16);
-/*
     case 'e':   return readNumber(fin, NUMBER_EXACT);
     case 'i':   return readNumber(fin, NUMBER_INEXACT);
-*/
     case '!':   do
                     c = fin.get();
                 while ('\r' != c && '\n' != c);
