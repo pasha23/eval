@@ -147,12 +147,22 @@
              (if (< y x) (simplest-rational y x)
                  (simplest-rational x y))))
 
-(define (make-complex re im)
-        (cons 'complex (cons re (cons im '()))))
-
 (define (real-part x) (if (complex? x) (cadr x) x))
 
 (define (imag-part x) (if (complex? x) (caddr x) 0))
+
+(define (nan? x)
+    (if (complex? x)
+        (or (nan? (real-part x)) (nan? (imag-part x)))
+        (and (real? x) (not (= x x)))))
+
+(define (finite? x)
+        (if (real? x)
+            (and (not (nan? x)) (not (= x +inf.0)) (not (= x -inf.0)))
+            (and (complex? x) (finite? (real-part x)) (finite? (imag-part x)))))
+
+(define (infinite? x)
+        (and (number? x) (not (finite? x)) (not (nan? x))))
 
 (define (fib x) (if (<= x 0) 1 (+ (fib (- x 2)) (fib (- x 1)))))
 

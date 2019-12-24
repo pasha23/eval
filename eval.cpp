@@ -789,7 +789,7 @@ sexp gtp(sexp args)
     return t;
 }
 
-sexp make_complex(sexp re, sexp im)
+sexp make_rectangular(sexp re, sexp im)
 {
     sexp* mark = psp;
     return lose(mark, cons(complex, replace(cons(save(re), replace(cons(save(im), 0))))));
@@ -981,12 +981,12 @@ sexp sum(sexp x, sexp y)
 
     if (isComplex(x)) {
         if (isComplex(y))
-            return lose(mark, make_complex(save(sum(real_part(x), real_part(y))),
-                                           save(sum(imag_part(x), imag_part(y)))));
+            return lose(mark, make_rectangular(save(sum(real_part(x), real_part(y))),
+                                               save(sum(imag_part(x), imag_part(y)))));
         else
-            return lose(mark, make_complex(save(sum(real_part(x), y)), imag_part(x)));
+            return lose(mark, make_rectangular(save(sum(real_part(x), y)), imag_part(x)));
     } else if (isComplex(y))
-        return lose(mark, make_complex(save(sum(x, real_part(y))), imag_part(y)));
+        return lose(mark, make_rectangular(save(sum(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
         return newflonum(asFlonum(x) + asFlonum(y));
@@ -1018,12 +1018,12 @@ sexp diff(sexp x, sexp y)
 
     if (isComplex(x)) {
         if (isComplex(y))
-            return lose(mark, make_complex(save(diff(real_part(x), real_part(y))),
-                                           save(diff(imag_part(x), imag_part(y)))));
+            return lose(mark, make_rectangular(save(diff(real_part(x), real_part(y))),
+                                               save(diff(imag_part(x), imag_part(y)))));
         else
-            return lose(mark, make_complex(save(diff(real_part(x), y)), imag_part(x)));
+            return lose(mark, make_rectangular(save(diff(real_part(x), y)), imag_part(x)));
     } else if (isComplex(y))
-        return lose(mark, make_complex(save(diff(x, real_part(y))), imag_part(y)));
+        return lose(mark, make_rectangular(save(diff(x, real_part(y))), imag_part(y)));
 
     if (isFlonum(x))
         return newflonum(asFlonum(x) - asFlonum(y));
@@ -1067,8 +1067,8 @@ sexp product(sexp x, sexp y)
     if (cpx)
     {
         sexp* mark = psp;
-        return lose(mark, make_complex(save(diff(save(product(xr, yr)), save(product(xi, yi)))),
-                                       save( sum(save(product(xr, yi)), save(product(xi, yr))))));
+        return lose(mark, make_rectangular(save(diff(save(product(xr, yr)), save(product(xi, yi)))),
+                                           save( sum(save(product(xr, yi)), save(product(xi, yr))))));
     }
 
     if (isFlonum(x))
@@ -1112,10 +1112,10 @@ sexp divide(sexp x, sexp y)
     {
         sexp* mark = psp;
         sexp d = save(sum(save(product(yr, yr)), save(product(yi, yi))));
-        return lose(mark, make_complex(save(divide(save(sum(save(product(xr, yr)),
-                                                            save(product(xi, yi)))), d)),
-                                       save(divide(save(diff(save(product(xi, yr)),
-                                                             save(product(xr, yi)))), d))));
+        return lose(mark, make_rectangular(save(divide(save(sum(save(product(xr, yr)),
+                                                                save(product(xi, yi)))), d)),
+                                           save(divide(save(diff(save(product(xi, yr)),
+                                                                 save(product(xr, yi)))), d))));
     }
 
     if (isFlonum(x))
@@ -1277,8 +1277,8 @@ sexp unineg(sexp x)
     if (x)
     {
         if (isComplex(x))
-            return lose(mark, make_complex(save(unineg(x->cdr->car)),
-                                           save(unineg(x->cdr->cdr->car))));
+            return lose(mark, make_rectangular(save(unineg(x->cdr->car)),
+                                               save(unineg(x->cdr->cdr->car))));
 
         switch (shortType(x))
         {
@@ -1418,7 +1418,7 @@ sexp sqrtff(sexp x)
         re = sqrt(r) * cos(0.5 * theta);
         im = sqrt(r) * sin(0.5 * theta);
         sexp* mark = psp;
-        return lose(mark, make_complex(save(newflonum(re)), save(newflonum(im))));
+        return lose(mark, make_rectangular(save(newflonum(re)), save(newflonum(im))));
     }
 
     error("sqrt: operand");
@@ -4617,14 +4617,16 @@ sexp scans(std::istream& fin)
                } else
                    return commaat;
     case '+':   c = fin.get();
-                if ('.' == c || 'i' == c || isdigit(c))
+                // sloppy parsing +inf.0 +nan.0
+                if ('.' == c || 'i' == c || 'n' == c || isdigit(c))
                     s.put('+');
                 else
                     { fin.unget(); return plus; }
                 break;
 
     case '-':   c = fin.get();
-                if ('.' == c || 'i' == c || isdigit(c))
+                // sloppy parsing -inf.0 -nan.0
+                if ('.' == c || 'i' == c || 'n' == c || isdigit(c))
                     s.put('-');
                 else
                     { fin.unget(); return minus; } 
@@ -4693,14 +4695,14 @@ sexp scans(std::istream& fin)
         switch (c)
         {
         case '+':
-            return lose(mark, make_complex(real, imag));
+            return lose(mark, make_rectangular(real, imag));
         case '-':
-            return lose(mark, make_complex(real, save(unineg(imag))));
+            return lose(mark, make_rectangular(real, save(unineg(imag))));
         case '@':
             double r = isRational(real) ? asRational(real).to_double() : asFlonum(real);
             double theta = isRational(imag) ? asRational(imag).to_double() : asFlonum(imag);
-            return lose(mark, make_complex(save(newflonum(r * cos(theta))),
-                                           save(newflonum(r * sin(theta)))));
+            return lose(mark, make_rectangular(save(newflonum(r * cos(theta))),
+                                               save(newflonum(r * sin(theta)))));
         }
     }
 
@@ -5023,6 +5025,7 @@ const struct FuncTable {
     { "load",                              1, (void*)load },
     { "log",                               1, (void*)logff },
     { "magnitude",                         1, (void*)magnitude },
+    { "make-rectangular",                  2, (void*)make_rectangular },
     { "make-string",                       0, (void*)make_string },
     { "make-vector",                       0, (void*)make_vector },
     { "modulo",                            2, (void*)moduloff },
@@ -5236,6 +5239,11 @@ int main(int argc, char **argv, char **envp)
     define_staintern_sexpr("rparen",   rparen);
     define_staintern_sexpr("tick",     tick);
     define_staintern_sexpr("void",     voida);
+
+    define_staintern_sexpr("+inf.0",   newflonum(INFINITY));
+    define_staintern_sexpr("-inf.0",   newflonum(-INFINITY));
+    define_staintern_sexpr("+nan.0",   newflonum(NAN));
+    define_staintern_sexpr("-nan.0",   newflonum(-NAN));
 
     for (const FuncTable* p = funcTable; p->name; ++p)
     {
