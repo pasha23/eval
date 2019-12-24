@@ -103,6 +103,9 @@ sexp freelist;      		// available cells are linked in a list
 sexp *psp;          		// protection stack pointer
 sexp *psend;            	// protection stack end
 sexp *protect;      		// protection stack
+int  argc;                  // from main
+char** argv;                // from main
+char** envp;                // from main
 
 sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda, lbracket;
 sexp lparen, minus, one, plus, promise, qchar, quasiquote, quote, rbracket;
@@ -650,6 +653,14 @@ sexp cputime(sexp args)
 {
     struct timespec ts;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return newflonum(ts.tv_sec + ts.tv_nsec / 1000000000.0);
+}
+
+// current-second
+sexp current_second(sexp args)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
     return newflonum(ts.tv_sec + ts.tv_nsec / 1000000000.0);
 }
 
@@ -4319,6 +4330,45 @@ sexp doform(sexp exp, sexp env)
     }
 }
 
+// command-line
+sexp command_line(sexp x)
+{
+    sexp* mark = psp;
+    sexp args = save(0);
+    for (int i = argc; i > 0; )
+        args = replace(cons(save(stastring(argv[--i])), args));
+    return lose(mark, args);
+}
+
+// exit
+sexp exitf(sexp args)
+{
+    exit(args ? 1 : 0);
+}
+
+// get-environment-variable
+sexp get_environment_variable(sexp name)
+{
+    return stastring(getenv(((String*)name)->text));
+}
+
+// get-environment-variables
+sexp get_environment_variables(sexp name)
+{
+    sexp* mark = psp;
+    sexp env = save(0);
+    for (char** e = envp; *e; ++e)
+    {
+        const char* v = *e;
+        const char* s = strchr(v, '=');
+        char* name = strncpy(new char[s-v+1], v, s-v);
+        name[s-v] = '\0';
+        char* value = strcpy(new char[strlen(s+1)+1], s+1);
+        env = replace(cons(replace(cons(save(dynstring(name)), save(dynstring(value)))), env));
+    }
+    return lose(mark, env);
+}
+
 // apply
 sexp apply(sexp fun, sexp args)
 {
@@ -4909,6 +4959,7 @@ const struct FuncTable {
     { "close-input-port",                  1, (void*)close_input_port },
     { "close-output-port",                 1, (void*)close_output_port },
     { "closure?",                          1, (void*)closurep },
+    { "command-line",                      0, (void*)command_line },
     { "complex?",                          1, (void*)complexp },
     { "cons",                              2, (void*)cons },
     { "cos",                               1, (void*)cosff },
@@ -4916,6 +4967,7 @@ const struct FuncTable {
     { "cputime",                           0, (void*)cputime },
     { "current-input-port",                0, (void*)current_input_port },
     { "current-output-port",               0, (void*)current_output_port },
+    { "current-second",                    0, (void*)current_second },
     { "cyclic?",                           1, (void*)cyclicp },
     { "denominator",                       1, (void*)denominator },
     { "diff",                              2, (void*)diff },
@@ -4924,6 +4976,7 @@ const struct FuncTable {
     { "display-shared",                    0, (void*)display_shared },
     { "display-simple",                    0, (void*)display_simple },
     { "divide",                            2, (void*)divide },
+    { "emergency-exit",                    0, (void*)exitf },
     { "eof-object?",                       1, (void*)eof_objectp },
     { "eq?",                               0, (void*)eqp },
     { "equal?",                            0, (void*)equalp },
@@ -4934,12 +4987,15 @@ const struct FuncTable {
     { "exact-integer?",                    1, (void*)exact_integerp },
     { "exact->inexact",                    1, (void*)exact_inexact },
     { "exp",                               1, (void*)expff },
+    { "exit",                              0, (void*)exitf },
     { "floor",                             1, (void*)floorff },
     { "force",                             1, (void*)force },
     { "form?",                             1, (void*)formp },
     { "function?",                         1, (void*)functionp },
     { "gc",                                0, (void*)gc },
     { "gcd",                               2, (void*)gcd },
+    { "get-environment-variable",          1, (void*)get_environment_variable },
+    { "get-environment-variables",         0, (void*)get_environment_variables },
     { "get-output-string",                 1, (void*)get_output_string },
     { "inexact?",                          1, (void*)inexactp },
     { "inexact->exact",                    1, (void*)inexact_exact },
@@ -5091,6 +5147,10 @@ void define_staintern_sexpr(const char* name, sexp value)
 
 int main(int argc, char **argv, char **envp)
 {
+    ::argc = argc;
+    ::argv = argv;
+    ::envp = envp;
+
     // allocate all the cells we will ever have
     cell = new Cons[CELLS];
     for (int i = CELLS; --i >= 0; )
