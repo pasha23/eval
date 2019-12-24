@@ -42,7 +42,7 @@
 #ifdef BROKEN
 #define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
 #else
-#define error(s) do { longjmp(the_jmpbuf, (long)s); } while(0)
+#define error(s) do { if (killed) assert(false); longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
 /*
@@ -2172,6 +2172,48 @@ sexp vector_list(sexp args)
         }
     }
     error("vector->list: arguments");
+}
+
+// (vector-copy! to at from [ start [ end ]])
+sexp vector_copy_(sexp args)
+{
+    if (args)
+    {
+        if (args->car && isVector(args->car))
+        {
+            Vector* to = (Vector*)args->car;
+            args = args->cdr;
+            if (args && args->car && isFixnum(args->car))
+            {
+                int at = asFixnum(args->car);
+                args = args->cdr;
+                if (args && args->car && isVector(args->car))
+                {
+                    Vector* from = (Vector*)args->car;
+                    args = args->cdr;
+                    int start = 0;
+                    int len = from->l;
+                    int end = len;
+                    if (args && args->car && isFixnum(args->car))
+                    {
+                        start = asFixnum(args->car);
+                        args = args->cdr;
+                        if (args && args->car && isFixnum(args->car))
+                            end = asFixnum(args->car);
+                    }
+
+                    if (at+end-start <= to->l)
+                    {
+                        for (int i = start; i < end; ++i)
+                            to->e[at+i-start] = from->e[i];
+
+                        return newfixnum(at+end-start);
+                    }
+                }
+            }
+        }
+    }
+    error("vector_copy!: arguments");
 }
 
 // vector->string
@@ -4993,6 +5035,7 @@ const struct FuncTable {
     { "vector?",                           1, (void*)vectorp },
     { "vector-append",                     0, (void*)vector_append },
     { "vector-copy",                       0, (void*)vector_copy },
+    { "vector-copy!",                      0, (void*)vector_copy_ },
     { "vector-fill!",                      0, (void*)vector_fill_ },
     { "vector-length",                     1, (void*)vector_length },
     { "vector->list",                      0, (void*)vector_list },

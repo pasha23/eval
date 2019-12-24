@@ -666,6 +666,18 @@
 (test '(equal? "ab11e" (let ((x (string-copy "abcde"))) (string-fill! x #\1 2 4) x)))
 (test '(equal? "ab111" (let ((x (string-copy "abcde"))) (string-fill! x #\1 2 5) x)))
 
+(test '(equal? [a,b,c,1,2,f] (let ((v (vector-copy [a,b,c,d,e,f]))) (vector-copy! v 3 [1,2]) v)))
+(test '(equal? [a,2,3,d,e,f] (let ((v (vector-copy [a,b,c,d,e,f]))) (vector-copy! v 1 [1,2,3] 1) v)))
+(test '(equal? [a,3,c,d,e,f] (let ((v (vector-copy [a,b,c,d,e,f]))) (vector-copy! v 1 [1,2,3] 2) v)))
+(test '(equal? [a,b,c,d,e,f] (let ((v (vector-copy [a,b,c,d,e,f]))) (vector-copy! v 1 [1,2,3] 3) v)))
+(test '(equal? [a,1,2,d,e,f] (let ((v (vector-copy [a,b,c,d,e,f]))) (vector-copy! v 1 [1,2,3] 0 2) v)))
+(test '(equal? [a,1,2,3,e,f] (let ((v (vector-copy [a,b,c,d,e,f]))) (vector-copy! v 1 [1,2,3] 0 3) v)))
+
+;; this next one fails because overlap is not handled correctly
+;; (test '(equal? [a,b,a,b,c,f,g] (let ((v (vector 'a 'b 'c 'd 'e 'f 'g))) (vector-copy! v 2 v 0 3) v)))
+
+(test '(equal? [e,f,c,d,e,f,g] (let ((v (vector 'a 'b 'c 'd 'e 'f 'g))) (vector-copy! v 0 v 4 6) v)))
+
 (test '(equal? [1,2,smash,smash,5]
     (let ((vec (vector 1 2 3 4 5))) (vector-fill! vec 'smash 2 4) vec)))
 (test '(equal? [x,x,x,x,x]
