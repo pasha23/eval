@@ -4765,7 +4765,11 @@ sexp scans(std::istream& fin)
         c = fin.get();
         // read an atom
         while (0 <= c && '|' != c)
+        {
+            if ('\\' == c)
+                c = fin.get();
             c = accept(s, fin, c);
+        }
         return dynintern(strsave(s.str().c_str()));
     } else if ('"' != c) {
         // read an atom
@@ -4839,41 +4843,93 @@ sexp readTail(std::istream& fin, int level)
     return lose(cons(q, save(readTail(fin, level))));
 }
 
+const int NUMBER_EXACT   = -1;
+const int NUMBER_INEXACT = -2;
+
+sexp readNumber(std::istream& fin, int radix)
+{
+    Num::word base = radix;
+    if (NUMBER_EXACT == radix || NUMBER_INEXACT == radix)
+        base = 10;
+
+    int c = fin.get();
+    Num num(0);
+    if ('+' == c)
+        {}
+    else if ('-' == c)
+        num.neg = true;
+    else
+        fin.unget();
+
+    double scale = 0.0;
+    while (c = fin.get())
+    {
+        if (c < 0)
+            return eof;
+        if (0.0 == scale) {
+            if ('.' == c) {
+                scale = 1.0 / radix;
+                continue;
+            }
+        } else
+            scale *= radix;
+        Num::word b = num.char_to_word(c);
+        if (b >= base)
+            break;
+        num.mul_word(base);
+        num.add_word(b);
+    }
+    fin.unget();
+    if (scale)
+        return newflonum(num.to_double() / scale);
+    else
+        return bignumResult(num);
+}
+
 // finish reading a # token
+// #b #o #d #x #e #i prefixes
 sexp readHash(std::istream& fin, int level)
 {
-    int c;
     std::stringstream s;
     sexp* mark = psp;
+    int c = fin.get();
+    switch (c)
+    {
+    default:    break;
+    case '(':   return lose(mark, list_vector(save(readTail(fin, level+1))));
+    case 'b':   return readNumber(fin, 2);
+    case 'o':   return readNumber(fin, 8);
+    case 'd':   return readNumber(fin, 10);
+    case 'x':   return readNumber(fin, 16);
+/*
+    case 'e':   return readNumber(fin, NUMBER_EXACT);
+    case 'i':   return readNumber(fin, NUMBER_INEXACT);
+*/
+    case '!':   do
+                    c = fin.get();
+                while ('\r' != c && '\n' != c);
+                return lose(mark, read(fin, level));
+    case '\\':  {
+                    c = fin.get();
+                    do
+                        c = accept(s, fin, c);
+                    while (0 <= c && !isspace(c) && '(' != c && ')' != c);
+                    fin.unget();
+                    const char* buf = s.str().c_str();
+                    for (int i = 0; character_table[i]; ++i)
+                        if (!strcmp(buf, 1+character_table[i]))
+                            return lose(mark, newcharacter(*character_table[i]));
+                    return lose(mark, newcharacter(*buf));
+                }
+    }
+    fin.unget();
     sexp p = save(scan(fin));
-    if (lparen == p)
-        return lose(mark, list_vector(save(readTail(fin, level+1))));
     if (fa == p || falsea == p)
         return lose(mark, f);
     if (ta == p || truea == p)
         return lose(mark, t);
     if (voidaa == p)
         return lose(mark, voida);
-    if (bang == p)
-    {
-        do
-            c = fin.get();
-        while ('\r' != c && '\n' != c);
-        return lose(mark, read(fin, level));
-    }
-    if (backslash == p)
-    {
-        c = fin.get();
-        do
-            c = accept(s, fin, c);
-        while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
-        fin.unget();
-        const char* buf = s.str().c_str();
-        for (int i = 0; character_table[i]; ++i)
-            if (!strcmp(buf, 1+character_table[i]))
-                return lose(mark, newcharacter(*character_table[i]));
-        return lose(mark, newcharacter(*buf));
-    }
     scanahead = p;
     return hash;
 }
