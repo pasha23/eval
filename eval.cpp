@@ -442,6 +442,7 @@ sexp gc(void)
     mark(inport);
     mark(errport);
     mark(outport);
+    mark(scanahead);
 
     for (sexp *p = protect; p < psp; ++p)
         mark(*p);
