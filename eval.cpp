@@ -4897,17 +4897,17 @@ sexp readNumber(std::istream& fin, int radix)
         num.add_word(b);
     }
     fin.unget();
-    if (NUMBER_EXACT == radix)
-    {
-        if (scale)
-            return rationalResult(Rat(num, Num(10).pow(scale)));
-        else
-            return bignumResult(num);
-    } else {
+
+    if (NUMBER_INEXACT == radix || dotseen && NUMBER_EXACT != radix) {
         if (scale)
             return newflonum(num.to_double() * pow(10.0, -scale));
         else
             return newflonum(num.to_double());
+    } else {
+        if (scale)
+            return rationalResult(Rat(num, Num(10).pow(scale)));
+        else
+            return bignumResult(num);
     }
 }
 
