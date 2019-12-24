@@ -111,7 +111,7 @@ char** envp;                // from main
 sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda, lbracket;
 sexp lparen, minus, one, plus, promise, qchar, quasiquote, quote, rbracket;
 sexp rparen, t, tick, unquote, unquotesplicing, voida, zero, hash, backslash;
-sexp fa, falsea, ta, truea, voidaa;
+sexp bang, banga, fa, falsea, ta, truea, voidaa;
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
@@ -1773,6 +1773,7 @@ sexp string_copy_(sexp args)
         error("string-copy!: arguments");
 
     sexp to = args->car;
+    int tolen = stringlen((String*)to);
     args = args->cdr;
     int at = asFixnum(args->car);
     args = args->cdr;
@@ -1808,7 +1809,7 @@ sexp string_copy_(sexp args)
         read_utf8(s);
     }
 
-    if ((p-q) != (s-r) || at+end-start > len)
+    if ((p-q) != (s-r) || at+end-start > tolen)
         error("string-copy!: bad parameters or implementation incomplete");
 
     memmove(r, q, end-start);
@@ -4607,6 +4608,7 @@ sexp scans(std::istream& fin)
     case ']':  return rbracket;
     case '#':  return hash;
     case '\\': return backslash;
+    case '!':  return bang;
     case ',':  c = fin.get();
                if ('@' != c) {
                     fin.unget();
@@ -4803,6 +4805,13 @@ sexp readHash(std::istream& fin, int level)
         return lose(mark, t);
     if (voidaa == p)
         return lose(mark, voida);
+    if (bang == p)
+    {
+        do
+            c = fin.get();
+        while ('\r' != c && '\n' != c);
+        return read(fin, level);
+    }
     if (backslash == p)
     {
         c = fin.get();
@@ -5176,6 +5185,7 @@ int main(int argc, char **argv, char **envp)
     one  = newfixnum(1);
 
     // names
+    bang            = staintern("!");
     commaat         = staintern(",@");
     comma           = staintern(",");
     complex         = staintern("complex");
@@ -5213,6 +5223,7 @@ int main(int argc, char **argv, char **envp)
     define_staintern_sexpr("cout",     outport);
 
     // metasyntax
+    define_staintern_sexpr("bang",     bang);
     define_staintern_sexpr("comma",    comma);
     define_staintern_sexpr("commaat",  commaat);
     define_staintern_sexpr("dot",      dot);
