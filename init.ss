@@ -495,13 +495,13 @@
 
         (define (hexo n)
                 (if (< n 10)
-                    (integer->char (+ 48 (& n 15)))
-                    (integer->char (+ 87 (& n 15)))))
+                    (integer->char (+ 48 (bit-and n 15)))
+                    (integer->char (+ 87 (bit-and n 15)))))
 
         (let ((r '()))
              (when (zero? n) (set! r (cons #\0 r)))
              (while (> n 0)
-                    (set! r (cons (hexo (& n 15)) r))
+                    (set! r (cons (hexo (bit-and n 15)) r))
                     (set! n (>> n 4)))
              (list->string r)))
 

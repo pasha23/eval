@@ -2259,8 +2259,17 @@ sexp vector_copy_(sexp args)
 
                     if (at+end-start <= to->l)
                     {
-                        for (int i = start; i < end; ++i)
-                            to->e[at+i-start] = from->e[i];
+                        /*
+                         * The rule for handling overlap is: Always start copying from the end
+                         * of the source toward which the destination is offset.  If the offset is
+                         * zero it doesn't matter.
+                         */
+                        if (at <= start)
+                            for (int i = start; i < end; ++i)
+                                to->e[at+i-start] = from->e[i];
+                        else
+                            for (int i = end; --i >= start; )
+                                to->e[at+i-start] = from->e[i];
 
                         return newfixnum(at+end-start);
                     }
@@ -3151,7 +3160,7 @@ void assertAllFixnums(sexp args)
 }
 
 // x0 & x1 & x2 ...
-sexp andf(sexp args)
+sexp bit_and(sexp args)
 {
     assertAllFixnums(args);
     int result = ~0;
@@ -3161,7 +3170,7 @@ sexp andf(sexp args)
 }
 
 // x0 | x1 | x2 ...
-sexp orf(sexp args)
+sexp bit_or(sexp args)
 {
     assertAllFixnums(args);
     int result = 0;
@@ -3171,7 +3180,7 @@ sexp orf(sexp args)
 }
 
 // x0 ^ x1 ^ x2 ...
-sexp xorf(sexp args)
+sexp bit_xor(sexp args)
 {
     assertAllFixnums(args);
     int result = 0;
@@ -4752,7 +4761,13 @@ sexp scans(std::istream& fin)
     }
 
     (void)fin.get();
-    if ('"' != c) {
+    if ('|' == c) {
+        c = fin.get();
+        // read an atom
+        while (0 <= c && '|' != c)
+            c = accept(s, fin, c);
+        return dynintern(strsave(s.str().c_str()));
+    } else if ('"' != c) {
         // read an atom
         while (0 <= c && !strchr("( )[,]\t\r\n", c))
             c = accept(s, fin, c);
@@ -4944,22 +4959,22 @@ const struct FuncTable {
     short       arity;
     void*       funcp;
 } funcTable[] = {
-    { "&",                                 0, (void*)andf },
-    { "|",                                 0, (void*)orf },
+    { "bit-and",                           0, (void*)bit_and },
+    { "bit-or",                            0, (void*)bit_or },
     { "+",                                 0, (void*)uniadd },
     { "/",                                 0, (void*)unidiv },
     { "%",                                 0, (void*)unimod },
     { "*",                                 0, (void*)unimul },
     { "-",                                 0, (void*)unisub },
-    { "^",                                 0, (void*)xorf },
+    { "bit-xor",                           0, (void*)bit_xor },
     { "~",                                 1, (void*)complement },
     { "=",                                 0, (void*)eqnp },
     { ">=",                                0, (void*)gep },
     { ">",                                 0, (void*)gtp },
     { "<=",                                0, (void*)lep },
-    { "<<",                                2, (void*)lsh },
+    { "lsh",                               2, (void*)lsh },
     { "<",                                 0, (void*)ltp },
-    { ">>",                                2, (void*)rsh },
+    { "rsh",                               2, (void*)rsh },
     { "acos",                              1, (void*)acosff },
     { "angle",                             1, (void*)angle },
     { "append",                            2, (void*)append },
