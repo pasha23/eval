@@ -4788,44 +4788,49 @@ sexp readTail(std::istream& fin, int level)
     return lose(cons(q, save(readTail(fin, level))));
 }
 
+// finish reading a # token
+sexp readHash(std::istream& fin, int level)
+{
+    int c;
+    std::stringstream s;
+    sexp* mark = psp;
+    sexp p = save(scan(fin));
+    if (lparen == p)
+        return lose(mark, list_vector(save(readTail(fin, level+1))));
+    if (fa == p || falsea == p)
+        return lose(mark, f);
+    if (ta == p || truea == p)
+        return lose(mark, t);
+    if (voidaa == p)
+        return lose(mark, voida);
+    if (backslash == p)
+    {
+        c = fin.get();
+        do
+            c = accept(s, fin, c);
+        while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
+        fin.unget();
+        const char* buf = s.str().c_str();
+        for (int i = 0; character_table[i]; ++i)
+            if (!strcmp(buf, 1+character_table[i]))
+                return lose(mark, newcharacter(*character_table[i]));
+        return lose(mark, newcharacter(*buf));
+    }
+    scanahead = p;
+    return hash;
+}
+
 /*
  * read an s-expression
  */
 sexp read(std::istream& fin, int level)
 {
-    int c;
-    std::stringstream s;
     sexp* mark = psp;
-    sexp p = scan(fin);
+    sexp p = save(scan(fin));
     if (lparen == p)
         return readTail(fin, level+1);
     if (hash == p)
-    {
-        p = scan(fin);
-        if (lparen == p)
-            return list_vector(readTail(fin, level+1));
-        if (fa == p || falsea == p)
-            return f;
-        if (ta == p || truea == p)
-            return t;
-        if (voidaa == p)
-            return voida;
-        if (backslash == p)
-        {
-            c = fin.get();
-            do
-                c = accept(s, fin, c);
-            while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
-            fin.unget();
-            const char* buf = s.str().c_str();
-            for (int i = 0; character_table[i]; ++i)
-                if (!strcmp(buf, 1+character_table[i]))
-                    return newcharacter(*character_table[i]);
-            return newcharacter(*buf);
-        }
-        scanahead = p;
-        return hash;
-    }
+        return lose(mark, readHash(fin, level+1));
     if (qchar == p)
         return lose(mark, cons(quote, save(cons(save(read(fin, level)), 0))));
     if (tick == p)
@@ -4836,7 +4841,7 @@ sexp read(std::istream& fin, int level)
         return lose(mark, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
     if (level == 0 && rparen == p)
         error("error: an s-expression cannot begin with ')'");
-    return p;
+    return lose(mark, p);
 }
 
 // the first interrupt will stop everything. the second will exit.
