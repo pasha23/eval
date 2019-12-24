@@ -100,6 +100,7 @@ sexp tracing;       		// trace everything
 sexp cerrport;              // the port associated with std::cerr
 sexp errport;       		// the stderr port
 sexp freelist;      		// available cells are linked in a list
+sexp scanahead;             // pushed-back token
 sexp *psp;          		// protection stack pointer
 sexp *psend;            	// protection stack end
 sexp *protect;      		// protection stack
@@ -109,7 +110,8 @@ char** envp;                // from main
 
 sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda, lbracket;
 sexp lparen, minus, one, plus, promise, qchar, quasiquote, quote, rbracket;
-sexp rparen, t, tick, unquote, unquotesplicing, voida, zero;
+sexp rparen, t, tick, unquote, unquotesplicing, voida, zero, hash, backslash;
+sexp fa, falsea, ta, truea, voidaa;
 
 sexp define(sexp p, sexp r);
 sexp eval(sexp p, sexp env);
@@ -3343,21 +3345,18 @@ void displayList(Context& context, sexp exp, int level)
 
 void displayVector(Context& context, sexp v, int level)
 {
-    context.s << '[';
+    context.s << "#(";
     Vector *vv = (Vector*)v;
     if (vv->l)
-        level += displayLength(vv->e[0]) + 3;
+        level += 2;
     for (int i = 0; i < vv->l; ++i)
     {
         if (!context.labelCycles(vv->e[i], false))
             display(context, vv->e[i], level);
         if (i < vv->l-1)
-        {
-            context.s << ",";
             context.wrap(level, displayLength(vv->e[i+1]));
-        }
     }
-    context.s << ']';
+    context.s << ')';
 }
 
 const char * const character_table[] =
@@ -4576,11 +4575,20 @@ int scanNumber(std::stringstream& s, std::istream& fin, NumStatus& status)
  */
 sexp scan(std::istream& fin);
 
+sexp readTail(std::istream& fin, int level);
+
 sexp scans(std::istream& fin)
 {
     sexp* mark = psp;
 
     std::stringstream s;
+
+    if (scanahead)
+    {
+        sexp sv = scanahead;
+        scanahead = 0;
+        return sv;
+    }
 
     int c = whitespace(fin, fin.get());
 
@@ -4596,29 +4604,14 @@ sexp scans(std::istream& fin)
     case '`':  return tick;
     case '[':  return lbracket;
     case ']':  return rbracket;
+    case '#':  return hash;
+    case '\\': return backslash;
     case ',':  c = fin.get();
                if ('@' != c) {
                     fin.unget();
                     return comma;
                } else
                    return commaat;
-    case '#':  switch (c = fin.get())
-               {
-               case 'f': return f;
-               case 't': return t;
-               case '\\':
-                    c = fin.get();
-                    do
-                        c = accept(s, fin, c);
-                    while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
-                    fin.unget();
-                    const char* buf = s.str().c_str();
-                    for (int i = 0; character_table[i]; ++i)
-                        if (!strcmp(buf, 1+character_table[i]))
-                            return newcharacter(*character_table[i]);
-                    return newcharacter(*buf);
-                }
-
     case '+':   c = fin.get();
                 if ('.' == c || 'i' == c || isdigit(c))
                     s.put('+');
@@ -4794,41 +4787,44 @@ sexp readTail(std::istream& fin, int level)
     return lose(cons(q, save(readTail(fin, level))));
 }
 
-// finish reading a vector
-sexp readVector(std::istream& fin, int level)
-{
-    sexp q = 0;
-    sexp* mark = psp;
-    for (;;)
-    {
-        sexp s = save(read(fin, level));
-        if (eof == s)
-            return lose(mark, 0);
-        if (rbracket == s)
-            break;
-        while (unquote == s->car)
-            s = s->cdr->car;
-        q = replace(cons(s, q));
-        s = scan(fin);
-        if (rbracket == s)
-            break;
-        if (comma != s)
-            error("comma expected in vector");
-    }
-    return lose(mark, list_vector(save(reverse_(q))));
-}
-
 /*
  * read an s-expression
  */
 sexp read(std::istream& fin, int level)
 {
+    int c;
+    std::stringstream s;
     sexp* mark = psp;
     sexp p = scan(fin);
     if (lparen == p)
         return readTail(fin, level+1);
-    if (lbracket == p)
-        return readVector(fin, level+1);
+    if (hash == p)
+    {
+        p = scan(fin);
+        if (lparen == p)
+            return list_vector(readTail(fin, level+1));
+        if (fa == p || falsea == p)
+            return f;
+        if (ta == p || truea == p)
+            return t;
+        if (voidaa == p)
+            return voida;
+        if (backslash == p)
+        {
+            c = fin.get();
+            do
+                c = accept(s, fin, c);
+            while (0 <= c && !isspace(c) && ')' != c && ']' !=c && ',' != c);
+            fin.unget();
+            const char* buf = s.str().c_str();
+            for (int i = 0; character_table[i]; ++i)
+                if (!strcmp(buf, 1+character_table[i]))
+                    return newcharacter(*character_table[i]);
+            return newcharacter(*buf);
+        }
+        scanahead = p;
+        return hash;
+    }
     if (qchar == p)
         return lose(mark, cons(quote, save(cons(save(read(fin, level)), 0))));
     if (tick == p)
@@ -4837,8 +4833,8 @@ sexp read(std::istream& fin, int level)
         return lose(mark, cons(unquote, save(cons(save(read(fin, level)), 0))));
     if (commaat == p)
         return lose(mark, cons(unquotesplicing, save(cons(save(read(fin, level)), 0))));
-    if (level == 0 && (rbracket == p || rparen == p))
-        error("error: an s-expression cannot begin with ')' or ']'");
+    if (level == 0 && rparen == p)
+        error("error: an s-expression cannot begin with ')'");
     return p;
 }
 
@@ -5182,6 +5178,9 @@ int main(int argc, char **argv, char **envp)
     elsea           = staintern("else");
     eof             = staintern("#eof");
     f               = staintern("#f");
+    fa              = staintern("f");
+    falsea          = staintern("false");
+    hash            = staintern("#");
     lambda          = staintern("lambda");
     lbracket        = staintern("[");
     lparen          = staintern("(");
@@ -5194,10 +5193,13 @@ int main(int argc, char **argv, char **envp)
     rbracket        = staintern("]");
     rparen          = staintern(")");
     t               = staintern("#t");
+    ta              = staintern("t");
+    truea           = staintern("true");
     tick            = staintern("`");
     unquote         = staintern("unquote");
     unquotesplicing = staintern("unquote-splicing");
     voida           = staintern("");
+    voidaa          = staintern("void");
 
     // streams
     define_staintern_sexpr("cerr",     errport);
@@ -5208,6 +5210,7 @@ int main(int argc, char **argv, char **envp)
     define_staintern_sexpr("comma",    comma);
     define_staintern_sexpr("commaat",  commaat);
     define_staintern_sexpr("dot",      dot);
+    define_staintern_sexpr("hash",     hash);
     define_staintern_sexpr("lbracket", lbracket);
     define_staintern_sexpr("lparen",   lparen);
     define_staintern_sexpr("qchar",    qchar);
