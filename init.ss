@@ -502,7 +502,7 @@
              (when (zero? n) (set! r (cons #\0 r)))
              (while (> n 0)
                     (set! r (cons (hexo (bit-and n 15)) r))
-                    (set! n (>> n 4)))
+                    (set! n (rsh n 4)))
              (list->string r)))
 
 (define (hexdigit d)
@@ -522,7 +522,7 @@
         (let ((l (string->list s))
               (n 0))
              (while (pair? l)
-                    (set! n (+ (<< n 4) (hexi (car l))))
+                    (set! n (+ (lsh n 4) (hexi (car l))))
                     (set! l (cdr l)))
              n))
 
