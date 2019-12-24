@@ -4811,7 +4811,7 @@ sexp readHash(std::istream& fin, int level)
         do
             c = fin.get();
         while ('\r' != c && '\n' != c);
-        return read(fin, level);
+        return lose(mark, read(fin, level));
     }
     if (backslash == p)
     {
@@ -4838,7 +4838,7 @@ sexp read(std::istream& fin, int level)
     sexp* mark = psp;
     sexp p = save(scan(fin));
     if (lparen == p)
-        return readTail(fin, level+1);
+        return lose(mark, readTail(fin, level+1));
     if (hash == p)
         return lose(mark, readHash(fin, level+1));
     if (qchar == p)
