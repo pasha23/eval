@@ -1,5 +1,6 @@
 
 #include <iostream>
+#include <iomanip>
 
 using namespace std;
 
@@ -186,8 +187,8 @@ void sift(unsigned n)
     for (word t = 0; (t = polynomials(n, factors, t)); )
     {
         if (n > 0)
-            cout << ", ";
-        cout << t;
+            cout << ' ';
+        cout << "#x" << t;
         cout.flush();
         return;
     }
@@ -195,10 +196,10 @@ void sift(unsigned n)
 
 int main(int argc, char **argv, char **envp)
 {
-    cout << "(define polynomials [0";
+    cout << "(define polynomials #(#x0" << hex;
     for (unsigned n = 1; n <= word_size; ++n)
         sift(n);
-    cout << "])\n";
+    cout << "))\n" << dec;
     return 0;
 }
 
