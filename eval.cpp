@@ -4707,8 +4707,8 @@ sexp scans(std::istream& fin)
         } else if (RATIO == rstatus) {
             std::string realdata = cdata.substr(0, split);
             int realdiv = realdata.find_first_of('/');
-            real = save(newrational(Num(realdata.substr(0,realdiv).c_str()),
-                                    Num(realdata.substr(realdiv+1).c_str())));
+            real = save(rationalResult(Rat(Num(realdata.substr(0,realdiv).c_str()),
+                                           Num(realdata.substr(realdiv+1).c_str()))));
         } else if (FIXED == rstatus) {
             std::string n = cdata.substr(0, split);
             Num num(n.c_str()); real = save(bignumResult(num));
@@ -4723,8 +4723,8 @@ sexp scans(std::istream& fin)
             std::string imagdata = cdata.substr(split+1);
             imagdata = imagdata.substr(0, imagdata.length()-1);
             int imagdiv = imagdata.find_first_of('/');
-            imag = save(newrational(Num(imagdata.substr(0,imagdiv).c_str()),
-                                    Num(imagdata.substr(imagdiv+1).c_str())));
+            imag = save(rationalResult(Rat(Num(imagdata.substr(0,imagdiv).c_str()),
+                                           Num(imagdata.substr(imagdiv+1).c_str()))));
         } else if (FIXED == istatus) {
             std::string n = cdata.substr(split+1);
             n = n.substr(0, n.length()-1);
@@ -4754,8 +4754,8 @@ sexp scans(std::istream& fin)
         { double re; s >> re; return newflonum(re); }
     case RATIO:
         { std::string ratio; s >> ratio; int pos = ratio.find_first_of('/');
-          return newrational(Num(ratio.substr(0,pos).c_str()),
-                             Num(ratio.substr(pos+1).c_str())); }
+          return rationalResult(Rat(Num(ratio.substr(0,pos).c_str()),
+                                    Num(ratio.substr(pos+1).c_str()))); }
     default:
         break;
     }

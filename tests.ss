@@ -187,6 +187,50 @@
 ;;             (begin (display 'fail) (space) (write s) (newline)))
 ;;         (gc))
 
+;; pi/4 = 4 * atan(1/5) - atan(1/239)
+
+;; pi =  16 * atan(1/5) - 4 * atan(1/239)
+
+;; atan(x) = x - x^3/3 + x^5/5 - x^7/7 + x^9/9 ...
+
+;; 16 * atan(x) = 16 * x - 16 * x^3/3 + 16 * x^5/5 - 16 * x^7/7 + 16 * x^9/9 ...
+
+;;  4 * atan(y) =  4 * y -  4 * y^3/3 +  4 * y^5/5 -  4 * y^7/7 +  4 * y^9/9 ...
+
+;; sum = 0
+;; i = 1
+;; x^1 = 1/5
+;; y^1 = 1/239
+;; -x^2 = -1/25
+;; -y^2 = -1/57121
+;; sum += 16 * x^i / i - 4 * y^i / i
+;; i = 3
+;; x^3 = - x^1 * x^2
+;; y^3 = - y^1 * y^2
+;; sum += 16 * x^i / i - 4 * y^i / i
+;; i = 5
+;; x^5 = - x^3 * x^2
+;; y^5 = - y^3 * y^2
+;; sum += 16 * x^i / i - 4 * y^i / i
+;; i = 7
+;; ...
+
+(define (pi n)
+    (let* ((i 1)
+           (xi 1/5)
+           (nxm2 (- (* xi xi)))
+           (yi 1/239)
+           (nym2 (- (* yi yi)))
+           (sum 0))
+          (while (< i (+ n n))
+                 (set! sum (+ sum (* 16 (/ xi i)) (* -4 (/ yi i))))
+                 (set! i (+ i 2))
+                 (set! xi (* xi nxm2))
+                 (set! yi (* yi nym2)))
+          sum))
+
+(test '(= 89928619715553629727934260725194033068316951644953171299921299656/28625168706323283759630195891540657933297666848187847137451171875 (pi 10)))
+
 ;; (test '(not (equal? '#0=(a b a . #0#) '#1=(a b a b . #1#))))
 
 (define test0 '(a b a))
@@ -517,8 +561,8 @@
 (test '(eqv? #f (digit-value #\.)))
 (test '(exact? 2))
 (test '(exact-integer? 32))
-;; (test '(exact-integer? #e3.0))
-;; (test '(finite? 3))
+(test '(exact-integer? #e3.0))
+(test '(finite? 3))
 (test '(= (imag-part 3.0+4.0i) 4.0))
 (test '(inexact? 3.0))
 (test '(inexact? 3.1))
