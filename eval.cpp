@@ -234,13 +234,18 @@ struct Context
     bool pretty;
     bool cyclic;
     int  label;
+    int  radix;
     std::streampos pos;
     std::streampos limit;
     std::stringstream s;
     std::unordered_map<sexp,sexp> seenMap;
-    Context(int limit, bool write, bool pretty, bool cyclic) :
-        limit(limit), label(0), write(write), pretty(pretty), cyclic(cyclic) { setp(); pos = s.tellp(); }
+    Context(int limit, bool write, bool pretty, bool cyclic, int radix) :
+        limit(limit), label(0), write(write), pretty(pretty), cyclic(cyclic), radix(radix)
+        { setp(); setr(); pos = s.tellp(); }
     void setp() { s << std::setprecision(sizeof(double) > sizeof(void*) ? 8 : 15); }
+    void setr() { if (radix ==  8) s << std::oct; else
+                  if (radix == 16) s << std::hex; else
+                                   s << std::dec; }
     void wrap(int level, int length)
         { if (pretty && s.tellp() - pos + length > eol) newline(level); else space(); }
     void newline(int level)
@@ -293,12 +298,12 @@ bool isComplex(sexp p)
 
 bool isReal(sexp x)
 {
-    return isFixnum(x) || isFlonum(x) || isRational(x);
+    return isFixnum(x) || isFlonum(x) || isBignum(x) || isRational(x);
 }
 
 bool isNumber(sexp x)
 {
-    return isFixnum(x) || isFlonum(x) || isRational(x) || isComplex(x);
+    return isFixnum(x) || isFlonum(x) || isBignum(x) || isRational(x) || isComplex(x);
 }
 
 static inline sexp boolwrap(bool x) { return x ? t : f; }
@@ -1710,13 +1715,22 @@ sexp staintern(const char *s)
     return (sexp)a;
 }
 
-// number->string
-sexp number_string(sexp exp)
+// (number->string number [ radix ] )
+sexp number_string(sexp args)
 {
-    Context context(0, true, false, false);
-    mapCycles(context, exp);
-    display(context, exp, 0);
-    return dynstring(strsave(context.s.str().c_str()));
+    int base = 10;
+    if (args && args->car && isNumber(args->car))
+    {
+        sexp number = args->car;
+        if ((args = args->cdr) && args->car && isFixnum(args->car))
+            base = asFixnum(args->car);
+        if (base != 8 && base != 16)
+            base = 10;
+        Context context(0, true, false, false, base);
+        display(context, number, 0);
+        return dynstring(strsave(context.s.str().c_str()));
+    }
+    error("number->string: arguments");
 }
 
 int encodeUTF8(char *p, uint32_t ch)
@@ -1896,9 +1910,65 @@ sexp write_string(sexp args)
     memcpy(b, q, p-q);
     b[p-q] = 0;
 
-    Context context(0, true, true, true);
+    Context context(0, true, true, true, 10);
     ((OutPort*)port)->s->write(b, p-q);
     return voida;
+}
+
+// string->number
+sexp string_number(sexp args)
+{
+    if (args && args->car && isString(args->car))
+    {
+        Num num(0);
+        sexp string = args->car;
+        args = args->cdr;
+        int base = 10;
+        if (args && args->car && isFixnum(args->car))
+            base = asFixnum(args->car);
+        if (base != 8 && base != 16)
+            base = 10;
+        char* p = ((String*)string)->text;
+        if (*p)
+        {
+            int scale = 0;
+            bool dotseen = false;
+            uint32_t c = read_utf8(p);
+
+            if ('+' == c)
+                c = read_utf8(p);
+            else if ('-' == c) {
+                c = read_utf8(p);
+                num.neg = true;
+            }
+
+            for (;;)
+            {
+                if (dotseen)
+                    ++scale;
+                else if ('.' == c && *p) {
+                    dotseen = true;
+                    c = read_utf8(p);
+                }
+                Num::word b = num.char_to_word(c);
+                if (b >= base)
+                    break;
+                num.mul_word(base);
+                num.add_word(b);
+                if (*p)
+                    c = read_utf8(p);
+                else
+                    break;
+            }
+
+            if (scale)
+                return newflonum(num.to_double() * pow(10.0, -scale));
+            else
+                return bignumResult(num);
+        }
+        error("string->number: number syntax");
+    }
+    error("string->number: arguments");
 }
 
 // string-append
@@ -2152,7 +2222,7 @@ sexp write_to_string(sexp args)
         assertFixnum(args->car);
         limit = asFixnum(args->car);
     }
-    Context context(limit, true, false, true);
+    Context context(limit, true, false, true, 10);
     mapCycles(context, exp);
     display(context, exp, 0);
     if (0 == limit) limit = context.s.str().length();
@@ -3303,7 +3373,7 @@ sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 // display
 sexp display_shared(sexp args)
 {
-    Context context(0, false, true, true);
+    Context context(0, false, true, true, 10);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -3314,7 +3384,7 @@ sexp display_shared(sexp args)
 
 sexp display_simple(sexp args)
 {
-    Context context(0, false, true, false);
+    Context context(0, false, true, false, 10);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -3326,7 +3396,7 @@ sexp display_simple(sexp args)
 // write
 sexp write_shared(sexp args)
 {
-    Context context(0, true, true, true);
+    Context context(0, true, true, true, 10);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -3337,7 +3407,7 @@ sexp write_shared(sexp args)
 
 sexp write_simple(sexp args)
 {
-    Context context(0, true, true, false);
+    Context context(0, true, true, false, 10);
     sexp port = args->cdr ? args->cdr->car : outport;
     assertOutPort(port);
     mapCycles(context, args->car);
@@ -3378,7 +3448,7 @@ sexp cyclicp(sexp x) { std::set<sexp> seenSet; return boolwrap(cyclic(seenSet, x
 // for prettyprinting (we should be counting code points)
 int displayLength(sexp exp)
 {
-    Context context(0, true, false, true);
+    Context context(0, true, false, true, 10);
     mapCycles(context, exp);
     display(context, exp, 0);
     return context.s.str().length();
@@ -3512,7 +3582,7 @@ void displayNamed(Context& context, const char *kind, sexp exp)
 void displayBignum(Context& context, sexp exp)
 {
     std::vector<char> cs;
-    ((Bignum*)exp)->nump->print(cs);
+    ((Bignum*)exp)->nump->print(cs, context.radix);
     for (char c : cs)
         if (c)
             context.s.put(c);
@@ -3522,13 +3592,13 @@ void displayRational(Context& context, sexp exp)
 {
     Rat* ratp = ((Rational*)exp)->ratp;
     std::vector<char> cs;
-    ratp->num.print(cs);
+    ratp->num.print(cs, context.radix);
     for (char c : cs)
         if (c)
             context.s.put(c);
     context.s.put('/');
     std::vector<char> ds;
-    ratp->den.print(ds);
+    ratp->den.print(ds, context.radix);
     for (char c : ds)
         if (c)
             context.s.put(c);
@@ -3634,7 +3704,7 @@ void display(Context& context, sexp exp, int level)
 
 void debug(const char *what, sexp exp)
 {
-    Context context(0, true, true, true);
+    Context context(0, true, true, true, 10);
     mapCycles(context, exp);
     if (what)
         context.s << what << ": ";
@@ -3661,14 +3731,6 @@ sexp symbol_string(sexp x)
 {
     assertAtom(x);
     return dynstring(strsave(atomText(x)));
-}
-
-// string->number
-sexp string_number(sexp exp)
-{
-    Context context(0, false, false, false);
-    context.s << ((String*)exp)->text;
-    return read(context.s, 0);
 }
 
 // string->list
@@ -4476,7 +4538,7 @@ sexp eval(sexp p, sexp env)
     if (f != tracing && p && (t != p) && (f != p) && (isAtom(p) || isCons(p)))
     {
         ++indent;
-        Context context(0, true, false, false);
+        Context context(0, true, false, false, 10);
         context.s << "eval:";
         for (int i = indent; --i >= 0; context.s << ' ') {}
         display(context, p, 0);
@@ -5160,7 +5222,7 @@ const struct FuncTable {
     { "not",                               1, (void*)isnot },
     { "null?",                             1, (void*)nullp },
     { "number?",                           1, (void*)numberp },
-    { "number->string",                    1, (void*)number_string },
+    { "number->string",                    0, (void*)number_string },
     { "numerator",                         1, (void*)numerator },
     { "odd?",                              1, (void*)oddp },
     { "open-input-file",                   1, (void*)open_input_file },
@@ -5211,7 +5273,7 @@ const struct FuncTable {
     { "string-fill!",                      0, (void*)string_fill_ },
     { "string-length",                     1, (void*)string_length },
     { "string->list",                      0, (void*)string_list },
-    { "string->number",                    1, (void*)string_number },
+    { "string->number",                    0, (void*)string_number },
     { "string-ref",                        2, (void*)string_ref },
     { "string-set!",                       3, (void*)string_set_ },
     { "string->symbol",                    1, (void*)string_symbol },
@@ -5445,7 +5507,7 @@ int main(int argc, char **argv, char **envp)
         killed = 0;
         valu = eval(expr, replenv);
         {
-            Context context(0, false, true, true);
+            Context context(0, false, true, true, 10);
             mapCycles(context, valu);
             display(context, valu, 0);
             std::cout.write(context.s.str().c_str(), context.s.str().length());
