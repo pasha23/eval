@@ -27,44 +27,67 @@
           ((= k n) 1)
           (else (+ (s (- n 1) (- k 1)) (* k (s (- n 1) k))))))
 
-(define (phi)
+;; pi/4 = 4 * atan(1/5) - atan(1/239)
+
+;; pi =  16 * atan(1/5) - 4 * atan(1/239)
+
+;; atan(x) = x - x^3/3 + x^5/5 - x^7/7 + x^9/9 ...
+
+;; 16 * atan(x) = 16 * x - 16 * x^3/3 + 16 * x^5/5 - 16 * x^7/7 + 16 * x^9/9 ...
+
+;;  4 * atan(y) =  4 * y -  4 * y^3/3 +  4 * y^5/5 -  4 * y^7/7 +  4 * y^9/9 ...
+
+;; sum = 0
+;; i = 1
+;; x^1 = 1/5
+;; y^1 = 1/239
+;; -x^2 = -1/25
+;; -y^2 = -1/57121
+;; sum += 16 * x^i / i - 4 * y^i / i
+;; i = 3
+;; x^3 = - x^1 * x^2
+;; y^3 = - y^1 * y^2
+;; sum += 16 * x^i / i - 4 * y^i / i
+;; i = 5
+;; x^5 = - x^3 * x^2
+;; y^5 = - y^3 * y^2
+;; sum += 16 * x^i / i - 4 * y^i / i
+;; i = 7
+;; ...
+
+(define (pi-generator)
+    (let* ((i 1)
+           (xi 1/5)
+           (nxm2 (- (* xi xi)))
+           (yi 1/239)
+           (nym2 (- (* yi yi)))
+           (sum 0))
+          (lambda ()
+                  (set! sum (+ sum (+ (* 16 (/ xi i)) (* -4 (/ yi i)))))
+                  (set! i (+ i 2))
+                  (set! xi (* xi nxm2))
+                  (set! yi (* yi nym2))
+                  sum)))
+
+(define (e-generator)
+        (let ((n 0)
+              (term 1)
+              (sum 1))
+             (lambda ()
+                     (set! n (+ n 1))
+                     (set! term (/ term n))
+                     (set! sum (+ sum term))
+                     sum)))
+
+(define (phi-generator)
     (let ((f0 1)
           (f1 1))
-         (while (< f0 102334155)
-                (let ((t (+ f1 f0))
-                      (p (/ f1 f0)))
-                     (set! f0 f1)
-                     (set! f1 t)
-                     (display (list p (exact->inexact p)))
-                     (newline)))))
-
-(define (chars n)
-        (let ((i 0) (j 0) (k 0) (l '()))
-             (set! i 0)
-             (while (< i n)
-                    (set! j 64)
-                    (set! l (cons #\space (cons #\space '())))
-                    (while (> j 0)
-                           (set! j (- j 1))
-                           (when (not (zero? (+ i j)))
-                                 (set! l (cons (integer->char (+ i j)) l))))
-             (set! l (cons #\space (cons #\space l)))
-             (set! k i)
-             (set! l (cons (hexdigit (bit-and k 15)) l))
-             (set! k (rsh k 4))
-             (set! l (cons (hexdigit (bit-and k 15)) l))
-             (set! k (rsh k 4))
-             (set! l (cons (hexdigit (bit-and k 15)) l))
-             (set! k (rsh k 4))
-             (set! l (cons (hexdigit (bit-and k 15)) l))
-             (set! k (rsh k 4))
-             (set! l (cons (hexdigit (bit-and k 15)) l))
-             (display (list->string l))
-             (display i)
-             (newline)
-             (set! i (+ i 64)))))
-
-;; (with-output-to-file "chartable" (lambda () (chars (hexin "10000"))))
+         (lambda ()
+                 (let ((t (+ f0 f1))
+                       (p (/ f1 f0)))
+                      (set! f0 f1)
+                      (set! f1 t)
+                      p))))
 
 (define (triples maxPeri)
 
@@ -135,7 +158,7 @@
 (define (compose f g) (lambda x (apply f (apply g x))))
 
 (define (prime? x)
-        (if (> x 1)
+        (if (and (odd? x) (> x 1))
             (let ((f #t)
                   (c 3))
                  (while (and f (<= (* c c) x))
@@ -156,21 +179,54 @@
              l))
 
 (define (sieve limit)
-        (let* ((primes (cons 2 '()))
-               (ps primes)
+        (let* ((sq 2)
+               (primes (cons sq '()))
                (end primes)
+               (ps primes)
                (n 3))
               (while (<= n limit)
-                     (if (null? ps)
+                     (if (>= (car ps) sq)
                          (begin (set-cdr! end (cons n '()))
                                 (set! end (cdr end))
-                                (set! n (+ n 2))
-                                (set! ps primes))
+                                (set! ps primes)
+                                (set! n (+ n 2)))
                          (if (zero? (remainder n (car ps)))
                              (begin (set! n (+ n 2))
                                     (set! ps primes))
-                             (set! ps (cdr ps)))))
+                             (set! ps (cdr ps))))
+                     (while (<= (* sq sq) n)
+                            (set! sq (+ sq 1))))
                   primes))
+
+(define (chars n)
+
+        (define (hexdigit n) (string-ref "0123456789ABCDEF" n))
+
+        (let ((i 0) (j 0) (k 0) (l '()))
+             (while (< i n)
+                    (set! j 64)
+                    (set! l (cons #\space (cons #\space '())))
+                    (while (> j 0)
+                           (set! j (- j 1))
+                           (when (not (zero? (+ i j)))
+                                 (set! l (cons (integer->char (+ i j)) l))))
+                    (set! l (cons #\space (cons #\space l)))
+                    (set! k i)
+                    (set! l (cons (hexdigit (bit-and k 15)) l))
+                    (set! k (rsh k 4))
+                    (set! l (cons (hexdigit (bit-and k 15)) l))
+                    (set! k (rsh k 4))
+                    (set! l (cons (hexdigit (bit-and k 15)) l))
+                    (set! k (rsh k 4))
+                    (set! l (cons (hexdigit (bit-and k 15)) l))
+                    (set! k (rsh k 4))
+                    (set! l (cons (hexdigit (bit-and k 15)) l))
+                    (display (list->string l))
+                    (display i)
+                    (newline)
+                    (set! i (+ i 64)))))
+
+;; (with-output-to-file "chartable" (lambda () (chars 131072)))
 
 (define bbbbb '(b))
 (define aaaaa (list bbbbb bbbbb bbbbb bbbbb bbbbb))
@@ -186,50 +242,6 @@
 ;;             (begin (display 'pass) (space) (write s) (newline))
 ;;             (begin (display 'fail) (space) (write s) (newline)))
 ;;         (gc))
-
-;; pi/4 = 4 * atan(1/5) - atan(1/239)
-
-;; pi =  16 * atan(1/5) - 4 * atan(1/239)
-
-;; atan(x) = x - x^3/3 + x^5/5 - x^7/7 + x^9/9 ...
-
-;; 16 * atan(x) = 16 * x - 16 * x^3/3 + 16 * x^5/5 - 16 * x^7/7 + 16 * x^9/9 ...
-
-;;  4 * atan(y) =  4 * y -  4 * y^3/3 +  4 * y^5/5 -  4 * y^7/7 +  4 * y^9/9 ...
-
-;; sum = 0
-;; i = 1
-;; x^1 = 1/5
-;; y^1 = 1/239
-;; -x^2 = -1/25
-;; -y^2 = -1/57121
-;; sum += 16 * x^i / i - 4 * y^i / i
-;; i = 3
-;; x^3 = - x^1 * x^2
-;; y^3 = - y^1 * y^2
-;; sum += 16 * x^i / i - 4 * y^i / i
-;; i = 5
-;; x^5 = - x^3 * x^2
-;; y^5 = - y^3 * y^2
-;; sum += 16 * x^i / i - 4 * y^i / i
-;; i = 7
-;; ...
-
-(define (pi n)
-    (let* ((i 1)
-           (xi 1/5)
-           (nxm2 (- (* xi xi)))
-           (yi 1/239)
-           (nym2 (- (* yi yi)))
-           (sum 0))
-          (while (< i (+ n n))
-                 (set! sum (+ sum (* 16 (/ xi i)) (* -4 (/ yi i))))
-                 (set! i (+ i 2))
-                 (set! xi (* xi nxm2))
-                 (set! yi (* yi nym2)))
-          sum))
-
-(test '(= 89928619715553629727934260725194033068316951644953171299921299656/28625168706323283759630195891540657933297666848187847137451171875 (pi 10)))
 
 ;; (test '(not (equal? '#0=(a b a . #0#) '#1=(a b a b . #1#))))
 

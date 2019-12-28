@@ -1,7 +1,7 @@
 /*
  * this aspires to be a scheme interpreter
  * but it lacks tail call optimization, call/cc etc.
- * 
+ *
  * Robert Kelley October 2019
  */
 #define PSIZE   65536
@@ -100,6 +100,7 @@ sexp tracing;       		// trace everything
 sexp cerrport;              // the port associated with std::cerr
 sexp errport;       		// the stderr port
 sexp freelist;      		// available cells are linked in a list
+bool scannedAhead;          // a token has been pushed back
 sexp scanahead;             // pushed-back token
 sexp *psp;          		// protection stack pointer
 sexp *psend;            	// protection stack end
@@ -189,7 +190,7 @@ struct StrPortStream : public PortStream
 };
 
 void StrPortStream::put(int ch)
-{ 
+{
     std::stringstream* ss = (std::stringstream*)streamPointer;
     if (0 == limit || ss->tellp() < limit)
         ((std::stringstream*)streamPointer)->put(ch);
@@ -227,7 +228,7 @@ struct Closure  { char tags[sizeof(sexp)];                        sexp        ex
 // supports uglyprinting
 struct Context
 {
-    static const int eol  = 70;
+    static const int eol  = 80;
     static const int tabs =  4;
 
     bool write;
@@ -479,7 +480,7 @@ sexp gc(void)
             p->car = 0;
             p->cdr = freelist;
             freelist = p;
-        } else 
+        } else
             unmarkCell(p);
     }
 
@@ -548,7 +549,7 @@ sexp newfixnum(int number)
     return (sexp)p;
 }
 
-sexp newcharacter(int c)
+sexp newcharacter(uint32_t c)
 {
     Char* p = (Char*)newcell(CHAR);
     p->ch = c;
@@ -2710,7 +2711,7 @@ sexp char_numericp(sexp c) { return boolwrap(c && isChar(c) && isdigit(((Char*)c
 
 // digit-value
 sexp digit_value(sexp c)
-{ 
+{
     if (c && isChar(c))
     {
         int ch = ((Char*)c)->ch;
@@ -2760,6 +2761,7 @@ sexp char_readyp(sexp args)
         struct termios original;
         if (setTermios(original, 0))
         {
+            // this only works with ASCII
             inPort->avail = read(0, &inPort->peek, 1) > 0;
             tcsetattr(0, TCSANOW, &original);
             return boolwrap(inPort->avail);
@@ -2789,6 +2791,7 @@ sexp read_char(sexp args)
         struct termios original;
         if (setTermios(original, 1))
         {
+            // this only works with ASCII
             while (0 == read(0, &inPort->peek, 1)) {}
             tcsetattr(0, TCSANOW, &original);
             return newcharacter(inPort->peek);
@@ -2815,6 +2818,7 @@ sexp peek_char(sexp args)
         struct termios original;
         if (setTermios(original, 1))
         {
+            // this only works with ASCII
             while (0 == read(0, &inPort->peek, 1)) {}
             inPort->avail = true;
             tcsetattr(0, TCSANOW, &original);
@@ -2845,8 +2849,6 @@ sexp write_char(sexp args)
 
     return voida;
 }
-
-// these only work on ascii data
 
 // string<=?
 sexp string_lep(sexp args)
@@ -3137,7 +3139,7 @@ bool eqnb(sexp x, sexp y)
         Rat yr = toRational(y); yr.reduce();
         return xr == yr;
     }
-    
+
     if (isBignum(x) || isBignum(y))
     {
         Num xb = toBignum(x);
@@ -3173,7 +3175,7 @@ bool eqa(sexp x, sexp y)
     if (shortType(x) != shortType(y))
         return false;
 
-    switch (shortType(x)) 
+    switch (shortType(x))
     {
     default:       return false;
     case FLOAT :   return ((Float*)x)->flonum  == ((Float*)y)->flonum;
@@ -3370,7 +3372,7 @@ sexp newline(sexp args)
 // eof-object?
 sexp eof_objectp(sexp a) { return boolwrap(eof == a); }
 
-// display
+// display-shared
 sexp display_shared(sexp args)
 {
     Context context(0, false, true, true, 10);
@@ -3382,6 +3384,7 @@ sexp display_shared(sexp args)
     return voida;
 }
 
+// display-simple
 sexp display_simple(sexp args)
 {
     Context context(0, false, true, false, 10);
@@ -3393,7 +3396,7 @@ sexp display_simple(sexp args)
     return voida;
 }
 
-// write
+// write-shared
 sexp write_shared(sexp args)
 {
     Context context(0, true, true, true, 10);
@@ -3405,6 +3408,7 @@ sexp write_shared(sexp args)
     return voida;
 }
 
+// write-simple
 sexp write_simple(sexp args)
 {
     Context context(0, true, true, false, 10);
@@ -3469,6 +3473,8 @@ void displayList(Context& context, sexp exp, int level)
         if (first && context.labelCycles(p, true))
             break;
         display(context, p->car, level);
+        if (p->car && isCons(p->car) && definea == p->car->car)
+            context.s << std::endl;
         if ((p = p->cdr)) {
             if (isCons(p) && !isPromise(p) && replenv != p && global != p) {
                 context.wrap(level, displayLength(p->car));
@@ -3530,21 +3536,22 @@ void displayChar(Context& context, sexp exp)
 void displayString(Context& context, sexp exp)
 {
     if (context.write)
-        context.s << '"';
+        context.s.put('"');
     String* string = (String*)exp;
+#if 1
+    context.s << string->text;
+#else
     for (char* p = string->text; *p; )
-    {
-        uint32_t cx = read_utf8(p);
-        if (context.write && cx <= 0x7f && strchr("\007\b\t\n\r\"\\", cx)) {
-            context.s << '\\' << encodeEscape(cx);
-        } else {
+        if (context.write && *p <= 0x7f && strchr("\007\b\t\n\r\"\\", *p))
+            context.s << '\\' << encodeEscape(*p++);
+        else {
             char buf[5];
-            encodeUTF8(buf, cx);
+            encodeUTF8(buf, read_utf8(p));
             context.s << buf;
         }
-    }
+#endif
     if (context.write)
-        context.s << '"';
+        context.s.put('"');
 }
 
 void displayAtom(Context& context, sexp exp)
@@ -3685,7 +3692,7 @@ void display(Context& context, sexp exp, int level)
     switch (((Stags*)exp)->stags)
     {
     default:       error("display: unknown object");
-    case FLOAT: 
+    case FLOAT:
     case DOUBLE:   displayFlonum(context, exp);             break;
     case FIXNUM:   context.s << asFixnum(exp);              break;
     case STRING:   displayString(context, exp);             break;
@@ -4688,10 +4695,11 @@ sexp scans(std::istream& fin)
 
     std::stringstream s;
 
-    if (scanahead)
+    if (scannedAhead)
     {
         sexp sv = scanahead;
         scanahead = 0;
+        scannedAhead = false;
         return sv;
     }
 
@@ -4720,7 +4728,7 @@ sexp scans(std::istream& fin)
                    return commaat;
     case '+':   c = fin.get();
                 // sloppy parsing +inf.0 +nan.0
-                if ('.' == c || 'i' == c || 'n' == c || isdigit(c))
+                if ('/' == c || '.' == c || 'i' == c || 'n' == c || isdigit(c))
                     s.put('+');
                 else
                     { fin.unget(); return plus; }
@@ -4728,10 +4736,10 @@ sexp scans(std::istream& fin)
 
     case '-':   c = fin.get();
                 // sloppy parsing -inf.0 -nan.0
-                if ('.' == c || 'i' == c || 'n' == c || isdigit(c))
+                if ('/' == c || '.' == c || 'i' == c || 'n' == c || isdigit(c))
                     s.put('-');
                 else
-                    { fin.unget(); return minus; } 
+                    { fin.unget(); return minus; }
                 break;
     }
 
@@ -5016,6 +5024,7 @@ sexp readHash(std::istream& fin, int level)
     if (voidaa == p)
         return lose(mark, voida);
     scanahead = p;
+    scannedAhead = true;
     return hash;
 }
 

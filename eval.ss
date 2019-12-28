@@ -64,7 +64,7 @@
              (if (pair? binding)
                  (begin (set-cdr! binding (eval (cadr exp) env)) env)
                  (cons (cons (car exp) (eval (cadr exp))) env))))
-    
+
 (define (setform exp env)
         (let ((binding (find (car exp) env)))
              (if (pair? binding)
@@ -195,7 +195,7 @@
 (define (letform exp env)
         (let ((e (do-bind (car exp) env)))
              (tailforms (cdr exp) e)))
-          
+
 (define (let*form exp env)
         (if (null? (car exp))
             (tailforms (cdr exp) env)

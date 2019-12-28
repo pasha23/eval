@@ -498,41 +498,6 @@
                           (read-char))
                           (cursor-remove s))))
 
-(define (hexout n)
-
-        (define (hexo n)
-                (if (< n 10)
-                    (integer->char (+ 48 (bit-and n 15)))
-                    (integer->char (+ 87 (bit-and n 15)))))
-
-        (let ((r '()))
-             (when (zero? n) (set! r (cons #\0 r)))
-             (while (> n 0)
-                    (set! r (cons (hexo (bit-and n 15)) r))
-                    (set! n (rsh n 4)))
-             (list->string r)))
-
-(define (hexdigit d)
-        (vector-ref #(#\0, #\1, #\2, #\3, #\4, #\5, #\6, #\7, #\8, #\9, #\A, #\B, #\C, #\D, #\E, #\F ) d))
-
-(define (hexin s)
-
-        (define (decimal c)  (and (char<=? #\0 c) (char<=? c #\9)))
-        (define (smallhex c) (and (char<=? #\a c) (char<=? c #\f)))
-        (define (bighex c)   (and (char<=? #\A c) (char<=? c #\F)))
-
-        (define (hexi c)
-                (cond ((decimal c)  (- (char->integer c) 48))
-                      ((smallhex c) (- (char->integer c) 87))
-                      ((bighex c)   (- (char->integer c) 55))))
-
-        (let ((l (string->list s))
-              (n 0))
-             (while (pair? l)
-                    (set! n (+ (lsh n 4) (hexi (car l))))
-                    (set! l (cdr l)))
-             n))
-
 (define (timer thunk) (let ((start (cputime))) (thunk) (- (cputime) start)))
 
 (define (tmt) (timer (lambda () (fib 30))))
@@ -591,21 +556,22 @@
           ((p (car l)) (cons (car l) (filter p (cdr l))))
           (else (filter p (cdr l)))))
 
-(define (merge cmp p q)
-        (cond ((null? p) q)
-              ((null? q) p)
-              (else (if (cmp (car p) (car q))
-                        (cons (car p) (merge cmp (cdr p) q))
-                        (cons (car q) (merge cmp (cdr q) p))))))
-
-(define (alternate p)
-        (if (or (null? p) (null? (cdr p))) p
-            (cons (car p) (alternate (cdr (cdr p))))))
-
 (define (sort cmp p)
-        (if (or (null? p) (null? (cdr p))) p
-            (merge cmp (sort cmp (alternate p))
-                   (sort cmp (alternate (cdr p))))))
+
+    (define (alternate p)
+            (if (or (null? p) (null? (cdr p))) p
+                (cons (car p) (alternate (cdr (cdr p))))))
+
+    (define (merge p q)
+            (cond ((null? p) q)
+                  ((null? q) p)
+                  (else (if (cmp (car p) (car q))
+                            (cons (car p) (merge (cdr p) q))
+                            (cons (car q) (merge (cdr q) p))))))
+
+    (if (or (null? p) (null? (cdr p))) p
+        (merge (sort cmp (alternate p))
+               (sort cmp (alternate (cdr p))))))
 
 ;; (display (map car (environment))) (newline)
 
