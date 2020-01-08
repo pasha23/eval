@@ -1,7 +1,7 @@
 
-;
-; miscellaneous utilities and demos
-;
+;;
+;; miscellaneous utilities and demos
+;;
 
 (define (caar x) (car (car x)))
 
@@ -256,10 +256,10 @@
                 (cons (car e) (del-assoc a (cdr e))))))
 
 (define (memq a e)
-        (if (null? e) e (if (eq? a (caar e)) (car e) (memq a (cdr e)))))
+        (if (null? e) #f (if (eq? a (caar e)) (car e) (memq a (cdr e)))))
 
 (define (memv a e)
-        (if (null? e) e (if (eqv? a (caar e)) (car e) (memv a (cdr e)))))
+        (if (null? e) #f (if (eqv? a (caar e)) (car e) (memv a (cdr e)))))
 
 (define (member a e p)
         (if (null? e)

@@ -204,7 +204,7 @@
 
         (let ((i 0) (j 0) (k 0) (l '()))
              (while (< i n)
-                    (set! j 64)
+                    (set! j 32)
                     (set! l (cons #\space (cons #\space '())))
                     (while (> j 0)
                            (set! j (- j 1))
@@ -224,7 +224,7 @@
                     (display (list->string l))
                     (display i)
                     (newline)
-                    (set! i (+ i 64)))))
+                    (set! i (+ i 32)))))
 
 ;; (with-output-to-file "chartable" (lambda () (chars 131072)))
 
@@ -243,12 +243,15 @@
 ;;             (begin (display 'fail) (space) (write s) (newline)))
 ;;         (gc))
 
+;; blows up recursing
 ;; (test '(not (equal? '#0=(a b a . #0#) '#1=(a b a b . #1#))))
 
 (define test0 '(a b a))
 (set-cdr! (cddr test0) test0)
 (define test1 '(a b a b))
 (set-cdr! (cdddr test1) test1)
+
+;; hangs infinitely if we are tracing
 (test '(not (equal? test0 test1)))
 
 (test '(equal? "(#0=(abc def A foo) #0#)"
@@ -375,7 +378,7 @@
 (test '(= 3 (imag-part 5+3i)))
 (test '(= 3 (inexact->exact 3)))
 (test '(= 3 (inexact->exact 3.0)))
-(test '(= 3 (isqrt 9)))
+(test '(= 3 (integer-sqrt 9)))
 (test '(= 3 (length '(a b c))))
 (test '(= 3 (let ((r 0)) (begin (unless #f 1 2 (set! r 3)) r))))
 (test '(= 3 (let ((r 0)) (begin (when   #t 1 2 (set! r 3)) r))))

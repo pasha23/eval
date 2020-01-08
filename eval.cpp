@@ -42,7 +42,7 @@
 #ifdef BROKEN
 #define error(s) do { std::cout << s << std::endl; assert(false); } while(0)
 #else
-#define error(s) do { if (killed) assert(false); longjmp(the_jmpbuf, (long)s); } while(0)
+#define error(s) do { if (killed > 1) assert(false); longjmp(the_jmpbuf, (long)s); } while(0)
 #endif
 
 /*
@@ -111,7 +111,7 @@ char** envp;                // from main
 
 sexp comma, commaat, complex, definea, dot, elsea, eof, f, lambda, lbracket;
 sexp lparen, minus, one, plus, promise, qchar, quasiquote, quote, rbracket;
-sexp rparen, t, tick, unquote, unquotesplicing, voida, zero, hash, backslash;
+sexp rparen, t, tick, unquote, unquotesplicing, voida, zero, sharp, backslash;
 sexp bang, banga, fa, falsea, ta, truea, voidaa;
 
 sexp define(sexp p, sexp r);
@@ -1427,7 +1427,7 @@ sexp ceilingff(sexp x)  { return flintstub(ceil,     x); } // ceil
 sexp floorff(sexp x)    { return flintstub(floor,    x); } // floor
 sexp roundff(sexp x)    { return flintstub(round,    x); } // round
 
-sexp isqrtf(sexp x)
+sexp integer_sqrt(sexp x)
 {
     if (x)
     {
@@ -1436,7 +1436,7 @@ sexp isqrtf(sexp x)
         if (isBignum(x) && asBignum(x) >= 0)
             return newbignum(asBignum(x).sqrt());
     }
-    error("isqrt: not a positive integer");
+    error("integer-sqrt: not a positive integer");
 }
 
 // sqrt
@@ -1506,16 +1506,16 @@ sexp exact_inexact(sexp x)
     error("exact->inexact: not exact");
 }
 
-// <<
+// lsh
 sexp lsh(sexp x, sexp y)
 {
     assertFixnum(y);
     if (x && (isFixnum(x) || isBignum(x)))
         return bignumResult(toBignum(x) << asFixnum(y));
-    error("<< non integer arguments");
+    error("lsh: non integer arguments");
 }
 
-// >>
+// rsh
 sexp rsh(sexp x, sexp y)
 {
     assertFixnum(y);
@@ -1526,7 +1526,7 @@ sexp rsh(sexp x, sexp y)
         if (isBignum(x))
             return bignumResult(asBignum(x) >> asFixnum(y));
     }
-    error(">> non integer arguments");
+    error("rsh: non integer arguments");
 }
 
 // not
@@ -1626,7 +1626,7 @@ uint32_t read_utf8(char*& p)
     return ch;
 }
 
-// length of a String
+// length of a String measured in code points
 int stringlen(String *s)
 {
     int len = 0;
@@ -1636,7 +1636,7 @@ int stringlen(String *s)
     return len;
 }
 
-// string-length
+// string-length measured in code points
 sexp string_length(sexp s)
 {
     assertString(s);
@@ -1734,6 +1734,7 @@ sexp number_string(sexp args)
     error("number->string: arguments");
 }
 
+// encode the ucs character ch as UTF8 at p, return encoded length
 int encodeUTF8(char *p, uint32_t ch)
 {
     char* q = p;
@@ -1756,6 +1757,7 @@ int encodeUTF8(char *p, uint32_t ch)
     return q-p-1;
 }
 
+// return the encoded length of a ucs character as UTF8
 int encodedLength(uint32_t ch)
 {
     char b[5];
@@ -1916,7 +1918,7 @@ sexp write_string(sexp args)
     return voida;
 }
 
-// string->number
+// (string->number string [ radix ] )
 sexp string_number(sexp args)
 {
     if (args && args->car && isString(args->car))
@@ -3537,8 +3539,8 @@ void displayString(Context& context, sexp exp)
 {
     if (context.write)
         context.s.put('"');
-    String* string = (String*)exp;
 #if 1
+    String* string = (String*)exp;
     context.s << string->text;
 #else
     for (char* p = string->text; *p; )
@@ -4717,7 +4719,7 @@ sexp scans(std::istream& fin)
     case '`':  return tick;
     case '[':  return lbracket;
     case ']':  return rbracket;
-    case '#':  return hash;
+    case '#':  return sharp;
     case '\\': return backslash;
     case '!':  return bang;
     case ',':  c = fin.get();
@@ -5025,7 +5027,7 @@ sexp readHash(std::istream& fin, int level)
         return lose(mark, voida);
     scanahead = p;
     scannedAhead = true;
-    return hash;
+    return sharp;
 }
 
 /*
@@ -5037,7 +5039,7 @@ sexp read(std::istream& fin, int level)
     sexp p = save(scan(fin));
     if (lparen == p)
         return lose(mark, readTail(fin, level+1));
-    if (hash == p)
+    if (sharp == p)
         return lose(mark, readHash(fin, level+1));
     if (qchar == p)
         return lose(mark, cons(quote, save(cons(save(read(fin, level)), 0))));
@@ -5212,7 +5214,7 @@ const struct FuncTable {
     { "input-port?",                       1, (void*)input_portp },
     { "integer?",                          1, (void*)integerp },
     { "integer->char",                     1, (void*)integer_char },
-    { "isqrt",                             1, (void*)isqrtf },
+    { "integer-sqrt",                      1, (void*)integer_sqrt },
     { "lcm",                               2, (void*)lcm },
     { "lfsr-shift",                        2, (void*)lfsr_shift },
     { "list?",                             1, (void*)listp },
@@ -5396,7 +5398,7 @@ int main(int argc, char **argv, char **envp)
     f               = staintern("#f");
     fa              = staintern("f");
     falsea          = staintern("false");
-    hash            = staintern("#");
+    sharp           = staintern("#");
     lambda          = staintern("lambda");
     lbracket        = staintern("[");
     lparen          = staintern("(");
@@ -5427,7 +5429,7 @@ int main(int argc, char **argv, char **envp)
     define_staintern_sexpr("comma",    comma);
     define_staintern_sexpr("commaat",  commaat);
     define_staintern_sexpr("dot",      dot);
-    define_staintern_sexpr("hash",     hash);
+    define_staintern_sexpr("sharp",    sharp);
     define_staintern_sexpr("lbracket", lbracket);
     define_staintern_sexpr("lparen",   lparen);
     define_staintern_sexpr("qchar",    qchar);
@@ -5440,6 +5442,8 @@ int main(int argc, char **argv, char **envp)
     define_staintern_sexpr("-inf.0",   newflonum(-INFINITY));
     define_staintern_sexpr("+nan.0",   newflonum(NAN));
     define_staintern_sexpr("-nan.0",   newflonum(-NAN));
+    define_staintern_sexpr("-i",       make_rectangular(zero, unineg(one)));
+    define_staintern_sexpr("+i",       make_rectangular(zero, one));
 
     for (const FuncTable* p = funcTable; p->name; ++p)
     {

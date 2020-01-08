@@ -28,6 +28,8 @@ On the other hand, the code as it is is an aesthetic expression of a way of doin
 
 Robert Kelley October 2019
 
+This work incorporates code from https://github.com/983/Num for bignum and rational arithmetic.
+
 
 
 
