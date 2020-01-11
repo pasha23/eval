@@ -4029,6 +4029,7 @@ sexp set_(sexp p, sexp r, sexp env)
         }
 
     lookup_error("unbound: set ", p);
+    return 0;
 }
 
 // retrieve the value of a variable in an environment
@@ -4061,6 +4062,7 @@ sexp get(sexp p, sexp env)
     }
 
     lookup_error("unbound: get ", p);
+    return 0;
 }
 
 // evaluate a list of arguments in an environment
